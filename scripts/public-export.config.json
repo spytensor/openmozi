@@ -1,0 +1,23 @@
+{
+  "description": "Single source of truth for what participates in the OpenMozi public export. Every tracked file not excluded here is mirrored verbatim into the public repository by scripts/export-public.mjs. Edit this file — not the script — to change what goes public.",
+  "exclude": [
+    "IMPLEMENTATION.md",
+    "EXECUTION-CORE-REWRITE.md",
+    "config.yaml",
+    "build_doc.cjs",
+    "build_doc_guide.cjs",
+    "build_guide_docx.cjs",
+    "build_guide_pdf.py",
+    "build_guide_pptx.cjs",
+    ".claude/research-prompt-assembly.md",
+    ".claude/research-use-cases.md"
+  ],
+  "preserveTarget": [
+    "CHANGELOG.md"
+  ],
+  "preserveTargetVersion": [
+    "package.json",
+    "ui/package.json",
+    "desktop/package.json"
+  ]
+}

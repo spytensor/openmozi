@@ -1,0 +1,30 @@
+name: Documentation issue
+description: Report missing, incorrect, or confusing documentation.
+title: "[Docs]: "
+labels:
+  - documentation
+body:
+  - type: input
+    id: location
+    attributes:
+      label: Document or URL
+      placeholder: README.md, docs/RELEASE.md, or a public URL
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Suggested correction
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This report contains no credentials, personal data, or private files.
+          required: true

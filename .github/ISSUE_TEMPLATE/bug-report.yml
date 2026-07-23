@@ -1,0 +1,75 @@
+name: Bug report
+description: Report reproducible incorrect behavior in OpenMozi.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve OpenMozi. Remove secrets, personal data, private paths, and proprietary files before submitting.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This report contains no credentials, tokens, personal data, or private files.
+          required: true
+        - label: This is not a security vulnerability. Security reports belong in the private vulnerability form linked above.
+          required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Web / Docker
+        - macOS App
+        - Both Web and macOS App
+        - CLI or development tooling
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenMozi version or commit
+      placeholder: v2.0.1 or full commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why it is incorrect.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide deterministic steps using isolated test data.
+      placeholder: |
+        1. Start ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS version, architecture, Docker version, browser, provider/model
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Add redacted logs or screenshots. Do not paste credentials or private data.

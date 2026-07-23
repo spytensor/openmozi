@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/spytensor/OpenMozi/security/advisories/new
+    about: Report security vulnerabilities privately. Never disclose secrets or exploitable details in a public issue.
+  - name: Support and usage questions
+    url: https://github.com/spytensor/OpenMozi/blob/main/SUPPORT.md
+    about: Read the support guide before opening an issue.

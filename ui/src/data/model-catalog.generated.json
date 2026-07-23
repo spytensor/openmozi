@@ -1,0 +1,539 @@
+{
+  "_comment": "GENERATED from src/core/provider-catalog.ts — do not edit by hand. Regenerate with scripts/gen-ui-model-catalog.mjs",
+  "providers": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "hint": "GPT-4.1, GPT-5",
+      "defaultModel": "gpt-4.1",
+      "apiMode": "openai-responses",
+      "models": [
+        {
+          "id": "gpt-4.1",
+          "name": "GPT-4.1",
+          "tier": "high",
+          "contextWindow": 1047576,
+          "maxOutputTokens": 32768,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 2,
+          "outputCostPer1M": 8
+        },
+        {
+          "id": "gpt-4.1-mini",
+          "name": "GPT-4.1 Mini",
+          "tier": "low",
+          "contextWindow": 1047576,
+          "maxOutputTokens": 32768,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 0.4,
+          "outputCostPer1M": 1.6
+        },
+        {
+          "id": "gpt-5",
+          "name": "GPT-5",
+          "tier": "high",
+          "contextWindow": 400000,
+          "maxOutputTokens": 32768,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "hint": "Claude Fable 5, Opus 4, Sonnet 4",
+      "defaultModel": "claude-sonnet-4-20250514",
+      "apiMode": "anthropic",
+      "models": [
+        {
+          "id": "claude-fable-5",
+          "name": "Claude Fable 5",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 64000,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": 15,
+          "outputCostPer1M": 75
+        },
+        {
+          "id": "claude-sonnet-4-20250514",
+          "name": "Claude Sonnet 4",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 16000,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 3,
+          "outputCostPer1M": 15
+        },
+        {
+          "id": "claude-opus-4-20250514",
+          "name": "Claude Opus 4",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 16000,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 15,
+          "outputCostPer1M": 75
+        }
+      ]
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "hint": "MiniMax-M3",
+      "defaultModel": "MiniMax-M3",
+      "apiMode": "anthropic",
+      "models": [
+        {
+          "id": "MiniMax-M3",
+          "name": "MiniMax M3",
+          "tier": "high",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 16384,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 0.6,
+          "outputCostPer1M": 2.4
+        },
+        {
+          "id": "MiniMax-M2.5",
+          "name": "MiniMax M2.5",
+          "tier": "high",
+          "contextWindow": 1000000,
+          "maxOutputTokens": 16384,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": 1,
+          "outputCostPer1M": 5
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "hint": "DeepSeek V4 Flash/Pro",
+      "defaultModel": "deepseek-v4-flash",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "deepseek-v4-flash",
+          "name": "DeepSeek V4 Flash",
+          "tier": "mid",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": 0.14,
+          "outputCostPer1M": 0.28
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "tier": "high",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": 0.435,
+          "outputCostPer1M": 0.87
+        },
+        {
+          "id": "deepseek-chat",
+          "name": "DeepSeek Chat (deprecated alias)",
+          "tier": "mid",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": 0.14,
+          "outputCostPer1M": 0.28
+        },
+        {
+          "id": "deepseek-reasoner",
+          "name": "DeepSeek Reasoner (deprecated alias)",
+          "tier": "mid",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": 0.14,
+          "outputCostPer1M": 0.28
+        }
+      ]
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot / Kimi",
+      "hint": "Kimi K2.6",
+      "defaultModel": "kimi-k2.6",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "kimi-k2.6",
+          "name": "Kimi K2.6",
+          "tier": "high",
+          "contextWindow": 256000,
+          "maxOutputTokens": 8192,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": 0.95,
+          "outputCostPer1M": 4
+        },
+        {
+          "id": "kimi-k2.5",
+          "name": "Kimi K2.5",
+          "tier": "high",
+          "contextWindow": 256000,
+          "maxOutputTokens": 8192,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "kimi-k2-thinking",
+          "name": "Kimi K2 Thinking",
+          "tier": "high",
+          "contextWindow": 256000,
+          "maxOutputTokens": 8192,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google Gemini",
+      "hint": "Gemini 2.5 Flash/Pro, 3.1 Flash-Lite",
+      "defaultModel": "gemini-2.5-flash",
+      "apiMode": "google-generative-ai",
+      "models": [
+        {
+          "id": "gemini-2.5-flash",
+          "name": "Gemini 2.5 Flash",
+          "tier": "mid",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 0.15,
+          "outputCostPer1M": 0.6
+        },
+        {
+          "id": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "tier": "high",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 1.25,
+          "outputCostPer1M": 10
+        },
+        {
+          "id": "gemini-3.1-flash-lite-preview",
+          "name": "Gemini 3.1 Flash-Lite",
+          "tier": "low",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 0.25,
+          "outputCostPer1M": 1.5
+        }
+      ]
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "hint": "Llama 3.3 70B",
+      "defaultModel": "llama-3.3-70b-versatile",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "llama-3.3-70b-versatile",
+          "name": "Llama 3.3 70B",
+          "tier": "mid",
+          "contextWindow": 131072,
+          "maxOutputTokens": 32768,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": 0.59,
+          "outputCostPer1M": 0.79
+        }
+      ]
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "hint": "Grok 3",
+      "defaultModel": "grok-3-mini",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "grok-3-mini",
+          "name": "Grok 3 Mini",
+          "tier": "mid",
+          "contextWindow": 131072,
+          "maxOutputTokens": 8192,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "hint": "Mistral Large",
+      "defaultModel": "mistral-large-latest",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "mistral-large-latest",
+          "name": "Mistral Large",
+          "tier": "high",
+          "contextWindow": 131072,
+          "maxOutputTokens": 8192,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "zai",
+      "name": "Z.AI / GLM",
+      "hint": "GLM 5",
+      "defaultModel": "glm-5",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "glm-5",
+          "name": "GLM 5",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 128000,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": 1,
+          "outputCostPer1M": 3.2
+        },
+        {
+          "id": "glm-5-code",
+          "name": "GLM 5 Code",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 128000,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": 1.2,
+          "outputCostPer1M": 5
+        },
+        {
+          "id": "glm-4.7",
+          "name": "GLM 4.7",
+          "tier": "mid",
+          "contextWindow": 128000,
+          "maxOutputTokens": 8192,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "hint": "Multi-provider router",
+      "defaultModel": "openrouter/auto",
+      "apiMode": "openai-compat",
+      "models": [
+        {
+          "id": "openrouter/auto",
+          "name": "OpenRouter Auto",
+          "tier": "mid",
+          "contextWindow": 128000,
+          "maxOutputTokens": 16384,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "claude-cli",
+      "name": "Claude CLI",
+      "hint": "Claude Code CLI (local auth)",
+      "defaultModel": "_cli-default",
+      "apiMode": "cli-pipe",
+      "models": [
+        {
+          "id": "_cli-default",
+          "name": "Claude CLI default",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 16000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "sonnet",
+          "name": "Claude Sonnet (latest)",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 16000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "opus",
+          "name": "Claude Opus (latest)",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 16000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "fable",
+          "name": "Claude Fable (latest)",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 16000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "codex-cli",
+      "name": "Codex CLI",
+      "hint": "OpenAI Codex CLI (local auth)",
+      "defaultModel": "_cli-default",
+      "apiMode": "cli-pipe",
+      "models": [
+        {
+          "id": "_cli-default",
+          "name": "Codex CLI default",
+          "tier": "high",
+          "contextWindow": 400000,
+          "maxOutputTokens": 16000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "gpt-5.3-codex",
+          "name": "GPT-5.3-Codex",
+          "tier": "high",
+          "contextWindow": 400000,
+          "maxOutputTokens": 128000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "gpt-5.2-codex",
+          "name": "GPT-5.2-Codex",
+          "tier": "high",
+          "contextWindow": 400000,
+          "maxOutputTokens": 128000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "gpt-5.1-codex-max",
+          "name": "GPT-5.1-Codex-Max",
+          "tier": "high",
+          "contextWindow": 400000,
+          "maxOutputTokens": 128000,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    },
+    {
+      "id": "gemini-cli",
+      "name": "Gemini CLI",
+      "hint": "Google Gemini CLI (local auth)",
+      "defaultModel": "_cli-default",
+      "apiMode": "cli-pipe",
+      "models": [
+        {
+          "id": "_cli-default",
+          "name": "Gemini CLI (user-configured)",
+          "tier": "high",
+          "contextWindow": 1048576,
+          "maxOutputTokens": 65536,
+          "supportsTools": false,
+          "supportsVision": false,
+          "reasoning": false,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        }
+      ]
+    }
+  ]
+}

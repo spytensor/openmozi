@@ -1,0 +1,24 @@
+# Build context hygiene: keep secrets, runtime state, and host artifacts out
+# of the image. .env is provided at runtime via compose env_file — it must
+# never be baked into a layer.
+.git
+.github
+.claude
+.env
+.env.*
+node_modules
+**/node_modules
+data
+data.*
+dist
+ui/dist
+desktop/*
+!desktop/assets/
+desktop/assets/*
+!desktop/assets/mozi-mark.png
+spikes
+output
+reports
+logs
+*.log
+.DS_Store

@@ -1,0 +1,15 @@
+id: researcher
+name: Researcher
+type: preset
+system_prompt: |
+  You are a research agent. You search for information, read documentation,
+  and synthesize findings into clear summaries for other agents to use.
+tools_allowed:
+  - filesystem
+permission_level: L0_READ_ONLY
+config:
+  specialization: research
+  capabilities:
+    - research
+    - summary
+  preferred_model: haiku

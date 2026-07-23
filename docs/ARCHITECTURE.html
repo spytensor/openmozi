@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MOZI 墨子 — System Architecture v1.0</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=JetBrains+Mono:wght@300;400;500;600&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0a0e14;
+    --paper: #f4f0e8;
+    --paper-dark: #e8e2d6;
+    --vermillion: #c23616;
+    --vermillion-light: #e8503820;
+    --jade: #2d6a4f;
+    --jade-light: #2d6a4f18;
+    --gold: #b8860b;
+    --gold-light: #b8860b15;
+    --indigo: #2c3e6b;
+    --indigo-light: #2c3e6b15;
+    --bronze: #8b6914;
+    --slate: #4a5568;
+    --light-slate: #718096;
+    --divider: #d4cec4;
+    --shadow: rgba(10, 14, 20, 0.08);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Noto Sans SC', sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.8;
+    font-size: 15px;
+    font-weight: 400;
+  }
+
+  /* Header */
+  .header {
+    padding: 80px 0 60px;
+    text-align: center;
+    border-bottom: 1px solid var(--divider);
+    background: linear-gradient(180deg, var(--paper) 0%, var(--paper-dark) 100%);
+  }
+
+  .header-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--light-slate);
+    margin-bottom: 16px;
+  }
+
+  .header h1 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 64px;
+    font-weight: 900;
+    color: var(--ink);
+    letter-spacing: 8px;
+    margin-bottom: 4px;
+  }
+
+  .header h1 span {
+    color: var(--vermillion);
+  }
+
+  .header-sub {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 18px;
+    color: var(--slate);
+    font-weight: 400;
+    margin-bottom: 24px;
+  }
+
+  .header-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--light-slate);
+  }
+
+  /* Main content */
+  .content {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 60px 32px;
+  }
+
+  /* Philosophy section */
+  .philosophy {
+    margin-bottom: 64px;
+    padding: 40px;
+    border: 1px solid var(--divider);
+    background: white;
+  }
+
+  .philosophy h2 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--ink);
+  }
+
+  .philosophy p {
+    color: var(--slate);
+    margin-bottom: 12px;
+  }
+
+  .principles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 24px;
+  }
+
+  .principle {
+    padding: 16px 20px;
+    background: var(--paper);
+    border-left: 3px solid var(--vermillion);
+  }
+
+  .principle strong {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--vermillion);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .principle span {
+    font-size: 14px;
+    color: var(--slate);
+  }
+
+  /* Architecture Diagram */
+  .diagram-section {
+    margin-bottom: 64px;
+  }
+
+  .section-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--light-slate);
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 32px;
+    color: var(--ink);
+  }
+
+  .arch-diagram {
+    background: var(--ink);
+    border-radius: 2px;
+    padding: 48px 40px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: #c8c8c8;
+    overflow-x: auto;
+    position: relative;
+  }
+
+  .arch-diagram pre {
+    line-height: 1.6;
+    white-space: pre;
+  }
+
+  .arch-diagram .layer-user { color: #a8d8ea; }
+  .arch-diagram .layer-trigger { color: #f5b461; }
+  .arch-diagram .layer-brain { color: #ff6b6b; }
+  .arch-diagram .layer-tel { color: #7bed9f; }
+  .arch-diagram .layer-cap { color: #dfe6e9; }
+  .arch-diagram .module-side { color: #a29bfe; }
+  .arch-diagram .arrow { color: #636e72; }
+  .arch-diagram .comment { color: #636e72; font-style: italic; }
+  .arch-diagram .highlight { color: #ffeaa7; }
+
+  /* Layer cards */
+  .layers {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+  }
+
+  .layer-card {
+    border: 1px solid var(--divider);
+    background: white;
+    overflow: hidden;
+  }
+
+  .layer-header {
+    padding: 24px 32px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .layer-number {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 32px;
+    font-weight: 900;
+    line-height: 1;
+    min-width: 48px;
+  }
+
+  .layer-number.red { color: var(--vermillion); }
+  .layer-number.jade { color: var(--jade); }
+  .layer-number.gold { color: var(--gold); }
+  .layer-number.indigo { color: var(--indigo); }
+  .layer-number.bronze { color: var(--bronze); }
+  .layer-number.slate { color: var(--slate); }
+
+  .layer-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+
+  .layer-name-cn {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 13px;
+    color: var(--light-slate);
+  }
+
+  .layer-body {
+    padding: 28px 32px;
+  }
+
+  .layer-body p {
+    color: var(--slate);
+    margin-bottom: 16px;
+  }
+
+  .layer-body p:last-child {
+    margin-bottom: 0;
+  }
+
+  .subsection {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--divider);
+  }
+
+  .subsection-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .subsection-title.red { color: var(--vermillion); }
+  .subsection-title.jade { color: var(--jade); }
+  .subsection-title.gold { color: var(--gold); }
+  .subsection-title.indigo { color: var(--indigo); }
+  .subsection-title.bronze { color: var(--bronze); }
+  .subsection-title.slate { color: var(--slate); }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .detail-item {
+    padding: 14px 18px;
+    font-size: 13px;
+  }
+
+  .detail-item.red-bg { background: var(--vermillion-light); }
+  .detail-item.jade-bg { background: var(--jade-light); }
+  .detail-item.gold-bg { background: var(--gold-light); }
+  .detail-item.indigo-bg { background: var(--indigo-light); }
+
+  .detail-item strong {
+    display: block;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 2px;
+  }
+
+  .detail-item span {
+    color: var(--slate);
+    font-size: 13px;
+  }
+
+  /* Cross-cutting modules */
+  .crosscut-section {
+    margin-top: 64px;
+  }
+
+  .crosscut-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+
+  .crosscut-card {
+    border: 1px solid var(--divider);
+    background: white;
+    padding: 28px;
+  }
+
+  .crosscut-card h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    color: var(--indigo);
+    margin-bottom: 4px;
+  }
+
+  .crosscut-card .cn-name {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 13px;
+    color: var(--light-slate);
+    margin-bottom: 14px;
+  }
+
+  .crosscut-card p {
+    font-size: 14px;
+    color: var(--slate);
+    margin-bottom: 10px;
+  }
+
+  .crosscut-card p:last-child { margin-bottom: 0; }
+
+  .interface-spec {
+    margin-top: 14px;
+    padding: 12px 16px;
+    background: var(--paper);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--slate);
+    line-height: 1.7;
+  }
+
+  /* Communication Protocol */
+  .protocol-section {
+    margin-top: 64px;
+  }
+
+  .protocol-box {
+    border: 1px solid var(--divider);
+    background: white;
+    padding: 32px;
+    margin-top: 16px;
+  }
+
+  .protocol-box h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--vermillion);
+    margin-bottom: 16px;
+  }
+
+  .protocol-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 20px 0;
+  }
+
+  .protocol-step {
+    flex: 1;
+    padding: 16px;
+    text-align: center;
+    position: relative;
+    border: 1px solid var(--divider);
+    background: var(--paper);
+  }
+
+  .protocol-step::after {
+    content: '→';
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 18px;
+    color: var(--vermillion);
+    z-index: 1;
+  }
+
+  .protocol-step:last-child::after { content: none; }
+
+  .protocol-step strong {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--vermillion);
+    margin-bottom: 4px;
+  }
+
+  .protocol-step span {
+    font-size: 12px;
+    color: var(--slate);
+  }
+
+  /* Token strategy */
+  .token-section {
+    margin-top: 64px;
+  }
+
+  .token-budget {
+    border: 1px solid var(--divider);
+    background: white;
+    padding: 32px;
+  }
+
+  .budget-bar {
+    margin: 20px 0;
+    height: 48px;
+    display: flex;
+    border-radius: 2px;
+    overflow: hidden;
+    border: 1px solid var(--divider);
+  }
+
+  .budget-segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: white;
+  }
+
+  .budget-segment.system { background: var(--vermillion); width: 8%; }
+  .budget-segment.memory { background: var(--jade); width: 12%; }
+  .budget-segment.task { background: var(--gold); width: 15%; }
+  .budget-segment.dialogue { background: var(--indigo); width: 25%; }
+  .budget-segment.workspace { background: var(--slate); width: 40%; }
+
+  .budget-legend {
+    display: flex;
+    gap: 20px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+
+  .budget-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--slate);
+  }
+
+  .budget-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 1px;
+  }
+
+  .budget-dot.system { background: var(--vermillion); }
+  .budget-dot.memory { background: var(--jade); }
+  .budget-dot.task { background: var(--gold); }
+  .budget-dot.dialogue { background: var(--indigo); }
+  .budget-dot.workspace { background: var(--slate); }
+
+  .watermark-table {
+    width: 100%;
+    margin-top: 24px;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .watermark-table th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    text-align: left;
+    padding: 10px 16px;
+    border-bottom: 2px solid var(--ink);
+    color: var(--ink);
+  }
+
+  .watermark-table td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--divider);
+    color: var(--slate);
+  }
+
+  .watermark-table td:first-child {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 80px;
+    padding: 40px 0;
+    border-top: 1px solid var(--divider);
+    text-align: center;
+  }
+
+  .footer p {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--light-slate);
+    letter-spacing: 2px;
+  }
+
+  .naming-section {
+    margin-top: 64px;
+    padding: 40px;
+    border: 1px solid var(--divider);
+    background: white;
+  }
+
+  .naming-section h2 {
+    font-family: 'Noto Serif SC', serif;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 20px;
+  }
+
+  .naming-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 8px 24px;
+    margin-top: 16px;
+    font-size: 14px;
+  }
+
+  .naming-grid dt {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: var(--vermillion);
+    font-size: 13px;
+  }
+
+  .naming-grid dd {
+    color: var(--slate);
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== HEADER ==================== -->
+<div class="header">
+  <div class="header-label">Autonomous Agent System Architecture</div>
+  <h1>墨<span>子</span> MOZI</h1>
+  <div class="header-sub">自主进化的智能体操作系统</div>
+  <div class="header-meta">Architecture v1.0 · February 2026 · Designed by Chaojie</div>
+</div>
+
+<div class="content">
+
+<!-- ==================== PHILOSOPHY ==================== -->
+<div class="philosophy">
+  <h2>设计哲学</h2>
+  <p>墨子系统以"兼爱非攻"的实用主义为内核：每一层只做自己该做的事，不侵入其他层的职责。系统追求的不是功能的堆叠，而是模块的纯粹——每个组件都可以被独立替换、升级、甚至重写，而不影响整体运行。</p>
+  <p>核心理念：Brain只发意图，不发命令。SubAgent是可处置的临时工，干完即走，表现好才留下。一切操作必须有超时，一切状态必须可追溯。</p>
+  <div class="principles">
+    <div class="principle">
+      <strong>Brain ≠ Worker</strong>
+      <span>主Agent永远不被阻塞，它是调度者，不是执行者</span>
+    </div>
+    <div class="principle">
+      <strong>Intent, Not Command</strong>
+      <span>Brain发出语义意图，TEL翻译成精确指令</span>
+    </div>
+    <div class="principle">
+      <strong>Disposable Agents</strong>
+      <span>SubAgent挂了就杀掉重建，不尝试恢复corrupted进程</span>
+    </div>
+    <div class="principle">
+      <strong>Everything Has a Timeout</strong>
+      <span>任何操作、任何层级，没有例外</span>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== ARCHITECTURE DIAGRAM ==================== -->
+<div class="diagram-section">
+  <div class="section-label">Full System Overview</div>
+  <div class="section-title">系统架构全景</div>
+  <div class="arch-diagram">
+<pre>
+<span class="comment">  ┌─ MOZI 墨子 ─ Autonomous Agent Operating System ────────────────────────────┐</span>
+<span class="comment">  │                                                                            │</span>
+<span class="layer-user">  │  ╔══════════════════════════════════════════════════════════════════════╗   │</span>
+<span class="layer-user">  │  ║  <span class="highlight">L0 · USER INTERFACE</span>                                                ║   │</span>
+<span class="layer-user">  │  ║  Telegram · WhatsApp · API · CLI · WebChat · Voice                 ║   │</span>
+<span class="layer-user">  │  ╚══════════════════════════════════════════════════════════════════════╝   │</span>
+<span class="arrow">  │                                    ↓ message                               │</span>
+<span class="layer-trigger">  │  ╔══════════════════════════════════════════════════════════════════════╗   │</span>
+<span class="layer-trigger">  │  ║  <span class="highlight">L1 · TRIGGER & SESSION GATEWAY</span>                                    ║   │</span>
+<span class="layer-trigger">  │  ║  Message Router · Cron Scheduler · Webhook Listener                ║   │</span>
+<span class="layer-trigger">  │  ║  Session State Machine (IDLE→WORKING→RESPONDING)                   ║   │</span>
+<span class="layer-trigger">  │  ║  Priority Inbox · Notification Aggregator (debounce 300ms)         ║   │</span>
+<span class="layer-trigger">  │  ╚══════════════════════════════════════════════════════════════════════╝   │</span>
+<span class="arrow">  │                                    ↓ prioritized event                     │</span>
+<span class="layer-brain">  │  ╔══════════════════════════════════════════════════════════════════════╗   │</span>
+<span class="layer-brain">  │  ║  <span class="highlight">L2 · BRAIN (Mozi Core)</span>                                   Opus-tier ║   │</span>
+<span class="layer-brain">  │  ║                                                                      ║   │</span>
+<span class="layer-brain">  │  ║  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐  ║   │</span>
+<span class="layer-brain">  │  ║  │ Intent Planner   │  │ Task Decomposer │  │ Quality Gate        │  ║   │</span>
+<span class="layer-brain">  │  ║  │ 理解→拆解→派发   │  │ DAG dependency  │  │ 验收SubAgent输出    │  ║   │</span>
+<span class="layer-brain">  │  ║  └─────────────────┘  └─────────────────┘  └─────────────────────┘  ║   │</span>
+<span class="layer-brain">  │  ║  ┌─────────────────────────────────────────────────────────────────┐  ║   │</span>
+<span class="layer-brain">  │  ║  │ SubAgent Lifecycle Manager                                     │  ║   │</span>
+<span class="layer-brain">  │  ║  │ Spawn · Evaluate · Promote/Release · Budget Allocation         │  ║   │</span>
+<span class="layer-brain">  │  ║  └─────────────────────────────────────────────────────────────────┘  ║   │</span>
+<span class="layer-brain">  │  ╚══════════════════════════════════════════════════════════════════════╝   │</span>
+<span class="arrow">  │                          ↓ task brief                ↑ result envelope     │</span>
+<span class="arrow">  │                   ┌──────┴──────────────────────────────┐                  │</span>
+<span class="arrow">  │                   ↓                                     ↓                  │</span>
+<span class="layer-brain">  │         ┌─────────────────┐                   ┌─────────────────┐         │</span>
+<span class="layer-brain">  │         │  Preset Agent    │        ...        │  Dynamic Agent   │         │</span>
+<span class="layer-brain">  │         │  (常驻专家)      │                   │  (临时外包)      │         │</span>
+<span class="layer-brain">  │         │  Sonnet-tier     │                   │  Haiku/Sonnet    │         │</span>
+<span class="layer-brain">  │         └────────┬────────┘                   └────────┬────────┘         │</span>
+<span class="arrow">  │                  ↓ intent                              ↓ intent           │</span>
+<span class="layer-tel">  │  ╔══════════════════════════════════════════════════════════════════════╗   │</span>
+<span class="layer-tel">  │  ║  <span class="highlight">L3 · TOOL EXECUTION LAYER (TEL)</span>                                   ║   │</span>
+<span class="layer-tel">  │  ║                                                                      ║   │</span>
+<span class="layer-tel">  │  ║  Intent Router → Param Validator → Sandbox Manager → Executor        ║   │</span>
+<span class="layer-tel">  │  ║                    → Result Formatter → Error Handler                 ║   │</span>
+<span class="layer-tel">  │  ║                                                                      ║   │</span>
+<span class="layer-tel">  │  ║  Tool SLA Registry: per-tool timeout / retry / fallback / sandbox    ║   │</span>
+<span class="layer-tel">  │  ║  Self-Correction: schema validate → retry → degrade → escalate       ║   │</span>
+<span class="layer-tel">  │  ╚══════════════════════════════════════════════════════════════════════╝   │</span>
+<span class="arrow">  │                                    ↓ command                               │</span>
+<span class="layer-cap">  │  ╔══════════════════════════════════════════════════════════════════════╗   │</span>
+<span class="layer-cap">  │  ║  <span class="highlight">L4 · CAPABILITY LAYER</span>                                              ║   │</span>
+<span class="layer-cap">  │  ║                                                                      ║   │</span>
+<span class="layer-cap">  │  ║  Shell · Playwright (Snapshot/Vision) · FileSystem · Git             ║   │</span>
+<span class="layer-cap">  │  ║  API Client · Docker · Database · Browser · Network                  ║   │</span>
+<span class="layer-cap">  │  ╚══════════════════════════════════════════════════════════════════════╝   │</span>
+<span class="comment">  │                                                                            │</span>
+<span class="comment">  │─ ─ ─ ─ ─ ─ ─ ─ ─ CROSS-CUTTING MODULES (侧挂，接口解耦) ─ ─ ─ ─ ─ ─ ─ ─│</span>
+<span class="comment">  │                                                                            │</span>
+<span class="module-side">  │  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────────────┐    │</span>
+<span class="module-side">  │  │ Memory     │ │ Skill      │ │ Token Budget │ │ Observer           │    │</span>
+<span class="module-side">  │  │ Interface  │ │ Registry   │ │ Manager      │ │ (Trace+Metrics)    │    │</span>
+<span class="module-side">  │  │            │ │            │ │              │ │                    │    │</span>
+<span class="module-side">  │  │ Short-term │ │ SKILL.md   │ │ Watermark    │ │ TraceID per task   │    │</span>
+<span class="module-side">  │  │ Mid-term   │ │ + metadata │ │ Compaction   │ │ Cost tracking      │    │</span>
+<span class="module-side">  │  │ Long-term  │ │ + ClawHub  │ │ Lazy-load    │ │ Latency tracking   │    │</span>
+<span class="module-side">  │  └────────────┘ └────────────┘ └──────────────┘ └────────────────────┘    │</span>
+<span class="comment">  │                                                                            │</span>
+<span class="module-side">  │  ┌────────────────────────────────────────────────────────────────────┐    │</span>
+<span class="module-side">  │  │ Watchdog (独立进程)                                               │    │</span>
+<span class="module-side">  │  │ 心跳检测 · 无响应重启 · 全局超时兜底 · 用户通知                   │    │</span>
+<span class="module-side">  │  └────────────────────────────────────────────────────────────────────┘    │</span>
+<span class="comment">  │                                                                            │</span>
+<span class="comment">  └────────────────────────────────────────────────────────────────────────────┘</span>
+</pre>
+  </div>
+</div>
+
+<!-- ==================== LAYER DETAILS ==================== -->
+<div class="section-label">Layer by Layer</div>
+<div class="section-title">逐层设计说明</div>
+
+<div class="layers">
+
+  <!-- L0 -->
+  <div class="layer-card">
+    <div class="layer-header">
+      <div class="layer-number slate">L0</div>
+      <div>
+        <div class="layer-name">USER INTERFACE</div>
+        <div class="layer-name-cn">用户接入层</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <p>纯粹的消息收发层，不做任何业务逻辑。每个channel（Telegram、WhatsApp、API、CLI）都是一个独立的adapter，职责只有两件事：把用户消息标准化为统一格式送入L1，把L1的输出渲染成channel-specific的格式回复用户。</p>
+      <p>Channel adapter是无状态的——挂了重启即可，不丢任何上下文。新增一个channel只需要写一个adapter，不触碰系统其他部分。</p>
+      <div class="subsection">
+        <div class="subsection-title slate">标准消息格式</div>
+        <div class="interface-spec">
+{ source: "telegram", user_id: "xxx", timestamp: ISO8601,<br>
+&nbsp;&nbsp;type: "text|file|voice", content: "...",<br>
+&nbsp;&nbsp;reply_to: null | message_id, channel_meta: {...} }
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- L1 -->
+  <div class="layer-card">
+    <div class="layer-header">
+      <div class="layer-number gold">L1</div>
+      <div>
+        <div class="layer-name">TRIGGER & SESSION GATEWAY</div>
+        <div class="layer-name-cn">触发与会话网关</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <p>系统的"前台"——所有事件（用户消息、定时任务、webhook、subagent状态变更）都从这里进入。它的核心职责是<strong>排序、去重、聚合</strong>，确保Brain收到的永远是干净的、有优先级的事件流。</p>
+
+      <div class="subsection">
+        <div class="subsection-title gold">会话状态机</div>
+        <p>三个状态：<strong>IDLE</strong>（等待输入）→ <strong>WORKING</strong>（已派活，用户新输入进pending queue）→ <strong>RESPONDING</strong>（组织回复，先处理pending用户消息，再批量汇报subagent状态）。主Agent永远不会因为在"干活"而无法响应用户。</p>
+      </div>
+      <div class="subsection">
+        <div class="subsection-title gold">通知聚合</div>
+        <p>SubAgent的状态变更不是即时推送给用户的。设300ms debounce窗口，同一窗口内的多个状态变化合并为一条结构化通知。避免OpenClaw那种"消息乱飞"的问题。</p>
+      </div>
+      <div class="subsection">
+        <div class="subsection-title gold">优先级</div>
+        <p>用户新输入 > 任务失败 > 任务完成 > 进度更新 > 系统通知。Brain总是先响应人。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- L2 -->
+  <div class="layer-card">
+    <div class="layer-header">
+      <div class="layer-number red">L2</div>
+      <div>
+        <div class="layer-name">BRAIN (Mozi Core)</div>
+        <div class="layer-name-cn">大脑层 · 墨子核心</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <p>系统的灵魂。使用Opus级别模型，职责严格限定为：<strong>理解意图、分解任务、派发工作、验收结果</strong>。Brain绝不自己执行任何tool call，绝不自己写代码，绝不自己操作浏览器。它是"团队领导"，只做决策。</p>
+
+      <div class="subsection">
+        <div class="subsection-title red">Intent Planner</div>
+        <p>接收用户请求，判断是简单对话（直接回复）还是需要执行的任务（分解为task DAG）。对话类请求不进入task系统，零延迟回复。</p>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title red">Task Decomposer</div>
+        <p>复杂任务拆解为DAG（有向无环图），定义task间的依赖和阻塞关系。每个task节点包含：目标描述、验收标准、约束条件（token budget、timeout、权限范围）。不告诉subagent"怎么做"，只告诉"做什么"和"做到什么程度"。</p>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title red">SubAgent Lifecycle Manager</div>
+        <p>管理subagent的完整生命周期。两类agent共存：</p>
+        <div class="detail-grid">
+          <div class="detail-item red-bg">
+            <strong>Preset Agent（常驻专家）</strong>
+            <span>预定义的specialist，有固定的system prompt和tool权限。如code-reviewer、test-runner。启动成本低，复用度高。</span>
+          </div>
+          <div class="detail-item red-bg">
+            <strong>Dynamic Agent（临时外包）</strong>
+            <span>主Agent按需构建的临时agent。Brain定义其角色prompt和权限，spawn为独立进程，任务完成后释放。如果同一类Dynamic Agent被反复spawn且表现良好（spawn_count > N && success_rate > threshold），自动promote为Preset Agent。</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title red">Quality Gate</div>
+        <p>接收SubAgent返回的Result Envelope，对照task的验收标准判断：accept（关闭task）、reject+feedback（要求重做）、escalate（上报用户决策）。这是整个系统质量的最后一道关。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Communication Protocol -->
+  <div class="layer-card">
+    <div class="layer-header">
+      <div class="layer-number red" style="font-size:24px;">L2↔</div>
+      <div>
+        <div class="layer-name">BRAIN ↔ SUBAGENT PROTOCOL</div>
+        <div class="layer-name-cn">主从通信协议</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <p>Brain和SubAgent之间通过消息队列（Redis Streams / ZeroMQ）通信，不是直连。SubAgent crash不影响Brain。通信内容严格约束——<strong>Brain不看SubAgent的工作过程</strong>。</p>
+
+      <div class="subsection">
+        <div class="subsection-title red">下派：Task Brief</div>
+        <div class="interface-spec">
+{ task_id, objective: "做什么",<br>
+&nbsp;&nbsp;done_criteria: "验收标准",<br>
+&nbsp;&nbsp;constraints: { token_budget, timeout, allowed_tools, forbidden_paths },<br>
+&nbsp;&nbsp;context_refs: ["file://path", "memory://key"] }<br>
+<br>
+<span style="color:#636e72;">// 不包含"怎么做"。SubAgent自行决定方法。</span>
+        </div>
+      </div>
+      <div class="subsection">
+        <div class="subsection-title red">执行中：仅两种上报</div>
+        <p><strong>BLOCKED</strong>（需要权限/澄清/依赖未满足）或 <strong>MILESTONE</strong>（关键节点完成）。其他时候闭嘴干活。</p>
+      </div>
+      <div class="subsection">
+        <div class="subsection-title red">完成：Result Envelope</div>
+        <div class="interface-spec">
+{ task_id, status: "success|failed|partial",<br>
+&nbsp;&nbsp;output: ["file://diff", "artifact://url"],<br>
+&nbsp;&nbsp;summary: "一句话总结",<br>
+&nbsp;&nbsp;cost: { tokens, tool_calls, elapsed_time },<br>
+&nbsp;&nbsp;issues: [] }<br>
+<br>
+<span style="color:#636e72;">// 固定大小，不随内部工作复杂度膨胀。</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- L3 -->
+  <div class="layer-card">
+    <div class="layer-header">
+      <div class="layer-number jade">L3</div>
+      <div>
+        <div class="layer-name">TOOL EXECUTION LAYER (TEL)</div>
+        <div class="layer-name-cn">工具执行层</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <p>系统的"双手"。接收来自SubAgent的语义意图（intent），翻译成精确的工具命令并执行。这一层的存在意义：<strong>即使上层模型的tool calling能力弱，只要TEL够强，系统就稳定运行。</strong></p>
+      <p>TEL实现了双向解耦——上层换模型不影响工具调用，下层加新工具不需要改Agent的prompt。</p>
+
+      <div class="subsection">
+        <div class="subsection-title jade">处理流水线</div>
+        <p>Intent Router（选工具）→ Param Validator（Pydantic schema校验）→ Sandbox Manager（决定执行环境）→ Executor（实际执行）→ Result Formatter（统一输出格式）→ Error Handler（失败处理）</p>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title jade">Tool SLA 注册</div>
+        <p>每个工具注册时必须声明：硬超时、软超时、重试策略、降级方案、执行沙箱类型。TEL根据SLA做自动化的超时管理和故障恢复。</p>
+      </div>
+
+      <div class="subsection">
+        <div class="subsection-title jade">自纠错链路</div>
+        <p>Schema校验失败 → 自动修正参数重试 → 执行失败 → 降级到备选工具 → 仍失败 → 压缩错误上下文（不是raw log）上报SubAgent → SubAgent重新规划 → 超过step budget → 上报Brain</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- L4 -->
+  <div class="layer-card">
+    <div class="layer-header">
+      <div class="layer-number indigo">L4</div>
+      <div>
+        <div class="layer-name">CAPABILITY LAYER</div>
+        <div class="layer-name-cn">能力层</div>
+      </div>
+    </div>
+    <div class="layer-body">
+      <p>实际的工具和运行时环境。每个capability是一个独立的adapter，对TEL暴露统一接口。新增能力只需写adapter，不触碰上层。</p>
+
+      <div class="detail-grid">
+        <div class="detail-item indigo-bg">
+          <strong>Shell</strong>
+          <span>受限shell执行，可配置网络/文件系统权限</span>
+        </div>
+        <div class="detail-item indigo-bg">
+          <strong>Playwright</strong>
+          <span>双模式：Snapshot（快/轻量）+ Vision（慢/强理解），自动降级</span>
+        </div>
+        <div class="detail-item indigo-bg">
+          <strong>FileSystem</strong>
+          <span>文件读写，支持git-tracked workspace</span>
+        </div>
+        <div class="detail-item indigo-bg">
+          <strong>API Client</strong>
+          <span>HTTP/REST/GraphQL，带自动重试和rate limit</span>
+        </div>
+        <div class="detail-item indigo-bg">
+          <strong>Docker</strong>
+          <span>容器级隔离执行环境，SubAgent沙箱</span>
+        </div>
+        <div class="detail-item indigo-bg">
+          <strong>Database</strong>
+          <span>SQL/NoSQL适配器，read-only mode可选</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ==================== CROSS-CUTTING MODULES ==================== -->
+<div class="crosscut-section">
+  <div class="section-label">Cross-Cutting Modules</div>
+  <div class="section-title">横切模块（接口解耦，可独立替换）</div>
+
+  <div class="crosscut-grid">
+    <div class="crosscut-card">
+      <h3>MEMORY INTERFACE</h3>
+      <div class="cn-name">记忆接口</div>
+      <p>对外暴露统一API：store() / recall() / forget() / summarize()。底层实现可以随时替换，Agent层无感知。</p>
+      <p><strong>三层记忆</strong>：短期（当前task context，在进程内存中）、中期（活跃task的planning状态和中间决策，SQLite）、长期（patterns/经验/知识，Markdown + Git）。</p>
+      <p>预留Vector DB和Graph DB的adapter接口，为未来记忆技术突破做准备。这是最可能被整体替换的模块。</p>
+    </div>
+
+    <div class="crosscut-card">
+      <h3>SKILL REGISTRY</h3>
+      <div class="cn-name">技能注册表</div>
+      <p>Skill = SKILL.md（能力描述 + 输入输出schema + 前置条件）+ 可选脚本。Markdown-first，人可读可审计。</p>
+      <p><strong>自进化闭环</strong>：遇到新任务 → 发现无现成skill → SubAgent写一个 → 测试通过 → 注册到本地registry → 下次自动匹配调用。</p>
+      <p>运行时按需注入：只把当前task相关的skill schema注入context，其余不加载，避免prompt膨胀。</p>
+    </div>
+
+    <div class="crosscut-card">
+      <h3>TOKEN BUDGET MANAGER</h3>
+      <div class="cn-name">令牌预算管理器</div>
+      <p>实时追踪每一层的token占用。为Brain、每个SubAgent分别维护独立的budget。在spawn SubAgent前检查预算是否充足。</p>
+      <p>动态触发compaction策略（详见Token Strategy部分）。同时输出cost数据给Observer，供SubAgent评分和成本控制使用。</p>
+    </div>
+
+    <div class="crosscut-card">
+      <h3>OBSERVER</h3>
+      <div class="cn-name">观测器</div>
+      <p>每个task分配TraceID，所有SubAgent操作、tool call、LLM调用都关联到trace。记录token消耗、调用延迟、成功/失败率。</p>
+      <p>数据格式兼容OpenTelemetry，存储到SQLite（单机）或ClickHouse（规模化后）。这是SubAgent"进化评分"的数据来源。</p>
+    </div>
+
+    <div class="crosscut-card" style="grid-column: 1 / -1;">
+      <h3>WATCHDOG</h3>
+      <div class="cn-name">看门狗（独立进程）</div>
+      <p>完全独立于主系统的守护进程。每5秒检查Brain心跳和所有SubAgent心跳。发现无响应 → graceful restart → 失败则force kill + 从最近checkpoint恢复 + 通知用户。</p>
+      <p>同时负责全局级别的超时兜底：如果某个task超过最大允许时间仍未完成，直接终止并上报。这是防止整个系统"卡死"的最后一道防线。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== TOKEN STRATEGY ==================== -->
+<div class="token-section">
+  <div class="section-label">Token Economics</div>
+  <div class="section-title">Token 预算策略</div>
+
+  <div class="token-budget">
+    <h3 style="font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--jade);margin-bottom:8px;">主Agent Context Window 分配</h3>
+    <p style="font-size:14px;color:var(--slate);">固定区域占比严格控制，动态区域按需伸缩。目标：启动一个对话，system overhead < 10%。</p>
+
+    <div class="budget-bar">
+      <div class="budget-segment system">8%</div>
+      <div class="budget-segment memory">12%</div>
+      <div class="budget-segment task">15%</div>
+      <div class="budget-segment dialogue">25%</div>
+      <div class="budget-segment workspace">40%</div>
+    </div>
+    <div class="budget-legend">
+      <div class="budget-legend-item"><div class="budget-dot system"></div>System Prompt（固定，极简）</div>
+      <div class="budget-legend-item"><div class="budget-dot memory"></div>Memory（按需加载相关记忆）</div>
+      <div class="budget-legend-item"><div class="budget-dot task"></div>Active Tasks（DAG状态+当前envelope）</div>
+      <div class="budget-legend-item"><div class="budget-dot dialogue"></div>Dialogue（Running Summary + 近3-5轮原文）</div>
+      <div class="budget-legend-item"><div class="budget-dot workspace"></div>Workspace（SubAgent result、skill schema、临时数据）</div>
+    </div>
+
+    <table class="watermark-table">
+      <thead>
+        <tr>
+          <th>水位线</th>
+          <th>触发动作</th>
+          <th>影响范围</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>70%</td>
+          <td>Soft Compaction — 早期对话压缩为Running Summary，保留最近3轮原文</td>
+          <td>Dialogue区域</td>
+        </tr>
+        <tr>
+          <td>85%</td>
+          <td>Hard Compaction — 已完成task详情归档到外部存储，仅保留结论。非活跃memory卸载</td>
+          <td>Tasks + Memory区域</td>
+        </tr>
+        <tr>
+          <td>95%</td>
+          <td>Session Rotation — 生成Session Handoff Document，开新session，注入压缩后的context</td>
+          <td>全局，新session启动</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="subsection">
+      <div class="subsection-title jade">SubAgent Token 策略</div>
+      <p style="font-size:14px;color:var(--slate);">每个SubAgent启动时只注入：角色system prompt + task brief + 相关文件引用（摘要或路径，不是全文）。启动开销控制在 5-10% window，剩余90%是工作空间。SubAgent不继承主Agent的对话历史。</p>
+    </div>
+
+    <div class="subsection">
+      <div class="subsection-title jade">Multi-Model Token 经济学</div>
+      <p style="font-size:14px;color:var(--slate);">主Agent（Opus级）：调用少但精准，承担planning和验收。复杂SubAgent（Sonnet级）：干活主力。简单SubAgent（Haiku/Flash级）：摘要、格式转换、简单生成。TEL层的intent解析：优先用规则引擎，能不用LLM就不用。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== NAMING ==================== -->
+<div class="naming-section">
+  <h2>关于"墨子"这个名字</h2>
+  <p style="color:var(--slate);margin-bottom:16px;">墨子（Mozi）是中国战国时期的哲学家和工程师。墨家是古代中国最接近"技术团队"的思想流派——严密的组织结构、实用主义的行动准则、以及"兼爱"的协作哲学。</p>
+  <dl class="naming-grid">
+    <dt>钜子</dt>
+    <dd>墨家领袖，对应 Brain / Mozi Core — 做决策、不干活</dd>
+    <dt>墨者</dt>
+    <dd>墨家弟子，各有专长，对应 SubAgents — 领命执行、汇报结果</dd>
+    <dt>墨守</dt>
+    <dd>墨家守城术，对应 Watchdog + 安全边界 — 系统防御的最后一道关</dd>
+    <dt>非攻</dt>
+    <dd>不做多余的事，对应 设计哲学 — 每层只做自己的事，不侵入其他层</dd>
+    <dt>兼爱</dt>
+    <dd>模块间平等协作，对应 接口解耦 — 任何模块可被替换而不影响全局</dd>
+    <dt>尚同</dt>
+    <dd>统一标准，对应 统一的消息格式 + Result Envelope — 通信协议一致</dd>
+  </dl>
+</div>
+
+<!-- ==================== FOOTER ==================== -->
+<div class="footer">
+  <p>MOZI 墨子 · v1.0 · DESIGNED FOR EVOLUTION</p>
+</div>
+
+</div>
+</body>
+</html>

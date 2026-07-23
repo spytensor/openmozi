@@ -1,0 +1,94 @@
+{
+  "name": "mozi-desktop",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "build/main.js",
+  "packageManager": "pnpm@10.29.2",
+  "scripts": {
+    "build": "tsup src/main.ts --no-config --format esm --platform=node --target=node22 --out-dir build --clean --external electron && tsup src/preload.ts --no-config --format cjs --platform=node --target=node22 --out-dir build --external electron",
+    "dev": "pnpm build && electron .",
+    "pack:mac": "pnpm build && electron-builder --mac --dir",
+    "dist:mac": "pnpm build && electron-builder --mac dmg zip"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "electron": "^38.8.6",
+    "electron-builder": "^26.15.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3"
+  },
+  "build": {
+    "appId": "ai.mozi.desktop",
+    "productName": "MOZI",
+    "asar": true,
+    "files": [
+      "!node_modules/**",
+      "build/**/*",
+      "static/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "dependencies": {},
+      "devDependencies": {}
+    },
+    "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": "resources/mozi",
+        "to": "mozi",
+        "filter": [
+          "**/*",
+          "!node_modules/**"
+        ]
+      },
+      {
+        "from": "resources/mozi/node_modules",
+        "to": "mozi/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/node",
+        "to": "node",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/python",
+        "to": "python",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../LICENSE",
+        "to": "licenses/OpenMozi-MIT.txt"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "licenses/THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "../third_party/licenses",
+        "to": "licenses/third-party",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "icon": "assets/MOZI.icns",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    }
+  }
+}

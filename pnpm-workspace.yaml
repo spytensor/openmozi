@@ -1,0 +1,13 @@
+packages:
+  - "ui"
+  - "desktop"
+allowBuilds:
+  '@swc/core': true
+  better-sqlite3: true
+  core-js: true
+  electron: true
+  electron-winstaller: false
+  es5-ext: true
+  esbuild: true
+  koffi: true
+  protobufjs: true

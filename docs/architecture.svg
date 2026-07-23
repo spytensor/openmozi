@@ -1,0 +1,319 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 980" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="108%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.15"/>
+    </filter>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0f1a"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="brainGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#1e1e36"/>
+    </linearGradient>
+    <linearGradient id="telGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a2e1a"/>
+      <stop offset="100%" stop-color="#1e361e"/>
+    </linearGradient>
+    <marker id="arrowBlue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#3b82f6"/></marker>
+    <marker id="arrowAmber" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#f59e0b"/></marker>
+    <marker id="arrowGreen" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#4ade80"/></marker>
+    <marker id="arrowCyan" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#06b6d4"/></marker>
+    <marker id="arrowPurple" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#c084fc"/></marker>
+    <marker id="arrowRed" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#f87171"/></marker>
+    <marker id="arrowPink" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#f472b6"/></marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1100" height="980" rx="12" fill="url(#bgGrad)"/>
+
+  <!-- Title -->
+  <text x="550" y="38" text-anchor="middle" fill="#e6edf3" font-size="22" font-weight="700">MOZI — Architecture</text>
+  <text x="550" y="58" text-anchor="middle" fill="#7d8590" font-size="12">High-level platform architecture · runtime prompt/control plane documented separately</text>
+
+  <!-- ═══════════ L0: User Interface ═══════════ -->
+  <rect x="20" y="80" width="200" height="250" rx="10" fill="#1c2333" stroke="#3b82f6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="120" y="105" text-anchor="middle" fill="#93c5fd" font-size="13" font-weight="600">L0 · User Interface</text>
+
+  <rect x="35" y="120" width="170" height="28" rx="6" fill="#1e293b"/>
+  <text x="120" y="139" text-anchor="middle" fill="#60a5fa" font-size="10">Telegram Adapter</text>
+  <rect x="35" y="155" width="170" height="28" rx="6" fill="#1e293b"/>
+  <text x="120" y="174" text-anchor="middle" fill="#818cf8" font-size="10">Web UI (React + WS)</text>
+  <rect x="35" y="190" width="170" height="28" rx="6" fill="#1e293b"/>
+  <text x="120" y="209" text-anchor="middle" fill="#a78bfa" font-size="10">CLI</text>
+  <rect x="35" y="225" width="170" height="28" rx="6" fill="#1e293b"/>
+  <text x="120" y="244" text-anchor="middle" fill="#34d399" font-size="10">Voice WS (/ws/voice)</text>
+
+  <text x="120" y="290" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">/ commands · message routing</text>
+  <text x="120" y="305" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">auto-split (4096 char limit)</text>
+
+  <!-- Arrow: L0 → L1 -->
+  <line x1="220" y1="200" x2="245" y2="200" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrowBlue)"/>
+
+  <!-- ═══════════ L1: Trigger Gateway ═══════════ -->
+  <rect x="250" y="80" width="230" height="250" rx="10" fill="#1c2333" stroke="#f59e0b" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="365" y="105" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">L1 · Trigger Gateway</text>
+
+  <rect x="263" y="120" width="205" height="40" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="365" y="138" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">Session State Machine</text>
+  <text x="365" y="153" text-anchor="middle" fill="#a8a29e" font-size="8">IDLE → WORKING → RESPONDING</text>
+
+  <rect x="263" y="168" width="205" height="35" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="365" y="186" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">Message Queue</text>
+  <text x="365" y="198" text-anchor="middle" fill="#a8a29e" font-size="8">SQLite WAL · priority-ordered</text>
+
+  <rect x="263" y="211" width="205" height="35" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="365" y="229" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">JWT Auth + RBAC</text>
+  <text x="365" y="241" text-anchor="middle" fill="#a8a29e" font-size="8">admin · operator · viewer</text>
+
+  <rect x="263" y="254" width="205" height="35" rx="8" fill="#292524" stroke="#f59e0b" stroke-width="1" stroke-dasharray="4,2"/>
+  <text x="365" y="272" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">Rate Limiter</text>
+  <text x="365" y="284" text-anchor="middle" fill="#a8a29e" font-size="8">per-provider · priority-aware</text>
+
+  <text x="365" y="315" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">backpressure · tenant routing · webhook/event ingress</text>
+
+  <!-- Arrow: L1 → L2 -->
+  <line x1="480" y1="200" x2="505" y2="200" stroke="#f59e0b" stroke-width="2" marker-end="url(#arrowAmber)"/>
+
+  <!-- ═══════════ L2: Brain ═══════════ -->
+  <rect x="510" y="80" width="280" height="250" rx="10" fill="url(#brainGrad)" stroke="#c084fc" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="650" y="105" text-anchor="middle" fill="#e9d5ff" font-size="14" font-weight="700">L2 · Brain (Orchestrator)</text>
+
+  <rect x="523" y="120" width="255" height="35" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
+  <text x="650" y="138" text-anchor="middle" fill="#e9d5ff" font-size="10" font-weight="600">Task DAG Decomposition</text>
+  <text x="650" y="150" text-anchor="middle" fill="#a78bfa" font-size="8">topological sort · dependency tracking · fail_fast/continue/fallback</text>
+
+  <rect x="523" y="163" width="255" height="35" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
+  <text x="650" y="181" text-anchor="middle" fill="#e9d5ff" font-size="10" font-weight="600">Model Router</text>
+  <text x="650" y="193" text-anchor="middle" fill="#a78bfa" font-size="8">task hints → best model · auto-optimize weekly</text>
+
+  <rect x="523" y="206" width="82" height="30" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
+  <text x="564" y="224" text-anchor="middle" fill="#e9d5ff" font-size="8" font-weight="600">Context Compiler</text>
+
+  <rect x="609" y="206" width="82" height="30" rx="8" fill="#2d1f3d" stroke="#22d3ee" stroke-width="1.5"/>
+  <text x="650" y="219" text-anchor="middle" fill="#67e8f9" font-size="8" font-weight="700">Runtime Msg IR</text>
+  <text x="650" y="231" text-anchor="middle" fill="#22d3ee" font-size="7">tool_truth / verifier</text>
+
+  <rect x="695" y="206" width="83" height="30" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
+  <text x="737" y="224" text-anchor="middle" fill="#e9d5ff" font-size="8" font-weight="600">Session Handoff</text>
+
+  <rect x="523" y="244" width="125" height="30" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
+  <text x="585" y="263" text-anchor="middle" fill="#e9d5ff" font-size="9" font-weight="600">Verifier Gate</text>
+
+  <rect x="653" y="244" width="125" height="30" rx="8" fill="#2d1f3d" stroke="#c084fc" stroke-width="1"/>
+  <text x="715" y="263" text-anchor="middle" fill="#e9d5ff" font-size="9" font-weight="600">Tool Shaping</text>
+
+  <text x="650" y="300" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">Brain sends intents, never commands</text>
+
+  <!-- ═══════════ AI Providers (top right) ═══════════ -->
+  <rect x="810" y="80" width="270" height="250" rx="10" fill="#1c2333" stroke="#22c55e" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="945" y="105" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="600">LLM Providers</text>
+  <text x="945" y="120" text-anchor="middle" fill="#7d8590" font-size="9">Unified interface · streaming · health probes</text>
+
+  <rect x="823" y="132" width="120" height="24" rx="5" fill="#1a2e1a"/>
+  <text x="883" y="149" text-anchor="middle" fill="#86efac" font-size="10">Anthropic</text>
+  <rect x="948" y="132" width="120" height="24" rx="5" fill="#1a2e1a"/>
+  <text x="1008" y="149" text-anchor="middle" fill="#86efac" font-size="10">OpenAI</text>
+  <rect x="823" y="163" width="120" height="24" rx="5" fill="#1a2e1a"/>
+  <text x="883" y="180" text-anchor="middle" fill="#86efac" font-size="10">DeepSeek</text>
+  <rect x="948" y="163" width="120" height="24" rx="5" fill="#1a2e1a"/>
+  <text x="1008" y="180" text-anchor="middle" fill="#86efac" font-size="10">Google</text>
+  <rect x="823" y="194" width="120" height="24" rx="5" fill="#1a2e1a"/>
+  <text x="883" y="211" text-anchor="middle" fill="#86efac" font-size="10">Groq</text>
+  <rect x="948" y="194" width="120" height="24" rx="5" fill="#1e3a1e" stroke="#4ade80" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="1008" y="211" text-anchor="middle" fill="#4ade80" font-size="9" font-weight="600">custom:URL</text>
+
+  <text x="945" y="240" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">OpenAI-compatible adapter</text>
+
+  <rect x="823" y="252" width="245" height="28" rx="6" fill="#1a2e1a" stroke="#22c55e" stroke-width="0.5"/>
+  <text x="945" y="270" text-anchor="middle" fill="#86efac" font-size="9">Health: healthy → degraded → down</text>
+  <text x="945" y="298" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">Opus → Sonnet → DEGRADED mode</text>
+
+  <!-- Arrow: Providers → Brain -->
+  <line x1="810" y1="200" x2="790" y2="200" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrowGreen)"/>
+
+  <!-- ═══════════ L3: TEL (Tool Execution Layer) ═══════════ -->
+  <rect x="20" y="350" width="770" height="140" rx="12" fill="url(#telGrad)" stroke="#06b6d4" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="405" y="375" text-anchor="middle" fill="#67e8f9" font-size="14" font-weight="700">L3 · TEL (Tool Execution Layer)</text>
+  <text x="405" y="392" text-anchor="middle" fill="#7d8590" font-size="9">Translates Brain intents → validated tool calls · never exposes raw commands to models</text>
+
+  <!-- TEL components -->
+  <rect x="35" y="405" width="130" height="42" rx="8" fill="#1a2e2e" stroke="#06b6d4" stroke-width="1"/>
+  <text x="100" y="423" text-anchor="middle" fill="#67e8f9" font-size="10" font-weight="600">Intent Router</text>
+  <text x="100" y="440" text-anchor="middle" fill="#22d3ee" font-size="8">Zod param validation</text>
+
+  <rect x="180" y="405" width="130" height="42" rx="8" fill="#1a2e2e" stroke="#06b6d4" stroke-width="1"/>
+  <text x="245" y="423" text-anchor="middle" fill="#67e8f9" font-size="10" font-weight="600">Error Compress</text>
+  <text x="245" y="440" text-anchor="middle" fill="#22d3ee" font-size="8">&lt;500 tok structured</text>
+
+  <rect x="325" y="405" width="130" height="42" rx="8" fill="#1a2e2e" stroke="#06b6d4" stroke-width="1"/>
+  <text x="390" y="423" text-anchor="middle" fill="#67e8f9" font-size="10" font-weight="600">Checkpoint</text>
+  <text x="390" y="440" text-anchor="middle" fill="#22d3ee" font-size="8">file hash · rollback</text>
+
+  <rect x="470" y="405" width="130" height="42" rx="8" fill="#1a2e2e" stroke="#06b6d4" stroke-width="1"/>
+  <text x="535" y="423" text-anchor="middle" fill="#67e8f9" font-size="10" font-weight="600">Tool SLA</text>
+  <text x="535" y="440" text-anchor="middle" fill="#22d3ee" font-size="8">timeout · retries · fallback</text>
+
+  <rect x="615" y="405" width="160" height="42" rx="8" fill="#1a2e2e" stroke="#06b6d4" stroke-width="1"/>
+  <text x="695" y="423" text-anchor="middle" fill="#67e8f9" font-size="10" font-weight="600">Path Restriction</text>
+  <text x="695" y="440" text-anchor="middle" fill="#22d3ee" font-size="8">deny list · traversal block</text>
+
+  <text x="405" y="478" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">Permission levels: L0 Read-Only → L1 Read-Write → L2 Shell → L3 Full Access</text>
+
+  <!-- Arrow: Brain → TEL -->
+  <line x1="650" y1="330" x2="500" y2="350" stroke="#c084fc" stroke-width="2" marker-end="url(#arrowPurple)"/>
+
+  <!-- ═══════════ SubAgent System (right of TEL) ═══════════ -->
+  <rect x="810" y="350" width="270" height="140" rx="10" fill="#1c2333" stroke="#f472b6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="945" y="375" text-anchor="middle" fill="#f9a8d4" font-size="13" font-weight="600">Managed Workers</text>
+
+  <rect x="823" y="390" width="245" height="28" rx="6" fill="#2d1f2e" stroke="#f472b6" stroke-width="0.5"/>
+  <text x="945" y="409" text-anchor="middle" fill="#f9a8d4" font-size="9">Adapters · launch/poll · verify gate</text>
+
+  <rect x="823" y="425" width="120" height="24" rx="6" fill="#2d1f2e"/>
+  <text x="883" y="442" text-anchor="middle" fill="#f472b6" font-size="9">Job State</text>
+  <rect x="948" y="425" width="120" height="24" rx="6" fill="#2d1f2e"/>
+  <text x="1008" y="442" text-anchor="middle" fill="#f472b6" font-size="9">Result Envelope</text>
+
+  <text x="945" y="475" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">managed job lifecycle · result envelope</text>
+
+  <!-- Arrow: Brain → SubAgent -->
+  <line x1="790" y1="260" x2="810" y2="370" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="6,3" marker-end="url(#arrowPink)"/>
+
+  <!-- ═══════════ L4: Capabilities ═══════════ -->
+  <rect x="20" y="510" width="530" height="130" rx="10" fill="#1c2333" stroke="#22c55e" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="285" y="535" text-anchor="middle" fill="#4ade80" font-size="13" font-weight="600">L4 · Capabilities</text>
+
+  <rect x="35" y="550" width="110" height="40" rx="8" fill="#1a2e1a" stroke="#4ade80" stroke-width="1"/>
+  <text x="90" y="568" text-anchor="middle" fill="#4ade80" font-size="10" font-weight="600">Shell</text>
+  <text x="90" y="583" text-anchor="middle" fill="#86efac" font-size="8">exec · timeout · sandbox</text>
+
+  <rect x="155" y="550" width="110" height="40" rx="8" fill="#1a2e1a" stroke="#4ade80" stroke-width="1"/>
+  <text x="210" y="568" text-anchor="middle" fill="#4ade80" font-size="10" font-weight="600">Filesystem</text>
+  <text x="210" y="583" text-anchor="middle" fill="#86efac" font-size="8">read · write · search</text>
+
+  <rect x="275" y="550" width="125" height="40" rx="8" fill="#1a2e1a" stroke="#4ade80" stroke-width="1"/>
+  <text x="337" y="568" text-anchor="middle" fill="#4ade80" font-size="10" font-weight="600">Skill Scripts</text>
+  <text x="337" y="583" text-anchor="middle" fill="#86efac" font-size="8">Python · JSON stdio</text>
+
+  <rect x="410" y="550" width="125" height="40" rx="8" fill="#1a2e1a" stroke="#4ade80" stroke-width="1" stroke-dasharray="3,2"/>
+  <text x="472" y="568" text-anchor="middle" fill="#4ade80" font-size="10" font-weight="600">+ Custom</text>
+  <text x="472" y="583" text-anchor="middle" fill="#86efac" font-size="8">browser · API · DB</text>
+
+  <text x="285" y="630" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">Pre-write snapshots · allowed_paths whitelist · blocked command list</text>
+
+  <!-- Arrow: TEL → L4 -->
+  <line x1="285" y1="490" x2="285" y2="510" stroke="#06b6d4" stroke-width="2" marker-end="url(#arrowCyan)"/>
+
+  <!-- ═══════════ Skill System (right of L4) ═══════════ -->
+  <rect x="570" y="510" width="250" height="130" rx="10" fill="#1c2333" stroke="#c084fc" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="695" y="535" text-anchor="middle" fill="#e9d5ff" font-size="13" font-weight="600">Skill Registry</text>
+
+  <rect x="583" y="550" width="225" height="24" rx="6" fill="#2d1f3d"/>
+  <text x="695" y="567" text-anchor="middle" fill="#c084fc" font-size="9">Register · Search · Lazy Inject</text>
+  <rect x="583" y="580" width="225" height="24" rx="6" fill="#2d1f3d"/>
+  <text x="695" y="597" text-anchor="middle" fill="#c084fc" font-size="9">Versioning: draft → active → deprecated</text>
+  <rect x="583" y="610" width="225" height="24" rx="6" fill="#2d1f3d"/>
+  <text x="695" y="627" text-anchor="middle" fill="#c084fc" font-size="9">skill-create bootstrap (self-evolving)</text>
+
+  <!-- ═══════════ Evolution Engine (right) ═══════════ -->
+  <rect x="840" y="510" width="240" height="130" rx="10" fill="#1c2333" stroke="#f59e0b" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="960" y="535" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="600">Evolution Engine</text>
+
+  <rect x="853" y="550" width="215" height="24" rx="6" fill="#292524"/>
+  <text x="960" y="567" text-anchor="middle" fill="#fbbf24" font-size="9">Agent Scoring (success · efficiency · reliability)</text>
+  <rect x="853" y="580" width="215" height="24" rx="6" fill="#292524"/>
+  <text x="960" y="597" text-anchor="middle" fill="#fbbf24" font-size="9">Promotion: dynamic → preset (/approve)</text>
+  <rect x="853" y="610" width="215" height="24" rx="6" fill="#292524"/>
+  <text x="960" y="627" text-anchor="middle" fill="#fbbf24" font-size="9">Archive (30d idle) · Demotion alerts</text>
+
+  <!-- ═══════════ Cross-cutting: Bottom Row ═══════════ -->
+
+  <!-- Memory -->
+  <rect x="20" y="660" width="260" height="140" rx="10" fill="#1c2333" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="150" y="685" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="700">Memory</text>
+
+  <rect x="33" y="700" width="235" height="22" rx="5" fill="#1e1a2e" stroke="#8b5cf6" stroke-width="0.5"/>
+  <text x="150" y="715" text-anchor="middle" fill="#a78bfa" font-size="9">Sessions + Conversations (persistent)</text>
+  <rect x="33" y="726" width="235" height="22" rx="5" fill="#1e1a2e" stroke="#8b5cf6" stroke-width="0.5"/>
+  <text x="150" y="741" text-anchor="middle" fill="#a78bfa" font-size="9">SQLite (tasks · events · checkpoints)</text>
+  <rect x="33" y="752" width="235" height="22" rx="5" fill="#1e1a2e" stroke="#8b5cf6" stroke-width="0.5"/>
+  <text x="150" y="767" text-anchor="middle" fill="#a78bfa" font-size="9">Event Sourcing · Long-term Memory</text>
+  <text x="150" y="792" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">WAL mode · single file · zero deps</text>
+
+  <!-- Observer -->
+  <rect x="300" y="660" width="250" height="140" rx="10" fill="#1c2333" stroke="#ef4444" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="425" y="685" text-anchor="middle" fill="#fca5a5" font-size="13" font-weight="700">Observer</text>
+
+  <rect x="313" y="700" width="225" height="22" rx="5" fill="#1e1a1a" stroke="#ef4444" stroke-width="0.5"/>
+  <text x="425" y="715" text-anchor="middle" fill="#f87171" font-size="9">Alert Rules · Prompt Snapshots</text>
+  <rect x="313" y="726" width="225" height="22" rx="5" fill="#1e1a1a" stroke="#ef4444" stroke-width="0.5"/>
+  <text x="425" y="741" text-anchor="middle" fill="#f87171" font-size="9">Failure Replay · Regression Harness</text>
+  <rect x="313" y="752" width="225" height="22" rx="5" fill="#1e1a1a" stroke="#ef4444" stroke-width="0.5"/>
+  <text x="425" y="767" text-anchor="middle" fill="#f87171" font-size="9">Dashboard API · traces · costs</text>
+  <text x="425" y="792" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">actions: log · notify · pause · kill</text>
+
+  <!-- Token Budget Manager -->
+  <rect x="570" y="660" width="250" height="140" rx="10" fill="#1c2333" stroke="#06b6d4" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="695" y="685" text-anchor="middle" fill="#67e8f9" font-size="13" font-weight="700">Token Budget</text>
+
+  <rect x="583" y="700" width="225" height="22" rx="5" fill="#1a2e2e" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="695" y="715" text-anchor="middle" fill="#22d3ee" font-size="9">Watermarks: 70% soft · 85% hard · 95% rotate</text>
+  <rect x="583" y="726" width="225" height="22" rx="5" fill="#1a2e2e" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="695" y="741" text-anchor="middle" fill="#22d3ee" font-size="9">Context zones: system · memory · tasks · dialogue</text>
+  <rect x="583" y="752" width="225" height="22" rx="5" fill="#1a2e2e" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="695" y="767" text-anchor="middle" fill="#22d3ee" font-size="9">Auto-compaction · brain state save · handoff</text>
+  <text x="695" y="792" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">per-tenant quota enforcement</text>
+
+  <!-- Watchdog -->
+  <rect x="840" y="660" width="240" height="140" rx="10" fill="#1c2333" stroke="#f59e0b" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="960" y="685" text-anchor="middle" fill="#fbbf24" font-size="13" font-weight="700">Watchdog</text>
+
+  <rect x="853" y="700" width="215" height="22" rx="5" fill="#292524" stroke="#f59e0b" stroke-width="0.5"/>
+  <text x="960" y="715" text-anchor="middle" fill="#fbbf24" font-size="9">Independent process (5s heartbeat check)</text>
+  <rect x="853" y="726" width="215" height="22" rx="5" fill="#292524" stroke="#f59e0b" stroke-width="0.5"/>
+  <text x="960" y="741" text-anchor="middle" fill="#fbbf24" font-size="9">Auto-restart: graceful → force kill</text>
+  <rect x="853" y="752" width="215" height="22" rx="5" fill="#292524" stroke="#f59e0b" stroke-width="0.5"/>
+  <text x="960" y="767" text-anchor="middle" fill="#fbbf24" font-size="9">Crash Recovery via Event Sourcing</text>
+  <text x="960" y="792" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">user notification on restart</text>
+
+  <!-- ═══════════ Bottom: Multi-Tenant ═══════════ -->
+  <rect x="20" y="820" width="1060" height="140" rx="10" fill="#1c2333" stroke="#f472b6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="550" y="845" text-anchor="middle" fill="#f9a8d4" font-size="14" font-weight="700">Multi-Tenant (v2.0) — tenant_id scoped from Day 1</text>
+  <text x="550" y="862" text-anchor="middle" fill="#7d8590" font-size="10">Logical isolation now · Process isolation later · Container isolation enterprise</text>
+
+  <rect x="35" y="875" width="155" height="38" rx="8" fill="#2d1f2e" stroke="#f472b6" stroke-width="1"/>
+  <text x="112" y="891" text-anchor="middle" fill="#f9a8d4" font-size="9" font-weight="600">Tenant Context</text>
+  <text x="112" y="905" text-anchor="middle" fill="#f472b6" font-size="8">JWT → tenant_id routing</text>
+
+  <rect x="205" y="875" width="155" height="38" rx="8" fill="#2d1f2e" stroke="#f472b6" stroke-width="1"/>
+  <text x="282" y="891" text-anchor="middle" fill="#f9a8d4" font-size="9" font-weight="600">Resource Quotas</text>
+  <text x="282" y="905" text-anchor="middle" fill="#f472b6" font-size="8">tokens · agents · storage · models</text>
+
+  <rect x="375" y="875" width="155" height="38" rx="8" fill="#2d1f2e" stroke="#f472b6" stroke-width="1"/>
+  <text x="452" y="891" text-anchor="middle" fill="#f9a8d4" font-size="9" font-weight="600">Billing</text>
+  <text x="452" y="905" text-anchor="middle" fill="#f472b6" font-size="8">LLM + tool call tracking</text>
+
+  <rect x="545" y="875" width="155" height="38" rx="8" fill="#2d1f2e" stroke="#f472b6" stroke-width="1"/>
+  <text x="622" y="891" text-anchor="middle" fill="#f9a8d4" font-size="9" font-weight="600">Enterprise Auth</text>
+  <text x="622" y="905" text-anchor="middle" fill="#f472b6" font-size="8">OIDC/SAML · API keys · RBAC</text>
+
+  <rect x="715" y="875" width="155" height="38" rx="8" fill="#2d1f2e" stroke="#f472b6" stroke-width="1"/>
+  <text x="792" y="891" text-anchor="middle" fill="#f9a8d4" font-size="9" font-weight="600">Audit Log</text>
+  <text x="792" y="905" text-anchor="middle" fill="#f472b6" font-size="8">JSON/CSV export · redaction</text>
+
+  <rect x="885" y="875" width="180" height="38" rx="8" fill="#2d1f2e" stroke="#f472b6" stroke-width="1"/>
+  <text x="975" y="891" text-anchor="middle" fill="#f9a8d4" font-size="9" font-weight="600">Workspace Isolation</text>
+  <text x="975" y="905" text-anchor="middle" fill="#f472b6" font-size="8">data/tenants/&lt;id&gt;/{memory,skills}</text>
+
+  <!-- Step arrows -->
+  <line x1="190" y1="894" x2="205" y2="894" stroke="#f472b6" stroke-width="1" marker-end="url(#arrowPink)"/>
+  <line x1="360" y1="894" x2="375" y2="894" stroke="#f472b6" stroke-width="1" marker-end="url(#arrowPink)"/>
+  <line x1="530" y1="894" x2="545" y2="894" stroke="#f472b6" stroke-width="1" marker-end="url(#arrowPink)"/>
+  <line x1="700" y1="894" x2="715" y2="894" stroke="#f472b6" stroke-width="1" marker-end="url(#arrowPink)"/>
+  <line x1="870" y1="894" x2="885" y2="894" stroke="#f472b6" stroke-width="1" marker-end="url(#arrowPink)"/>
+
+  <!-- Footer stats -->
+  <rect x="300" y="930" width="500" height="28" rx="14" fill="#1a1a2e" stroke="#c084fc" stroke-width="1"/>
+  <text x="550" y="949" text-anchor="middle" fill="#c4b5fd" font-size="11" font-weight="600">Layered CI (unit/integration/e2e)  |  Event-driven proactive  |  TypeScript + Python</text>
+</svg>

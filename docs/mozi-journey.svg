@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 800" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <filter id="shadow" x="-4%" y="-4%" width="108%" height="108%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.2"/>
+    </filter>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0f1a"/>
+      <stop offset="50%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="timelineGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="20%" stop-color="#8b5cf6"/>
+      <stop offset="40%" stop-color="#ec4899"/>
+      <stop offset="60%" stop-color="#f59e0b"/>
+      <stop offset="80%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c084fc" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#c084fc" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1400" height="800" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid pattern -->
+  <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+    <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+  </pattern>
+  <rect width="1400" height="800" fill="url(#grid)" opacity="0.3"/>
+
+  <!-- Title Section -->
+  <text x="700" y="50" text-anchor="middle" fill="#e6edf3" font-size="32" font-weight="700">MOZI -- Architecture Journey</text>
+  <text x="700" y="75" text-anchor="middle" fill="#7d8590" font-size="14">5-Layer Agent OS with CLI-Pipe Providers</text>
+
+  <!-- Timeline Base Line -->
+  <line x1="80" y1="420" x2="1320" y2="420" stroke="url(#timelineGrad)" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Glow effect under timeline -->
+  <ellipse cx="700" cy="420" rx="620" ry="20" fill="url(#glowGrad)"/>
+
+  <!-- =========== Day 1: Foundation =========== -->
+  <g transform="translate(130, 420)">
+    <circle r="14" fill="#1c2333" stroke="#3b82f6" stroke-width="3"/>
+    <circle r="5" fill="#3b82f6"/>
+    <text y="-28" text-anchor="middle" fill="#60a5fa" font-size="12" font-weight="600">Day 1</text>
+    <text y="-12" text-anchor="middle" fill="#7d8590" font-size="9">2026-02-23</text>
+  </g>
+
+  <rect x="65" y="145" width="170" height="215" rx="12" fill="#1c2333" stroke="#3b82f6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="150" y="168" text-anchor="middle" fill="#60a5fa" font-size="11" font-weight="600">L0-L1 Foundation</text>
+  <rect x="78" y="180" width="144" height="22" rx="5" fill="#1e293b"/>
+  <text x="150" y="195" text-anchor="middle" fill="#93c5fd" font-size="8">Telegram Channel (L0)</text>
+  <rect x="78" y="207" width="144" height="22" rx="5" fill="#1e293b"/>
+  <text x="150" y="222" text-anchor="middle" fill="#93c5fd" font-size="8">Multi-provider Wizard</text>
+  <rect x="78" y="234" width="144" height="22" rx="5" fill="#1e293b"/>
+  <text x="150" y="249" text-anchor="middle" fill="#93c5fd" font-size="8">Web UI Pairing</text>
+  <rect x="78" y="261" width="144" height="22" rx="5" fill="#1e293b"/>
+  <text x="150" y="276" text-anchor="middle" fill="#93c5fd" font-size="8">Loop Guard + Recovery</text>
+  <text x="150" y="338" text-anchor="middle" fill="#3b82f6" font-size="26" font-weight="700">142</text>
+  <text x="150" y="352" text-anchor="middle" fill="#7d8590" font-size="9">tests</text>
+
+  <!-- =========== Day 2: Core =========== -->
+  <g transform="translate(330, 420)">
+    <circle r="14" fill="#1c2333" stroke="#8b5cf6" stroke-width="3"/>
+    <circle r="5" fill="#8b5cf6"/>
+    <text y="-28" text-anchor="middle" fill="#a78bfa" font-size="12" font-weight="600">Day 2</text>
+    <text y="-12" text-anchor="middle" fill="#7d8590" font-size="9">2026-02-24</text>
+  </g>
+
+  <rect x="265" y="460" width="170" height="215" rx="12" fill="#1c2333" stroke="#8b5cf6" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="350" y="483" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">L2-L3 Brain + TEL</text>
+  <rect x="278" y="495" width="144" height="22" rx="5" fill="#1e1a2e"/>
+  <text x="350" y="510" text-anchor="middle" fill="#c4b5fd" font-size="8">DAG Task Decomposition</text>
+  <rect x="278" y="522" width="144" height="22" rx="5" fill="#1e1a2e"/>
+  <text x="350" y="537" text-anchor="middle" fill="#c4b5fd" font-size="8">Multi-Agent Collaboration</text>
+  <rect x="278" y="549" width="144" height="22" rx="5" fill="#1e1a2e"/>
+  <text x="350" y="564" text-anchor="middle" fill="#c4b5fd" font-size="8">Three-Tier Memory</text>
+  <rect x="278" y="576" width="144" height="22" rx="5" fill="#1e1a2e"/>
+  <text x="350" y="591" text-anchor="middle" fill="#c4b5fd" font-size="8">Agent Loop v2</text>
+  <text x="350" y="653" text-anchor="middle" fill="#8b5cf6" font-size="26" font-weight="700">271</text>
+  <text x="350" y="667" text-anchor="middle" fill="#7d8590" font-size="9">tests</text>
+
+  <!-- =========== Day 3: Engineering =========== -->
+  <g transform="translate(530, 420)">
+    <circle r="14" fill="#1c2333" stroke="#ec4899" stroke-width="3"/>
+    <circle r="5" fill="#ec4899"/>
+    <text y="-28" text-anchor="middle" fill="#f472b6" font-size="12" font-weight="600">Day 3</text>
+    <text y="-12" text-anchor="middle" fill="#7d8590" font-size="9">2026-02-25</text>
+  </g>
+
+  <rect x="465" y="145" width="170" height="215" rx="12" fill="#1c2333" stroke="#ec4899" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="550" y="168" text-anchor="middle" fill="#f472b6" font-size="11" font-weight="600">L3-L4 Engineering</text>
+  <rect x="478" y="180" width="144" height="22" rx="5" fill="#2d1f2e"/>
+  <text x="550" y="195" text-anchor="middle" fill="#f9a8d4" font-size="8">Handler Modularization</text>
+  <rect x="478" y="207" width="144" height="22" rx="5" fill="#2d1f2e"/>
+  <text x="550" y="222" text-anchor="middle" fill="#f9a8d4" font-size="8">Dead Code Cleanup</text>
+  <rect x="478" y="234" width="144" height="22" rx="5" fill="#2d1f2e"/>
+  <text x="550" y="249" text-anchor="middle" fill="#f9a8d4" font-size="8">Provider Registry</text>
+  <rect x="478" y="261" width="144" height="22" rx="5" fill="#2d1f2e"/>
+  <text x="550" y="276" text-anchor="middle" fill="#f9a8d4" font-size="8">Layered Template System</text>
+  <text x="550" y="338" text-anchor="middle" fill="#ec4899" font-size="26" font-weight="700">299</text>
+  <text x="550" y="352" text-anchor="middle" fill="#7d8590" font-size="9">tests</text>
+
+  <!-- =========== Day 4: Security =========== -->
+  <g transform="translate(730, 420)">
+    <circle r="14" fill="#1c2333" stroke="#f59e0b" stroke-width="3"/>
+    <circle r="5" fill="#f59e0b"/>
+    <text y="-28" text-anchor="middle" fill="#fbbf24" font-size="12" font-weight="600">Day 4</text>
+    <text y="-12" text-anchor="middle" fill="#7d8590" font-size="9">2026-02-27</text>
+  </g>
+
+  <rect x="665" y="460" width="170" height="215" rx="12" fill="#1c2333" stroke="#f59e0b" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="750" y="483" text-anchor="middle" fill="#fbbf24" font-size="11" font-weight="600">Security + Multi-Tenant</text>
+  <rect x="678" y="495" width="144" height="22" rx="5" fill="#292524"/>
+  <text x="750" y="510" text-anchor="middle" fill="#fcd34d" font-size="8">Persistent Goals</text>
+  <rect x="678" y="522" width="144" height="22" rx="5" fill="#292524"/>
+  <text x="750" y="537" text-anchor="middle" fill="#fcd34d" font-size="8">Shell Sandbox Isolation</text>
+  <rect x="678" y="549" width="144" height="22" rx="5" fill="#292524"/>
+  <text x="750" y="564" text-anchor="middle" fill="#fcd34d" font-size="8">Hard Gate Approvals</text>
+  <rect x="678" y="576" width="144" height="22" rx="5" fill="#292524"/>
+  <text x="750" y="591" text-anchor="middle" fill="#fcd34d" font-size="8">Enterprise OIDC/SAML</text>
+  <text x="750" y="653" text-anchor="middle" fill="#f59e0b" font-size="26" font-weight="700">410</text>
+  <text x="750" y="667" text-anchor="middle" fill="#7d8590" font-size="9">tests</text>
+
+  <!-- =========== Day 5: Liberation =========== -->
+  <g transform="translate(930, 420)">
+    <circle r="14" fill="#1c2333" stroke="#22c55e" stroke-width="3"/>
+    <circle r="5" fill="#22c55e"/>
+    <text y="-28" text-anchor="middle" fill="#4ade80" font-size="12" font-weight="600">Day 5</text>
+    <text y="-12" text-anchor="middle" fill="#7d8590" font-size="9">2026-02-28</text>
+  </g>
+
+  <rect x="865" y="145" width="170" height="215" rx="12" fill="#1c2333" stroke="#22c55e" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="950" y="168" text-anchor="middle" fill="#4ade80" font-size="11" font-weight="600">Liberation + Evolution</text>
+  <rect x="878" y="180" width="144" height="22" rx="5" fill="#1a2e1a"/>
+  <text x="950" y="195" text-anchor="middle" fill="#86efac" font-size="8">Network Isolation Lifted</text>
+  <rect x="878" y="207" width="144" height="22" rx="5" fill="#1a2e1a"/>
+  <text x="950" y="222" text-anchor="middle" fill="#86efac" font-size="8">Token Quota Removed</text>
+  <rect x="878" y="234" width="144" height="22" rx="5" fill="#1a2e1a"/>
+  <text x="950" y="249" text-anchor="middle" fill="#86efac" font-size="8">Voice Processing</text>
+  <rect x="878" y="261" width="144" height="22" rx="5" fill="#1a2e1a"/>
+  <text x="950" y="276" text-anchor="middle" fill="#86efac" font-size="8">LLM Proactive Engine</text>
+  <text x="950" y="338" text-anchor="middle" fill="#22c55e" font-size="26" font-weight="700">587</text>
+  <text x="950" y="352" text-anchor="middle" fill="#7d8590" font-size="9">tests</text>
+
+  <!-- =========== Day 6+: CLI-Pipe Providers =========== -->
+  <g transform="translate(1130, 420)">
+    <circle r="18" fill="#1c2333" stroke="#06b6d4" stroke-width="4"/>
+    <circle r="7" fill="#06b6d4"/>
+    <text y="-32" text-anchor="middle" fill="#22d3ee" font-size="13" font-weight="700">Day 6+</text>
+    <text y="-15" text-anchor="middle" fill="#7d8590" font-size="9">2026-03-02</text>
+    <text y="42" text-anchor="middle" fill="#22d3ee" font-size="9" font-weight="600">NOW</text>
+  </g>
+
+  <rect x="1055" y="460" width="190" height="215" rx="12" fill="#1c2333" stroke="#06b6d4" stroke-width="2" filter="url(#shadow)"/>
+  <text x="1150" y="483" text-anchor="middle" fill="#22d3ee" font-size="11" font-weight="600">CLI-Pipe + Universal LLM</text>
+  <rect x="1068" y="495" width="164" height="22" rx="5" fill="#0e2a30" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="1150" y="510" text-anchor="middle" fill="#67e8f9" font-size="8">CLI-Pipe Adapter (claude/codex/gemini)</text>
+  <rect x="1068" y="522" width="164" height="22" rx="5" fill="#0e2a30" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="1150" y="537" text-anchor="middle" fill="#67e8f9" font-size="8">Zero API Key — Local CLI Auth</text>
+  <rect x="1068" y="549" width="164" height="22" rx="5" fill="#0e2a30" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="1150" y="564" text-anchor="middle" fill="#67e8f9" font-size="8">Declarative Backend Config</text>
+  <rect x="1068" y="576" width="164" height="22" rx="5" fill="#0e2a30" stroke="#06b6d4" stroke-width="0.5"/>
+  <text x="1150" y="591" text-anchor="middle" fill="#67e8f9" font-size="8">Wizard CLI Detection</text>
+  <text x="1150" y="653" text-anchor="middle" fill="#06b6d4" font-size="26" font-weight="700">1405</text>
+  <text x="1150" y="667" text-anchor="middle" fill="#7d8590" font-size="9">tests</text>
+
+  <!-- Connecting Lines -->
+  <path d="M 146 420 Q 230 355 314 420" fill="none" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"/>
+  <path d="M 346 420 Q 430 485 514 420" fill="none" stroke="#8b5cf6" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"/>
+  <path d="M 546 420 Q 630 355 714 420" fill="none" stroke="#ec4899" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"/>
+  <path d="M 746 420 Q 830 485 914 420" fill="none" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"/>
+  <path d="M 946 420 Q 1030 355 1114 420" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.5"/>
+
+  <!-- Architecture Layers Legend -->
+  <rect x="100" y="720" width="1200" height="50" rx="25" fill="#1a1a2e" stroke="#c084fc" stroke-width="1" filter="url(#shadow)"/>
+  <text x="700" y="750" text-anchor="middle" fill="#c4b5fd" font-size="13" font-weight="600">
+    <tspan fill="#3b82f6">L0</tspan> Interface  &#x2192;
+    <tspan fill="#8b5cf6">L1</tspan> Gateway  &#x2192;
+    <tspan fill="#ec4899">L2</tspan> Brain (LLM + Tools)  &#x2192;
+    <tspan fill="#f59e0b">L3</tspan> TEL (Intent Router)  &#x2192;
+    <tspan fill="#22c55e">L4</tspan> Capabilities  |
+    <tspan fill="#06b6d4">CLI-Pipe</tspan>: claude / codex / gemini
+  </text>
+
+  <!-- Bottom Stats -->
+  <rect x="200" y="780" width="1000" height="1" fill="url(#timelineGrad)" opacity="0.5"/>
+  <text x="700" y="795" text-anchor="middle" fill="#7d8590" font-size="11" font-style="italic">
+    <tspan fill="#e6edf3">1405</tspan> tests  &#xB7;
+    <tspan fill="#e6edf3">163</tspan> TS files  &#xB7;
+    <tspan fill="#e6edf3">29K</tspan> LoC  &#xB7;
+    <tspan fill="#e6edf3">22+</tspan> LLM providers  &#xB7;
+    <tspan fill="#06b6d4">CLI-Pipe: No API Key Needed</tspan>
+  </text>
+</svg>

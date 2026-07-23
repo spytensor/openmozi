@@ -1,0 +1,398 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  /* Settings is a model-management workspace, so role cards respond to the
+     content pane width instead of a viewport breakpoint. */
+  .settings-role-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --mozi-app-bg: 24 24 24;
+    --mozi-sidebar-bg: 32 32 32; /* = surface-elevated: the composer CONTAINER surface — sidebar and composer share one surface (operator decision 2026-07-19; first pass wrongly matched --surface-input, a token the composer does not use) */
+    --mozi-main-bg: 24 24 24;
+    --mozi-surface-base: 24 24 24;
+    --mozi-surface-elevated: 32 32 32;
+    --mozi-surface-input: 32 37 44;
+    --mozi-surface-hover: 39 45 53;
+    --mozi-surface-active: 48 55 65;
+    --mozi-action: 190 145 87;
+    --mozi-action-hover: 208 166 108;
+    --mozi-activity: 111 174 153;
+    --mozi-link: 142 170 190;
+    --mozi-link-hover: 166 190 207;
+    --mozi-code: 210 178 132;
+    --mozi-focus: 176 150 102;
+    --mozi-selection: 134 124 158;
+    --mozi-success: 122 203 139;
+    --mozi-warning: 227 182 90;
+    --mozi-danger: 224 108 117;
+
+    --app-bg: #181818;
+    --sidebar-bg: #202020; /* = --surface-elevated (composer container) */
+    --main-bg: #181818;
+    --surface-base: #181818;
+    --surface-elevated: #202020;
+    /* Overlays (popovers/dialogs/menus) are SOLID — the previous #202020dd let
+       page text ghost through every dark-mode menu, which both reads as broken
+       and violates the no-decorative-translucency red line (DESIGN.md). One
+       step above elevated so a menu separates from the composer it opens over. */
+    --surface-overlay: #262626;
+    --surface-input: #20252c;
+    --surface-hover: #272d35;
+    --surface-active: #303741;
+    --action: #be9157;
+    --action-hover: #d0a66c;
+    --action-fg: #181818;
+    --activity: #6fae99;
+    --link: #8eaabe;
+    --link-hover: #a6becf;
+    --code-inline-fg: #d2b284;
+    --focus: #b09666;
+    --selection: #867c9e;
+    --nav-active-indicator: var(--selection);
+    --success: #7acb8b;
+    --warning: #e3b65a;
+    --danger: #e06c75;
+    --activity-glow: rgba(111, 174, 153, 0.14);
+    --code-bg: rgba(0, 0, 0, 0.4);
+    --composer-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 18px 54px -38px rgba(0, 0, 0, 0.72);
+    --composer-shadow-empty: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 28px 82px -48px rgba(0, 0, 0, 0.78);
+    --composer-shadow-active: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 58px -44px rgba(0, 0, 0, 0.78);
+    --ink-rgb: 255 255 255;
+    --sheet-rgb: 255 255 255;
+    --text-primary: rgba(255, 255, 255, 0.9);
+    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-muted: rgba(255, 255, 255, 0.46);
+    --text-disabled: rgba(255, 255, 255, 0.25);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-medium: rgba(255, 255, 255, 0.1);
+    --radius-card: 8px;
+    --radius-button: 6px;
+    --radius-badge: 4px;
+  }
+
+  [data-theme="light"] {
+    color-scheme: light;
+    --mozi-app-bg: 246 247 249;
+    --mozi-sidebar-bg: 255 255 255; /* = surface-elevated (composer container) */
+    --mozi-main-bg: 246 247 249;
+    --mozi-surface-base: 246 247 249;
+    --mozi-surface-elevated: 255 255 255;
+    --mozi-surface-input: 247 248 250;
+    --mozi-surface-hover: 236 239 243;
+    --mozi-surface-active: 226 230 235;
+    --mozi-action: 139 94 47;
+    --mozi-action-hover: 113 73 35;
+    --mozi-activity: 57 123 104;
+    --mozi-link: 69 108 134;
+    --mozi-link-hover: 50 83 105;
+    --mozi-code: 122 84 48;
+    --mozi-focus: 139 107 62;
+    --mozi-selection: 102 91 122;
+    --mozi-success: 59 139 85;
+    --mozi-warning: 154 106 22;
+    --mozi-danger: 183 68 82;
+
+    --app-bg: #f6f7f9;
+    --sidebar-bg: #ffffff; /* = --surface-elevated (composer container; pre-existing pure-white deviation, tracked in DESIGN.md) */
+    --main-bg: #f6f7f9;
+    --surface-base: #f6f7f9;
+    --surface-elevated: #ffffff;
+    --surface-overlay: #ffffff;
+    --surface-input: #f7f8fa;
+    --surface-hover: #eceff3;
+    --surface-active: #e2e6eb;
+    --action: #8b5e2f;
+    --action-hover: #714923;
+    --action-fg: #ffffff;
+    --activity: #397b68;
+    --link: #456c86;
+    --link-hover: #325369;
+    --code-inline-fg: #7a5430;
+    --focus: #8b6b3e;
+    --selection: #665b7a;
+    --nav-active-indicator: var(--selection);
+    --success: #3b8b55;
+    --warning: #9a6a16;
+    --danger: #b74452;
+    --activity-glow: rgba(57, 123, 104, 0.16);
+    --code-bg: rgba(23, 25, 28, 0.055);
+    --composer-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 12px 32px -24px rgba(17, 24, 39, 0.2);
+    --composer-shadow-empty: 0 1px 0 rgba(255, 255, 255, 0.96) inset, 0 18px 48px -34px rgba(17, 24, 39, 0.18);
+    --composer-shadow-active: 0 1px 0 rgba(255, 255, 255, 0.94) inset, 0 14px 38px -28px rgba(17, 24, 39, 0.18);
+    --ink-rgb: 23 25 28;
+    --sheet-rgb: 255 255 255;
+    --text-primary: #17191c;
+    --text-secondary: #667085;
+    --text-muted: #8b95a5;
+    --text-disabled: #b3bac5;
+    --border-subtle: rgba(31, 41, 55, 0.1);
+    --border-medium: rgba(31, 41, 55, 0.16);
+  }
+
+  * {
+    border-color: var(--border-subtle);
+  }
+
+  body {
+    background-color: var(--app-bg);
+    color: var(--text-primary);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  .desktop-window-frame {
+    --desktop-titlebar-height: 38px;
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--app-bg);
+  }
+
+  /* A stable, native drag target that does not overlay interactive content. */
+  .desktop-titlebar-drag-region {
+    height: var(--desktop-titlebar-height);
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  .desktop-window-content {
+    height: calc(100vh - var(--desktop-titlebar-height));
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Fixed artifact takeovers use viewport coordinates. Keep their header out
+     of the native macOS frame, where the traffic-light controls live. */
+  .desktop-window-frame .artifact-panel {
+    top: var(--desktop-titlebar-height);
+  }
+
+  .desktop-window-drag-region {
+    -webkit-app-region: drag;
+    user-select: none;
+  }
+
+  .desktop-window-frame button,
+  .desktop-window-frame a,
+  .desktop-window-frame input,
+  .desktop-window-frame textarea,
+  .desktop-window-frame select,
+  .desktop-window-frame [role="button"],
+  .desktop-window-frame [role="menuitem"] {
+    -webkit-app-region: no-drag;
+  }
+
+  .desktop-window-content > .h-screen {
+    height: 100%;
+  }
+
+  .desktop-window-content > .min-h-screen {
+    min-height: 100%;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--ink-rgb) / 0.1);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--ink-rgb) / 0.2);
+  }
+}
+
+@layer components {
+  .card-surface {
+    background-color: var(--surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    box-shadow: var(--composer-shadow);
+  }
+
+  .glow-activity {
+    box-shadow: 0 0 20px var(--activity-glow);
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    font-size: 12px;
+    border-radius: var(--radius-badge);
+    font-weight: 500;
+  }
+
+  .divider {
+    height: 1px;
+    background: var(--border-subtle);
+  }
+
+  .section-header {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+
+  .btn-primary {
+    background-color: var(--action);
+    color: var(--action-fg);
+    border-radius: var(--radius-button);
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 150ms ease;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-primary:hover {
+    background-color: var(--action-hover);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: var(--radius-button);
+    padding: 8px 12px;
+    font-size: 14px;
+    transition: all 150ms ease;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .btn-ghost:hover {
+    background: rgb(var(--ink-rgb) / 0.05);
+    color: var(--text-primary);
+  }
+
+  .btn-success {
+    background-color: var(--success);
+    color: white;
+    border-radius: var(--radius-button);
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 150ms ease;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-success:hover { background-color: #67b978; }
+
+  .btn-danger {
+    background-color: var(--danger);
+    color: white;
+    border-radius: var(--radius-button);
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 150ms ease;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-danger:hover { background-color: #d35e68; }
+
+  .input-field {
+    background: var(--surface-input);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    padding: 10px 14px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 200ms ease, box-shadow 200ms ease, background 200ms ease;
+    width: 100%;
+  }
+  .input-field:focus {
+    background: var(--surface-input);
+    border-color: color-mix(in srgb, var(--focus) 50%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 12%, transparent), 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+  .input-field::placeholder {
+    color: var(--text-disabled);
+  }
+
+  .overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .duration-180ms {
+    transition-duration: 180ms;
+    animation-duration: 180ms;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  @keyframes typing-dot {
+    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+  }
+
+  @keyframes live-progress-slide {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+  }
+
+  @keyframes live-verb-shimmer {
+    0% { background-position: 120% 0; }
+    100% { background-position: -120% 0; }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .pulse-dot {
+      animation: pulse-dot 1.5s ease-in-out infinite;
+    }
+
+    .typing-dot:nth-child(1) { animation: typing-dot 1.2s infinite 0ms; }
+    .typing-dot:nth-child(2) { animation: typing-dot 1.2s infinite 200ms; }
+    .typing-dot:nth-child(3) { animation: typing-dot 1.2s infinite 400ms; }
+
+    .live-progress-indicator {
+      animation: live-progress-slide 1.4s ease-in-out infinite;
+    }
+
+    .live-verb-shimmer {
+      background: linear-gradient(90deg, rgb(var(--ink-rgb) / 0.32), rgb(var(--ink-rgb) / 0.62), rgb(var(--ink-rgb) / 0.32));
+      background-size: 220% 100%;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: live-verb-shimmer 2.4s ease-in-out infinite;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pulse-dot,
+    .typing-dot,
+    .live-progress-indicator,
+    .live-verb-shimmer {
+      animation: none !important;
+    }
+  }
+}

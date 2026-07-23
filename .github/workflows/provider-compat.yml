@@ -1,0 +1,69 @@
+name: Provider Compatibility Matrix
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Test mode
+        required: false
+        default: smoke
+        type: choice
+        options:
+          - smoke
+          - full
+
+jobs:
+  provider_compat:
+    name: Provider Compat (${{ github.event_name == 'schedule' && 'full' || (github.event_name == 'workflow_dispatch' && inputs.mode || 'smoke') }})
+    # Fork PRs have no access to API-key secrets — skip instead of failing red.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NO_UPDATE_NOTIFIER: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: mkdir -p reports/provider-compat
+      - name: Resolve mode
+        run: |
+          MODE="smoke"
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            MODE="full"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.mode }}" ]; then
+            MODE="${{ inputs.mode }}"
+          fi
+          echo "PROVIDER_COMPAT_MODE=$MODE" >> "$GITHUB_ENV"
+      - name: Run provider compatibility matrix
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: |
+          if [ "$PROVIDER_COMPAT_MODE" = "full" ]; then
+            pnpm test:provider-compat:full
+          else
+            pnpm test:provider-compat:smoke
+          fi
+      - name: Upload provider compatibility artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: provider-compat-${{ env.PROVIDER_COMPAT_MODE }}
+          path: reports/provider-compat
+          if-no-files-found: warn

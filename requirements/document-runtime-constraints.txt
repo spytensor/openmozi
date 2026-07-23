@@ -1,0 +1,27 @@
+# Fully resolved on Python 3.11 for deterministic Web/Desktop document images.
+beautifulsoup4==4.15.0
+certifi==2026.6.17
+cffi==2.1.0
+charset-normalizer==3.4.9
+click==8.4.2
+cryptography==49.0.0
+et-xmlfile==2.0.0
+flatbuffers==25.12.19
+idna==3.18
+lxml==6.1.1
+magika==0.6.3
+markdownify==1.2.3
+onnxruntime==1.27.0
+packaging==26.2
+pdfminer.six==20260107
+protobuf==7.35.1
+pycparser==3.0
+pypdfium2==5.11.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+requests==2.34.2
+six==1.17.0
+soupsieve==2.8.4
+typing_extensions==4.16.0
+urllib3==2.7.0
+XlsxWriter==3.2.9

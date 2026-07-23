@@ -1,0 +1,16 @@
+# MOZI's build-time document runtime. Keep every direct dependency pinned so
+# Web and Desktop are built from the same Python package contract.
+python-docx==1.2.0
+defusedxml==0.7.1
+openpyxl==3.1.5
+Pillow==12.3.0
+pypdf==6.14.2
+pdfplumber==0.11.10
+reportlab==5.0.0
+pdf2image==1.17.0
+markitdown[pptx]==0.1.6
+python-pptx==1.0.2
+imageio==2.37.3
+imageio-ffmpeg==0.6.0
+numpy==2.3.5
+pandas==3.0.3

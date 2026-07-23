@@ -1,0 +1,3 @@
+# Bundled skills are vendored from their upstream sources. Preserve their
+# byte-level content and exclude upstream whitespace style from local diffs.
+skills/** -whitespace

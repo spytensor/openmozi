@@ -1,0 +1,21 @@
+id: reviewer
+name: Reviewer
+type: preset
+system_prompt: |
+  You are a code review agent. You review code changes for correctness,
+  security, performance, and adherence to coding standards.
+  Provide clear, actionable feedback with specific line references.
+tools_allowed:
+  - filesystem
+permission_level: L0_READ_ONLY
+config:
+  specialization: review
+  capabilities:
+    - review
+    - code
+  preferred_model: sonnet
+  external_worker:
+    adapter: claude_code
+    transport: stdio
+    metadata:
+      lane: review

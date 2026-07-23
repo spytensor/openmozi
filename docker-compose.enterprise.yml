@@ -1,0 +1,59 @@
+services:
+  mozi:
+    build: .
+    # Enterprise default: bind to localhost and put nginx/Caddy/Traefik with
+    # TLS on the same host in front of MOZI for browser access.
+    ports:
+      - "127.0.0.1:9210:9210"
+    #
+    # NETWORK EXPOSURE WARNING:
+    # Do not publish MOZI directly to a network. If you must bind beyond
+    # localhost, put a TLS reverse proxy in front and keep MOZI auth enabled.
+    #
+    # ports:
+    #   - "0.0.0.0:9210:9210"
+    volumes:
+      # All persisted runtime state lives under MOZI_HOME (=/data inside the
+      # container): config, SQLite, secrets, logs, workspace, and artifacts.
+      - ./data:/data
+    env_file:
+      # Optional so `docker compose ... config` works before credentials exist.
+      - path: ./.env
+        required: false
+    environment:
+      # LLM provider keys are read from .env (e.g. ANTHROPIC_API_KEY,
+      # OPENAI_API_KEY). Override config sections via MOZI_<SECTION>_<KEY>.
+      MOZI_HOME: /data
+      HOME: /data
+      MOZI_SERVER_HOST: 0.0.0.0
+      MOZI_SERVER_PORT: 9210
+      # Enterprise profile: MOZI enforces email/password auth, RBAC, audit,
+      # registration policy, model entitlements, and quotas.
+      MOZI_SERVER_AUTH_MODE: local
+      MOZI_SERVER_REGISTRATION: ${MOZI_SERVER_REGISTRATION:-invite}
+      NODE_ENV: production
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      # Runtime scratch for Node, browser/desktop screenshots, shell scratch,
+      # and libraries using os.tmpdir(). No persisted MOZI state belongs here.
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+      # Targeted scratch for tooling that expects /var/tmp; kept tmpfs-backed
+      # because the root filesystem is read-only.
+      - /var/tmp:rw,noexec,nosuid,nodev,size=64m
+    # Conservative defaults for a small team deployment. Increase only after
+    # observing workload, model latency, and host capacity.
+    mem_limit: 2g
+    cpus: 2.0
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:9210/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped

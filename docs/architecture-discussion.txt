@@ -1,0 +1,387 @@
+AI代理系统的核心架构拆解
+This is a copy of a chat between Claude and Chaojie. Content may include unverified or unsafe content that do not represent the views of Anthropic. Shared snapshot may contain attachments and data not displayed here.
+我们讨论一个设计，你不需要输出非常多的内容，就是讨论。现在非常火的openclaw，以及codex，Claude code这种，本质上是啥？是完美的终端cli+操作电脑的mcp+sub agent机制+记忆系统+skill系统吗？
+Feb 20
+好问题，Chaojie。我来拆解一下：
+你说的这几个系统（OpenClaw、Codex、Claude Code），本质上确实可以归纳为你列的那几个模块，但我觉得有几个层次值得区分：
+核心本质是：LLM + Code Execution Loop
+最底层就是一个"思考-执行-观察"的循环。LLM生成代码/命令 → 在沙箱里执行 → 把结果喂回LLM → 继续推理。这个loop才是灵魂。
+你列的那些组件，我逐个看：
+	•	CLI — 更多是交互形态的选择，不是核心。选CLI是因为开发者友好、低延迟、容易pipe。但本质上web UI也能做同样的事。
+	•	操作电脑的能力（MCP/tool use） — 这个是关键能力层，但不一定是MCP。Codex用的是自己的沙箱执行环境，Claude Code也是直接bash + file操作。MCP更像是一个标准化的工具接入协议，不是必须的。
+	•	Sub agent — 这个看实现。Claude Code目前更像是单agent + tool的模式，不是严格意义上的multi-agent。Codex也是。真正做sub agent拆分的反而是像Devin这种。
+	•	记忆系统 — 是的，但目前都还比较初级。Claude Code的CLAUDE.md、project memory这些，本质是persistent context injection。
+	•	Skill系统 — 这个其实更多是prompt engineering层面的事，比如预置的best practice、模板。不算独立的"系统"。
+所以我觉得更精确的抽象是：
+LLM reasoning + sandboxed code execution + persistent context + tool interface
+Sub agent和skill更像是上层的优化策略，不是架构核心。你觉得呢？
+是很像，但是openclaw却能让贾维斯的实现更接近现实了，尤其自我迭代的能力。有啥技术或者架构，或者通信协议的变化吗？你可不能幻觉啊，这都是非常新的东西，我不认为你的训练数据里会有
+Feb 20
+你说得对，让我先搜一下确认实际情况，不瞎说。
+Searched the web
+好，现在我有足够信息了。来聊聊OpenClaw和你说的"贾维斯"之间的关键差异。
+你之前的分析框架（CLI + MCP + sub agent + memory + skill）其实已经很接近了，但OpenClaw让"贾维斯"更接近现实的核心突破，我觉得不在于某个单一技术，而在于几个架构决策的组合：
+1. Gateway as Control Plane — 永远在线的hub-and-spoke
+这是跟Claude Code/Codex最本质的区别。后者是"你发起，它响应"的request-response模式。OpenClaw的Gateway是一个常驻的WebSocket server（port 18789），所有channel（WhatsApp/Telegram/Slack/iMessage等）都是spoke。这意味着：
+	•	Agent可以被外部事件触发（cron、webhook、incoming message），不需要人主动发起
+	•	多个channel共享同一个session state
+	•	它是"always-on"的，这才是贾维斯感的来源
+2. 自我迭代的关键：LLM可以写skill → 注册skill → 自己使用skill
+这是你说的"自我迭代"的具体机制。OpenClaw的skill就是SKILL.md + 脚本文件，agent可以在runtime动态发现skill，而且只注入当前turn相关的skill，避免prompt膨胀 。更关键的是，LLM自己可以写代码、保存并执行，LLM变成了开发者本身 。加上ClawHub这个skill registry，agent理论上可以：发现需求 → 写skill → publish → 后续自己调用。这是一个自举闭环。
+3. 记忆架构：Markdown-first，人可读可编辑
+SOUL.md（人格）、USER.md（用户上下文）、MEMORY.md（长期记忆） 这套设计，跟传统的vector DB记忆有本质区别——人类可以直接审查和编辑agent的记忆。这不是技术革新，但是一个很聪明的工程决策。
+4. Multi-agent routing — 不是sub-agent，是独立agent隔离
+每个agent有独立的workspace（SOUL.md、AGENTS.md、USER.md）、独立的session store、独立的auth profiles 。这不是传统的"主agent调sub-agent"，而是多个独立agent通过Gateway路由，各自有自己的人格和权限边界。
+5. 通信协议方面
+没有什么全新的协议发明。核心就是WebSocket + Agent Client Protocol (ACP)，一个标准化的agent-to-editor通信协议 。再加上跟Tailscale的集成做远程访问。工程上很扎实，但不是协议层面的突破。
+所以回到你的问题——为什么它更像贾维斯？
+不是因为某个单一技术突破，而是它把**"always-on gateway + 多channel接入 + 自我skill生成 + 本地执行 + persistent markdown memory"**这几个东西工程化地组合在了一起。Claude Code和Codex是"你召唤它来干活"，OpenClaw是"它一直在那里，随时可以自己干活"。这个从pull到push的转变，才是本质差异。
+你怎么看？你在Zand做的AI平台有没有可能借鉴这种架构？
+
+Files hidden in shared chats
+
+和我这个架构设计还是有些出入。而且不够纯粹。太重了。我就是想要一个永远online，但是又完整拥有Claude code的那种架构，主agent+subagent+skills（这个非常好，决定了未来能不能自动进化能力）。你有啥建议？
+Feb 20
+你这个架构图很有意思，Chaojie。我来对比着聊。
+你这个设计其实比OpenClaw更有野心——你是multi-model orchestration，Mozi（Opus 4）做纯调度，下面按能力分工：Research用Kimi/Gemini，Development用Claude Code/GLM/Codex，Review用GLM-5。这是一个AI公司的架构，不是个人助手。
+但你说"太重了"，我同意。几个问题：
+1. 你真正想要的核心是什么？
+听起来是：永远在线的Claude Code + 自我进化能力。那其实你需要的比你图里画的简单得多：
+	•	一个always-on的gateway（这点直接借鉴OpenClaw）
+	•	一个主agent（Opus级别，做推理和调度）
+	•	sub-agent能力（让主agent可以spawn Claude Code session去干活）
+	•	skill系统（agent可以自己写、注册、后续调用）
+	•	git-versioned memory（你图里已经有了，这个设计很好）
+2. 你图里的"重"在哪？
+Multi-model是最大的复杂度来源。Kimi K2.5、Gemini Flash、GLM-4.7、GLM-5、Codex GPT-5.3、DeepSeek……每个模型有不同的API格式、能力边界、上下文限制、cost结构。Mozi作为orchestrator需要理解所有这些差异来做routing决策，这个routing逻辑本身就是个巨大的工程。
+3. 我的建议——做减法：
+Phase 1：最小可行贾维斯
+	•	Gateway：一个Node.js或Python的常驻进程，WebSocket + Telegram/WhatsApp接入
+	•	主Agent：Claude Opus，负责理解意图、拆解任务、质量控制
+	•	执行层：只用Claude Code（通过API spawn sub-agent session），不搞multi-model
+	•	Skill系统：照搬OpenClaw的SKILL.md思路，markdown-first，agent可以自己写新skill
+	•	Memory：你的git-versioned方案，保留
+Phase 2：再加多模型
+	•	等Phase 1跑通了，再按需引入：便宜模型做批量任务、特定模型做特定domain
+	•	此时routing逻辑有真实数据支撑，而不是先验假设
+4. 关于"自动进化"这个关键点
+你需要的闭环是：
+遇到新任务 → 发现没有现成skill → 主agent写一个skill → 测试 → 注册到本地registry → 下次自动调用
+这个闭环的关键不是技术难度，而是skill的schema设计。你需要定义清楚：skill的输入输出是什么、前置条件是什么、agent怎么发现它。OpenClaw用SKILL.md frontmatter做这个，挺轻量的，值得参考。
+总结：你的架构图是终态，但不该是起点。 先做一个"always-on Claude Code + skill自举"的最小内核，跑起来再加层。你觉得呢？
+不对，不是我的重，是我觉得openclaw重。subagent 你可以搜索一下Claude code咋做的，还有他的task management，都很好。subagent可以预设，也可以有主agent自主构建（也可以叫做去招聘临时外包，干完活可以释放，发现有人没有用的可以进化留下来特征）。不知道我描述清楚没
+Feb 20
+明白了，我理解反了。你是觉得OpenClaw太重，你自己的架构才是你想要的方向。让我搜一下Claude Code的sub-agent和task management机制。
+Searched the web
+你描述得非常清楚。现在我理解你的完整想法了。
+Claude Code的sub-agent机制确实很优雅：每个subagent有独立context window、自定义system prompt、独立工具权限 ，而且subagent本质上就是Task Tool之上的管理层，底层共享并行执行引擎，最多10个并发 。再加上新的Task系统支持DAG依赖图，task持久化到本地文件系统，多session可以共享同一个task list 。
+你想要的架构其实可以这样理解：
+你的Mozi = 一个always-on的Claude Code主agent，它有三种方式获得sub-agent：
+	1.	预设的specialist（你图里的Kimi、Gemini、Claude Code等角色）— 常驻编制
+	2.	主agent按需spawn的临时agent（"招外包"）— 遇到新任务类型，Mozi自己定义一个subagent的prompt+tool权限，干完活就释放
+	3.	从临时到常驻的进化路径（关键创新）— 如果某个临时agent被反复spawn、且表现好，Mozi可以把它的配置固化成一个skill或permanent subagent。这就是你说的"发现有用就留下来"
+这比OpenClaw纯粹得多。OpenClaw的"重"在于：它要自己搞Gateway、搞channel adapter（WhatsApp/Telegram/Slack每个都是一坨代码）、搞session管理、搞security……这些都是基础设施层的脏活，不是智能层的创新。
+你的思路更像是：站在Claude Code的肩膀上，只加两层东西：
+	•	上层：一个always-on的daemon + 触发机制（cron/webhook/message）
+	•	下层：skill registry + subagent生命周期管理（spawn → evaluate → promote/release）
+subagent的"自然选择"机制才是最有意思的部分。你可以给每个临时subagent打分：完成率、token效率、output质量。跑几次之后，数据自然告诉你哪些值得留，哪些该释放。这就是你说的"进化"。
+这个方向比OpenClaw干净太多了。OpenClaw在解决"怎么连WhatsApp"的问题，你在解决"怎么让agent自我进化"的问题。层次不一样。
+而且，我肯定不会直接用Claude code，我需要复刻他的这些东西，然后搭建我自己的，我的系统。今天算是架构层面的探索，怎么做好同步，做好配置，做好性能和安全的边界，还有内存。这对我们选择技术栈很关键。你觉得呢？
+Feb 20
+完全理解，你要的是自建，不是套壳。Claude Code的设计是参考，不是依赖。
+那我们今天就把几个关键架构决策点过一遍，这些决策会直接决定你后面的技术栈选择：
+1. 主agent ↔ subagent 的通信机制
+Claude Code用的是进程内的Task Tool调用，subagent本质是同一个Node进程里的轻量实例。但你自建的话有几个选项：
+	•	进程内（like Claude Code）：最低延迟，但crash会互相影响，内存共享难隔离
+	•	子进程/container：每个subagent是独立进程，通过stdin/stdout或gRPC通信。隔离好，但spawn开销大
+	•	WebSocket + 消息队列：类似OpenClaw的Gateway模式，松耦合，但复杂度高
+对你来说，如果subagent需要动态spawn和释放，子进程模式可能最合适。主agent通过一个轻量的task runner去fork subagent进程，通信用JSON-RPC over stdio，简单可靠。跟Claude Code的思路一致但你自己控制生命周期。
+2. 状态同步：Task DAG怎么存、怎么共享
+Claude Code把task存在~/.claude/tasks/，多session通过文件系统同步。这个方案简单但有局限——多机部署就挂了。你的选择：
+	•	文件系统 + git（你图里已有）：单机够用，有版本历史，人可读。适合Phase 1
+	•	SQLite + WAL模式：单文件数据库，支持并发读，轻量但强于纯文件
+	•	Redis/NATS：如果未来要多机、实时pub/sub，但Phase 1没必要
+建议起步用SQLite存task DAG（依赖关系天然适合关系型），memory和skill用markdown + git。两套存储各司其职。
+3. Subagent生命周期管理——你说的"招聘/释放/进化"
+这个需要一个registry，核心schema大概是：
+SubAgent {
+  id, name, description
+  system_prompt        # 定义这个agent的能力
+  tools_allowed        # 工具权限边界
+  status: temporary | permanent
+  spawn_count          # 被调用次数
+  success_rate         # 完成质量
+  avg_token_cost       # 效率指标
+  created_by: preset | auto_generated
+  parent_task_id       # 哪个任务催生了它
+}
+主agent的"进化决策"逻辑：spawn_count > N && success_rate > threshold → promote to permanent。反过来，permanent agent长期不被调用 → demote或archive。这个逻辑本身可以是一个meta-skill。
+4. 安全边界
+这是最关键的设计决策之一：
+	•	工具权限分级：read-only / read-write / shell-exec / network，每个subagent创建时必须声明
+	•	sandbox策略：临时subagent默认在受限sandbox里跑（比如不能访问网络、不能写skill registry）。只有promote成permanent之后才能解锁更多权限
+	•	human-in-the-loop gate：什么操作需要人批准？建议至少两个hard gate——skill注册和permanent promotion必须人确认
+5. 内存/上下文管理
+这决定了你用什么语言和runtime：
+	•	每个subagent的context window是独立的，这意味着你需要管理多个并发的LLM session
+	•	主agent需要一个压缩的全局视图——不是所有subagent的完整上下文，而是每个subagent的摘要+状态
+	•	长期记忆（你的MEMORY.md）和工作记忆（当前task上下文）要分开
+技术栈建议：
+考虑到你的需求（always-on daemon、多进程subagent、task DAG、skill registry）：
+	•	Runtime：Python（asyncio）或TypeScript（Node.js）。考虑到你要对接多个LLM的API、做JSON-RPC，Python生态更成熟。但Node的并发模型更适合长连接gateway
+	•	LLM调用层：直接用各家SDK，不要套LangChain这种框架。你需要精细控制每次调用的system prompt、tool definition、token budget
+	•	Task存储：SQLite（单机）→ PostgreSQL（未来多机）
+	•	Skill/Memory：Markdown + Git，跟你现有设计一致
+	•	进程管理：Python的subprocess + asyncio，或者直接用Docker SDK做容器级隔离
+	•	触发层：APScheduler（cron）+ FastAPI（webhook endpoint）+ Telegram Bot API（消息接入）
+你觉得这些方向对吗？还是你对某个点有不同的想法？
+你再调研一下，有什么地方我没没有考虑到不？尤其是如何让它可以执行所有命令，比如模拟浏览器的playwright啊。还有就是架构的耦合程度，如果要单独优化某一个模块，比如记忆模块，这个是最可能在未来技术更新有重大突破的。比如大脑的那个，是否需要让他有一个层去对接那些终端命令啥的，毕竟并不是所有的模型对tool都很牛，但是我们可以有一个层调教的很好，这样未来下游运行以及自我纠错机制就非常完善
+Feb 20
+好问题，让我系统性地调研一下你可能没覆盖到的点。
+Searched the web
+好，调研完了。你提的几个点都非常关键，我来系统性地补充你可能还没覆盖到的维度：
+
+一、Tool Execution Abstraction Layer — 你说的"中间层"，这个是最关键的缺失
+你的直觉完全对。不应该让每个LLM直接去调tool，而应该有一个**Tool Execution Layer (TEL)**夹在"大脑"和"手脚"之间。原因：
+	•	不同模型的tool calling能力参差不齐（Claude很强，GLM就弱一些）
+	•	你需要一个统一的地方做：参数校验、权限检查、执行沙箱、结果格式化、错误捕获
+	•	这一层可以被单独调教和优化，不依赖底层模型的tool use能力
+架构上应该是：
+Brain (Mozi/主Agent)
+  ↓ 发出的是"意图"(intent)，不是raw tool call
+Tool Execution Layer (TEL)
+  - Intent → Tool Router（选择具体工具）
+  - Parameter Validator（Pydantic schema校验）
+  - Sandbox Manager（决定在哪执行：本地/Docker/远程）
+  - Result Formatter（统一输出格式给Brain）
+  - Error Handler（失败重试/降级/上报）
+  ↓
+Actual Tools: Playwright, Shell, FileSystem, API calls...
+这层的好处是双向解耦：上面换模型不影响工具调用，下面加新工具不需要改Brain的prompt。而且未来如果某个模型的function calling进化了，你只需要调整TEL的上游接口，不用动下游。
+二、浏览器自动化——不只是Playwright
+Playwright通过MCP已经可以被AI agent原生控制了，但你需要考虑两种模式：
+	•	Snapshot模式（读accessibility tree，快、轻量、不需要vision模型）——日常自动化用这个
+	•	Vision模式（截图+多模态理解，慢但能处理复杂UI）——处理验证码、动态渲染用这个
+建议：TEL层里把浏览器操作抽象成两套adapter，根据任务复杂度自动选择。简单表单填写用Snapshot，遇到失败自动fallback到Vision。
+三、记忆模块的解耦——你说得对，这是最可能有重大突破的
+你现在的git-versioned markdown方案很好，但建议架构上预留一个Memory Interface层：
+Agent ↔ Memory Interface (统一API) ↔ 具体实现
+                                      ├─ Markdown + Git (当前)
+                                      ├─ Vector DB (未来语义检索)
+                                      ├─ Graph DB (未来关系推理)
+                                      └─ ???（未来突破性技术）
+Memory Interface对外只暴露几个方法：store(), recall(), forget(), summarize()。具体底层用什么存储，agent不需要知道。这样未来出了新的记忆技术（比如类脑计算的突破），你只需要加一个新的adapter。
+另外，记忆应该分三层：短期（当前task context）、中期（planning目标和中间决策）、长期（patterns、templates、可复用知识） 。你的MEMORY.md目前更像是长期记忆，短期和中期需要另外设计。
+四、自纠错机制——你没提但非常重要
+这是production-grade agent和demo的分水岭。最好的模式是把self-healing从primary agent完全分离出来，用一个out-of-band supervisor来做 。具体来说：
+	•	执行前校验：TEL层在执行每个tool call前，用Pydantic做schema validation
+	•	执行后验证：对比预期输出和实际输出，不匹配就触发retry或rollback
+	•	checkpoint机制：每个成功完成的step保存checkpoint，失败时可以回退到最近的checkpoint而不是从头开始 
+	•	错误上下文压缩：把raw error log直接塞回prompt会confuse模型，要先summarize再喂回去 
+	•	step budget：给每个task设最大步数，防止无限loop
+这些逻辑都应该放在TEL层和一个独立的Monitor模块里，不是Brain自己做。
+五、可观测性 (Observability) — 你完全没提但必须有
+每个agent的每次tool call、每次LLM调用、每次decision都需要trace。不然出了问题你没法debug。需要：
+	•	Trace ID：每个task一个trace，所有subagent的操作都关联到这个trace
+	•	Cost tracking：每个subagent的token消耗、API调用次数，这直接影响你的"进化评分"
+	•	Latency tracking：哪个tool慢了、哪个model response慢了
+	•	存储建议：OpenTelemetry格式 → 写入SQLite或ClickHouse
+六、模块耦合度评估——你的架构应该长这样：
+┌─────────────────────────────────────────────┐
+│              Trigger Layer                   │
+│    (Cron / Webhook / Telegram / API)         │
+└──────────────────┬──────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────┐
+│           Brain (Mozi/主Agent)              │
+│   Planning · Decomposition · Delegation     │
+│   ┌──────────────────────────────────┐      │
+│   │    SubAgent Lifecycle Manager    │      │
+│   │  spawn / evaluate / promote     │      │
+│   └──────────────────────────────────┘      │
+└──────────────────┬──────────────────────────┘
+                   ↓ intent (不是raw tool call)
+┌─────────────────────────────────────────────┐
+│      Tool Execution Layer (TEL)             │
+│  Router · Validator · Sandbox · Formatter   │
+│  Error Handler · Retry · Fallback           │
+└──────────────────┬──────────────────────────┘
+                   ↓
+┌─────────────────────────────────────────────┐
+│           Capability Layer                  │
+│  Shell · Playwright · FileSystem · Git      │
+│  API Client · Docker · Database             │
+└─────────────────────────────────────────────┘
+
+  侧挂模块（均通过Interface解耦）：
+  ├─ Memory Interface → [Markdown+Git / VectorDB / ...]
+  ├─ Skill Registry → [SKILL.md + metadata]
+  ├─ Monitor/Observer → [Traces + Metrics + Costs]
+  └─ Task Store → [SQLite DAG + Status]
+每一层通过定义好的Interface通信，任何一个模块可以单独替换和升级。Brain不知道底下用的是Playwright还是Selenium，TEL不知道上面是Claude还是GLM，Memory不知道被谁调用。
+最关键的设计原则：Brain只发intent，不发command。 这就是你说的"有一个层调教的很好"——TEL层负责把模糊的intent翻译成精确的command，做参数补全、做合法性检查、做执行和纠错。这样即使Brain用的是tool calling能力弱的模型，只要TEL够强，整个系统就能稳定运行。
+你觉得这个分层有没有需要调整的地方？
+再补充一些信息，我在深度使用openclaw一段时间后发现了一些问题：1. Subagent总是失败，老是gateway断开，也可能是他们本身的架构就存在非常多的问题。2. 对话混乱，主agent在接到一个任务去干活时，没法再次处理用户的新对话，并且如果其他子任务状态更新了比如完成，比如失败，这些到达用户的顺序乱七八糟的，一点不像一个智能体。3. 动不动卡住，没有回复。4. 跨对话，或者超过token上限处理不好，没有一套非常完善的跨文件session压缩或者总结或者续力或者动态记忆的机制。5. 暂时想起来那么多，好像还有各种超时的问题，各种工具调用超时
+Feb 20
+这些痛点非常有价值，Chaojie。因为这些都是你自建系统必须从架构层面解决的问题，而不是靠打补丁。让我逐个拆解：
+问题1：SubAgent Gateway断开
+OpenClaw的根本问题是单进程Gateway模式，一个WebSocket漏洞就能影响所有东西，没有隔离边界 。你的系统设计要避免这个：
+	•	每个subagent应该是独立进程，通过消息队列（不是WebSocket直连）跟主agent通信
+	•	主agent和subagent之间加一个message broker（轻量的话用ZeroMQ，稳妥用Redis Streams）
+	•	subagent crash不影响主agent，主agent检测到心跳丢失后可以auto-respawn
+	•	关键点：subagent是disposable的。挂了就杀掉重建，不要试图恢复一个corrupted进程
+问题2：对话混乱——这是最核心的UX问题
+这本质上是一个并发消息排序 + 会话状态机的问题。你需要：
+消息优先级队列：不是所有消息都平等。用户新输入 > 任务失败通知 > 任务完成通知 > 进度更新。主agent有一个inbox，按优先级处理。
+会话状态机：
+IDLE → 可以接受任何用户输入
+WORKING → 用户输入进入"pending queue"
+         → subagent状态更新进入"notification buffer"
+RESPONDING → 主agent正在组织回复
+         → 先处理pending user input
+         → 再批量汇报subagent状态变化
+关键设计：主agent永远不应该被阻塞。它是dispatcher，不是worker。如果当前模型在处理一个long-running task，那它不应该自己干，而是spawn一个subagent去干，自己立刻回到IDLE状态等待用户新输入。
+通知聚合：不要每个subagent状态变化都即时推给用户。设一个200-500ms的debounce窗口，把同一时间段内的多个状态变化合并成一条结构化消息：
+"✅ 代码review完成 | ⏳ 单元测试运行中 (3/7) | ❌ API集成失败，已自动重试"
+问题3：卡住没有回复
+这需要多层超时+watchdog机制：
+Layer 1: LLM API调用超时（30s）→ 重试一次 → 降级到faster model
+Layer 2: Tool执行超时（per-tool配置）
+         - Shell命令: 60s
+         - Playwright: 120s  
+         - API call: 15s
+         → 超时后kill进程，返回timeout error给TEL
+Layer 3: Task级别超时（10min）→ 挂起，通知用户
+Layer 4: Watchdog进程（独立于主agent）
+         - 每5s检查主agent心跳
+         - 检查所有subagent心跳
+         - 发现无响应 → 尝试graceful restart → 失败则force kill + 通知用户
+关键原则：任何操作都必须有timeout，没有exception。OpenClaw卡死就是因为某些code path没有设timeout。
+问题4：跨对话 + token溢出——这是最难的架构问题
+这需要一套Context Lifecycle Management：
+┌──────────────────────────────────────────────┐
+│          Context Window (e.g. 200k)          │
+│  ┌────────────┐ ┌──────────┐ ┌────────────┐ │
+│  │ System +   │ │ Working  │ │ Current    │ │
+│  │ Long-term  │ │ Memory   │ │ Dialogue   │ │
+│  │ Memory     │ │ (active  │ │            │ │
+│  │ (固定20%)  │ │ tasks)   │ │            │ │
+│  │            │ │ (动态30%)│ │ (动态50%)  │ │
+│  └────────────┘ └──────────┘ └────────────┘ │
+└──────────────────────────────────────────────┘
+动态压缩策略：
+	•	Token Monitor：实时统计当前context使用率
+	•	70%水位线：触发"soft compaction"——把早期对话用LLM总结成摘要，保留最近N轮原文
+	•	85%水位线：触发"hard compaction"——把working memory里已完成的task细节归档到外部存储，只保留结论
+	•	95%水位线：触发"session rotation"——保存完整session到文件（你的git-versioned系统），开新session，注入压缩后的context summary
+跨session续力：每个session结束前，自动生成一份Session Handoff Document：
+json
+{
+  "session_id": "xxx",
+  "task_status": {"task_1": "completed", "task_2": "in_progress:step3"},
+  "key_decisions": ["选择了React而非Vue", "API用REST不用GraphQL"],
+  "unresolved_questions": ["数据库选型待定"],
+  "active_subagents": [{"id": "sa_3", "role": "test_runner", "status": "running"}],
+  "file_changes": ["src/api.py: +120 lines", "tests/: 3 new files"]
+}
+新session启动时，先注入这份handoff document，agent就能无缝接续。
+问题5：工具调用超时
+这个在TEL层解决。每个tool需要在注册时声明自己的SLA：
+python
+@tool_registry.register
+class PlaywrightTool:
+    timeout = 120        # 硬超时
+    soft_timeout = 60    # 软超时，触发progress check
+    retry_count = 2
+    retry_strategy = "exponential_backoff"
+    fallback = "screenshot_and_report"  # 超时后的降级策略
+    sandbox = "docker"   # 执行环境
+    
+@tool_registry.register  
+class ShellCommand:
+    timeout = 60
+    soft_timeout = 30
+    retry_count = 1
+    fallback = "report_error_with_stderr"
+    sandbox = "restricted_shell"  # no network, read-only fs except /tmp
+软超时到了，TEL会检查进程是否还活着、是否有输出。如果还在正常工作就继续等，如果已经hang了就直接kill。
+
+总结：你发现的这5个问题映射到架构上是4个独立的子系统
+问题	对应子系统	核心设计原则
+SubAgent断开	进程管理 + 消息队列	subagent是disposable的，crash-and-restart
+对话混乱	会话状态机 + 消息优先级	主agent永不阻塞，通知做debounce聚合
+卡住	多层Watchdog	一切操作必须有timeout
+Token溢出	Context Lifecycle Manager	分水位线触发不同压缩策略
+工具超时	TEL层的Tool SLA	每个tool声明timeout+fallback
+这5个都是OpenClaw没解决好的问题，也是你自建系统最大的差异化优势。你在实际使用中踩的这些坑，直接变成了你系统的设计spec。要不要我们挑其中一个先深入到代码级别的设计？
+不需要，我们只进行架构讨论，技术选型啥的，不去涉及细节，我这些都设计好了以后，会再来找你实现。还有一个就是主agent和subagent之间的通信，就是比如你是团队领导，你派活下去了，你肯定不需要知道细节，你只需要知道必要的信息和验收就行，对吧？再有一个就是，我们这个架构里，token的优化也是重点，毕竟不能动不动启动一个对话直接30%的window 没有了。
+Feb 20
+说得对，两个好问题。
+主agent ↔ subagent通信：团队领导模式
+你的比喻很精确。主agent不应该看到subagent的"工作过程"，只需要一个结构化的汇报协议：
+下派时：主agent只给subagent一个task brief
+	•	目标是什么（what）
+	•	验收标准是什么（done criteria）
+	•	约束条件（不能动哪些文件、token budget、timeout）
+	•	不告诉它怎么做（how）
+执行中：subagent只在两种情况主动上报
+	•	被阻塞了（需要权限、需要澄清、依赖另一个task的输出）
+	•	关键里程碑（如果task有多步，完成关键节点时报一句）
+其他时候subagent闭嘴干活，主agent不需要看它的思考过程和tool call细节。
+完成时：subagent返回一个标准化的Result Envelope
+status: success | failed | partial
+output: [具体产出物的引用，比如文件路径、代码diff]
+summary: 一句话说做了什么
+cost: {tokens_used, tools_called, time_elapsed}
+issues: [执行中遇到的问题，可选]
+主agent拿到这个envelope，做验收判断：output符合done criteria吗？不符合就reject+feedback，让subagent再来。符合就close task。
+关键点：envelope的大小是固定可控的，不会随着subagent内部工作的复杂度膨胀。一个做了50步tool call的subagent，和一个做了3步的subagent，返回给主agent的envelope格式和大小是一样的。这直接解决了你说的token问题。
+
+Token优化——这是整个架构的隐形约束
+你说的"动不动30%没了"，我认为问题出在几个地方：
+1. System Prompt膨胀
+OpenClaw的问题是它把所有skill description、所有tool schema、所有personality设定一股脑塞进system prompt。你应该做按需注入：
+	•	固定层（<5% window）：agent身份 + 核心行为准则 + 输出格式约定
+	•	任务层（按需加载）：当前task相关的skill和tool schema才注入，其他不加载
+	•	上下文层（按需加载）：从Memory Interface拉取的相关记忆
+这跟OpenClaw的skill注入思路一致，但要更激进——tool schema也做懒加载。主agent启动时只知道有哪些tool category（browser / shell / file / api），不加载具体schema。决定要用browser类工具时，才把Playwright的具体参数schema注入。
+2. SubAgent的context要极简启动
+每个subagent spawn时，不应该继承主agent的完整context。它只需要：
+	•	自己的system prompt（角色定义）
+	•	task brief（上面说的那几条）
+	•	相关文件/代码片段的引用（不是全文，是摘要或路径）
+这样一个subagent启动时可能只占5-10% window，剩下90%都是它的工作空间。
+3. Multi-model的token经济学
+这也是你架构里multi-model的真正价值所在——不是为了"不同模型擅长不同事"，而是token成本分级：
+角色	模型	原因
+主agent（Mozi）	Opus级	需要强推理做planning和验收，但对话轮次少
+复杂subagent	Sonnet级	干活主力，平衡能力和成本
+简单subagent	Haiku级/Flash级	格式转换、摘要、简单代码生成
+TEL层的intent解析	小模型或规则引擎	不一定需要LLM，规则能搞定就不用模型
+主agent作为"领导"，调用次数少但每次要精准。subagent作为"员工"，调用频繁但用便宜的模型。TEL层能不用模型就不用模型。
+4. 对话历史的滑动窗口
+主agent跟用户的对话，不应该是无限累积的。建议：
+	•	保留最近3-5轮原文
+	•	更早的对话自动压缩成Running Summary（一段结构化摘要）
+	•	Running Summary本身也有上限（比如2k tokens），超了就做二次压缩
+	•	关键决策和事实提取到Memory层永久存储
+这样主agent的对话context永远是：固定system prompt + running summary + 最近几轮 = 可预测的、稳定的token用量。
+
+这些token优化策略映射到架构上，需要一个新的横切模块：Token Budget Manager
+它的职责：
+	•	实时追踪每一层的token占用
+	•	在spawn subagent前计算：剩余budget够不够？不够就先做compaction
+	•	为每个subagent分配token budget上限
+	•	在对话过程中动态触发summary/compaction
+	•	提供dashboard数据给Monitor模块
+这个模块跟Memory Interface、TEL、SubAgent Manager都有交互，是一个横切关注点，不属于任何一层但影响所有层。
+你之前架构图里没有这个模块，建议加上。它跟你的cost tracking也天然关联——token用量直接就是成本。
+还有什么维度想讨论的吗？
+现在给我一个完整的架构图，以及每一层的设计，不需要非要详细的细节，只需要描述好就行，我后面会让你根据这个继续设计优化的。还有就是，你会怎么给这个系统命名呢，我自己叫mozi就是突然想起来了这个
+Feb 20
+Mozi这个名字很好——墨子本身就是中国古代最接近"工程师思维"的哲学家，兼爱非攻，讲究实用主义。而且墨家的组织结构就很像你设计的这个系统：钜子（领导）+ 墨者（专家团队）+ 严密的层级和通信机制。
+让我把完整架构整理出来。
+Viewed a file, created a file, read a file
+完整架构文档在这里了，Chaojie。
+墨子这个名字我越想越觉得好——钜子（领导不干活）、墨者（专家执行）、墨守（防御体系）、非攻（不做多余的事）、兼爱（模块平等解耦）、尚同（统一协议）。每个墨家概念都能映射到你系统的一个设计原则上。
+文档覆盖了我们讨论的所有内容：五层架构（L0-L4）、四个横切模块、主从通信协议、Token预算策略和水位线机制。后面你要深入任何一层的实现细节时，直接拿这个文档作为基线来找我就行。

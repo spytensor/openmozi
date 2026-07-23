@@ -1,0 +1,122 @@
+name: Desktop App Packaging
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-app.yml"
+      - "desktop/**"
+      - "scripts/prepare-desktop-runtime.mjs"
+      - "scripts/stage-desktop-node.mjs"
+      - "scripts/stage-desktop-python.mjs"
+      - "requirements/document-runtime.txt"
+      - "requirements/document-runtime-constraints.txt"
+      - "src/**"
+      - "skills/**"
+      - "ui/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsup.config.ts"
+  workflow_dispatch:
+
+jobs:
+  macos_app_unsigned:
+    name: macOS App (unsigned)
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      MOZI_DESKTOP_NODE_VERSION: "22.21.1"
+      MOZI_DESKTOP_NODE_PLATFORM: darwin
+      MOZI_DESKTOP_PYTHON_VERSION: "3.11.15"
+      MOZI_DESKTOP_PYTHON_RELEASE: "20260510"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Resolve runner architecture
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              echo "MOZI_DESKTOP_NODE_ARCH=arm64" >> "$GITHUB_ENV"
+              echo "MOZI_DESKTOP_ARTIFACT_ARCH=arm64" >> "$GITHUB_ENV"
+              ;;
+            x86_64)
+              echo "MOZI_DESKTOP_NODE_ARCH=x64" >> "$GITHUB_ENV"
+              echo "MOZI_DESKTOP_ARTIFACT_ARCH=x64" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported macOS runner architecture: $(uname -m)"
+              exit 1
+              ;;
+          esac
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck MOZI runtime
+        run: pnpm typecheck
+      - name: Build MOZI runtime and Web UI
+        run: pnpm build:all
+      - name: Build desktop shell
+        run: pnpm desktop:build
+      - name: Verify desktop supervisor tests
+        run: pnpm exec vitest run --config vitest.unit.config.ts desktop/src/supervisor.test.ts src/runtime/daemon.test.ts src/runtime/service-install.test.ts
+      - name: Package unsigned macOS app
+        run: pnpm desktop:pack:mac
+      - name: Verify packaged app resources
+        run: |
+          APP="$(find desktop/dist -maxdepth 3 -type d -name "MOZI.app" | head -n 1)"
+          if [ -z "$APP" ]; then
+            echo "MOZI.app was not produced under desktop/dist"
+            exit 1
+          fi
+          echo "MOZI_DESKTOP_APP_PATH=$APP" >> "$GITHUB_ENV"
+          test -d "$APP"
+          test -x "$APP/Contents/MacOS/MOZI"
+          test -f "$APP/Contents/Resources/app.asar"
+          test ! -d "$APP/Contents/Resources/app.asar.unpacked/node_modules"
+          ASAR_BIN="$(find node_modules -path "*/.bin/asar" -type f | head -n 1)"
+          test -x "$ASAR_BIN"
+          "$ASAR_BIN" list "$APP/Contents/Resources/app.asar" > /tmp/mozi-app-asar.txt
+          grep -qx "/build/main.js" /tmp/mozi-app-asar.txt
+          if grep -q "^/node_modules" /tmp/mozi-app-asar.txt; then
+            echo "Desktop shell app.asar must not contain root node_modules"
+            exit 1
+          fi
+          if grep -q "^/dist/mac" /tmp/mozi-app-asar.txt; then
+            echo "Desktop shell app.asar must not contain previous Electron Builder output"
+            exit 1
+          fi
+          test -x "$APP/Contents/Resources/node/bin/node"
+          test -x "$APP/Contents/Resources/python/bin/python3"
+          test -f "$APP/Contents/Resources/python/MOZI_RUNTIME.json"
+          test -f "$APP/Contents/Resources/mozi/package.json"
+          test -f "$APP/Contents/Resources/mozi/dist/index.js"
+          test -f "$APP/Contents/Resources/mozi/dist/build-info.json"
+          test -f "$APP/Contents/Resources/mozi/dist/store/schema.sql"
+          test -f "$APP/Contents/Resources/mozi/ui/dist/index.html"
+          test -d "$APP/Contents/Resources/mozi/node_modules"
+          test ! -d "$APP/Contents/Resources/mozi/node_modules/electron"
+          test -d "$APP/Contents/Resources/mozi/bootstrap/agents"
+          test -d "$APP/Contents/Resources/mozi/skills"
+          test -d "$APP/Contents/Resources/mozi/src/templates"
+          "$APP/Contents/Resources/node/bin/node" --version
+          PYTHONNOUSERSITE=1 "$APP/Contents/Resources/python/bin/python3" -c 'import numpy, pandas, pdfplumber, pypdf, reportlab'
+          "$APP/Contents/Resources/node/bin/node" --input-type=module - "$APP/Contents/Resources/mozi" <<'NODE'
+          import { createRequire } from 'node:module';
+          import { pathToFileURL } from 'node:url';
+          const runtimeRoot = process.argv[2];
+          const require = createRequire(new URL('package.json', pathToFileURL(`${runtimeRoot}/`)));
+          require('better-sqlite3');
+          await import(require.resolve('@lancedb/lancedb'));
+          console.log('native imports ok');
+          NODE
+          du -sh "$APP"
+      - name: Upload unsigned macOS app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozi-desktop-macos-${{ env.MOZI_DESKTOP_ARTIFACT_ARCH }}-unsigned
+          path: ${{ env.MOZI_DESKTOP_APP_PATH }}
+          if-no-files-found: error
+          retention-days: 7

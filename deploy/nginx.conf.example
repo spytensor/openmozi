@@ -1,0 +1,55 @@
+# MOZI — nginx reverse-proxy reference config
+#
+# Pairs with docker-compose.yml (MOZI listens on 127.0.0.1:9210 with
+# MOZI_SERVER_AUTH_MODE=none). nginx is the only authentication gate, so
+# every public-facing block below MUST keep `auth_basic` enabled.
+#
+# Replace mozi.example.com with your domain.
+# Generate the htpasswd file once on the host:
+#   htpasswd -c /etc/nginx/mozi.htpasswd ceo
+
+# Redirect plaintext to TLS.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name mozi.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name mozi.example.com;
+
+    # TLS — point these at your real certificate (Let's Encrypt / corp CA).
+    ssl_certificate     /etc/letsencrypt/live/mozi.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mozi.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # HTTP Basic Auth — single line of defense in front of an open MOZI.
+    # Do not remove unless you flip MOZI_SERVER_AUTH_MODE=token and configure
+    # OAuth/SAML inside MOZI itself.
+    auth_basic           "MOZI";
+    auth_basic_user_file /etc/nginx/mozi.htpasswd;
+
+    # WebSocket streams hold the connection open while the LLM thinks. A
+    # long-running shell tool can also exceed the default 60s read timeout.
+    proxy_read_timeout  600s;
+    proxy_send_timeout  600s;
+    client_max_body_size 25m;
+
+    # Static UI + REST API + WebSocket all share the same Fastify port.
+    location / {
+        proxy_pass http://127.0.0.1:9210;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket upgrade — required for /ws (chat stream) and /voice.
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}

@@ -1,0 +1,59 @@
+services:
+  mozi:
+    build: .
+    # Bind to localhost only — expose to the internet via the nginx reverse
+    # proxy in deploy/nginx.conf.example, NOT by changing this to 0.0.0.0.
+    # Reason: when MOZI runs with auth_mode=none (the simple single-user
+    # path documented in deploy/README.md), every /api endpoint is open.
+    ports:
+      - "127.0.0.1:9210:9210"
+    volumes:
+      # All MOZI runtime state lives under $MOZI_HOME (=/data inside the
+      # container). One mount, one place to back up.
+      - ./data:/data
+    env_file:
+      - .env
+    environment:
+      # LLM provider keys are read from .env (e.g. ANTHROPIC_API_KEY,
+      # OPENAI_API_KEY). Override config sections via MOZI_<SECTION>_<KEY>.
+      MOZI_HOME: /data
+      MOZI_SERVER_HOST: 0.0.0.0
+      MOZI_SERVER_PORT: 9210
+      # auth_mode=local: MOZI runs its own standard account auth — the first
+      # account to register bootstraps as admin, then register/login/logout with
+      # email + password. This is the standard flow; the app gates itself so no
+      # external nginx Basic Auth is required. (Use 'none' only for a trusted
+      # single-user box fronted by another gate — see deploy/README.md.)
+      MOZI_SERVER_AUTH_MODE: local
+      NODE_ENV: production
+      # Optional local editor-grade Office surface. Start the `office` profile
+      # and set ONLYOFFICE_JWT_SECRET to enable it.
+      OFFICE_DOCUMENT_SERVER_URL: ${OFFICE_DOCUMENT_SERVER_URL:-}
+      OFFICE_DOCUMENT_SERVER_INTERNAL_URL: ${OFFICE_DOCUMENT_SERVER_INTERNAL_URL:-http://onlyoffice}
+      OFFICE_STORAGE_BASE_URL: ${OFFICE_STORAGE_BASE_URL:-http://mozi:9210}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+    restart: unless-stopped
+
+  onlyoffice:
+    # Multi-arch image (amd64 + native arm64 since DS added official arm64
+    # builds) — do NOT pin platform; Apple Silicon runs natively.
+    image: onlyoffice/documentserver:latest
+    profiles: ["office"]
+    ports:
+      - "127.0.0.1:8082:80"
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-}
+      JWT_HEADER: Authorization
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+      ALLOW_META_IP_ADDRESS: "false"
+    volumes:
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-lib:/var/lib/onlyoffice
+      - onlyoffice-db:/var/lib/postgresql
+    restart: unless-stopped
+
+volumes:
+  onlyoffice-data:
+  onlyoffice-lib:
+  onlyoffice-db:

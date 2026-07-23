@@ -1,0 +1,200 @@
+name: Release Supply Chain
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer to verify and publish, without the v prefix
+        required: true
+        type: string
+      channel:
+        description: Release channel
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
+      publish_update_feed:
+        description: Fail closed unless artifacts are signed, notarized and digest-backed
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  macos_artifacts:
+    name: Signed macOS artifacts
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      MOZI_DESKTOP_NODE_VERSION: "22.21.1"
+      MOZI_DESKTOP_NODE_PLATFORM: darwin
+      MOZI_DESKTOP_PYTHON_VERSION: "3.11.15"
+      MOZI_DESKTOP_PYTHON_RELEASE: "20260510"
+      MOZI_RELEASE_CHANNEL: ${{ inputs.channel }}
+      MOZI_BUILD_VERSION: ${{ inputs.version }}
+      MOZI_BUILD_COMMIT: ${{ github.sha }}
+      CSC_LINK: ${{ secrets.MOZI_APPLE_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.MOZI_APPLE_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.MOZI_APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MOZI_APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.MOZI_APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Fail closed when publication lacks Apple release credentials
+        run: |
+          if [ "${{ inputs.publish_update_feed }}" != "true" ]; then
+            exit 0
+          fi
+          missing=0
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              echo "Missing required secret/env for signed notarized release: $name"
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - name: Resolve runner architecture
+        run: |
+          case "$(uname -m)" in
+            arm64)
+              echo "MOZI_DESKTOP_NODE_ARCH=arm64" >> "$GITHUB_ENV"
+              echo "MOZI_DESKTOP_ARTIFACT_ARCH=arm64" >> "$GITHUB_ENV"
+              ;;
+            x86_64)
+              echo "MOZI_DESKTOP_NODE_ARCH=x64" >> "$GITHUB_ENV"
+              echo "MOZI_DESKTOP_ARTIFACT_ARCH=x64" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported macOS runner architecture: $(uname -m)"
+              exit 1
+              ;;
+          esac
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - name: Set canonical build time
+        run: echo "MOZI_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - name: Build macOS DMG and ZIP
+        run: pnpm desktop:dist:mac
+      - name: Notarize and staple macOS release artifacts
+        if: ${{ inputs.publish_update_feed }}
+        run: |
+          shopt -s nullglob
+          artifacts=(desktop/dist/*.dmg desktop/dist/*.zip)
+          if [ "${#artifacts[@]}" -eq 0 ]; then
+            echo "No DMG/ZIP artifacts found for notarization"
+            exit 1
+          fi
+          for artifact in "${artifacts[@]}"; do
+            echo "Submitting $artifact for notarization"
+            xcrun notarytool submit "$artifact" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" \
+              --wait
+          done
+          for dmg in desktop/dist/*.dmg; do
+            echo "Stapling $dmg"
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+          done
+      - name: Upload macOS release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozi-macos-${{ inputs.version }}-${{ inputs.channel }}
+          path: desktop/dist
+          if-no-files-found: error
+          retention-days: 14
+
+  docker_image:
+    name: Docker image digest
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ghcr.io/${{ github.repository }}:${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Set canonical build time
+        run: echo "MOZI_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      - name: Log in to GHCR
+        if: ${{ inputs.publish_update_feed }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build Docker image with immutable release metadata
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: ${{ inputs.publish_update_feed }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ inputs.version }}
+            ghcr.io/${{ github.repository }}:${{ inputs.channel }}
+          build-args: |
+            MOZI_BUILD_VERSION=${{ inputs.version }}
+            MOZI_BUILD_COMMIT=${{ github.sha }}
+            MOZI_BUILD_TIME=${{ env.MOZI_BUILD_TIME }}
+            MOZI_RELEASE_CHANNEL=${{ inputs.channel }}
+      - name: Fail closed when Docker digest is missing for publication
+        if: ${{ inputs.publish_update_feed && steps.build.outputs.digest == '' }}
+        run: |
+          echo "Docker build did not produce immutable digest evidence"
+          exit 1
+
+  manifest:
+    name: Release manifest gate
+    runs-on: macos-14
+    needs:
+      - macos_artifacts
+      - docker_image
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: actions/download-artifact@v4
+        with:
+          name: mozi-macos-${{ inputs.version }}-${{ inputs.channel }}
+          path: desktop/dist
+      - name: Generate release supply-chain manifest
+        run: |
+          flags=""
+          if [ "${{ inputs.publish_update_feed }}" = "true" ]; then
+            flags="--publishable"
+          fi
+          node scripts/release-supply-chain.mjs \
+            --version "${{ inputs.version }}" \
+            --channel "${{ inputs.channel }}" \
+            --commit "${{ github.sha }}" \
+            --dist desktop/dist \
+            --out "release/mozi-${{ inputs.channel }}-${{ inputs.version }}.json" \
+            --docker-image "${{ needs.docker_image.outputs.image }}" \
+            --docker-digest "${{ needs.docker_image.outputs.digest }}" \
+            $flags
+      - name: Upload release manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: mozi-release-manifest-${{ inputs.version }}-${{ inputs.channel }}
+          path: release/*.json
+          if-no-files-found: error
+          retention-days: 30

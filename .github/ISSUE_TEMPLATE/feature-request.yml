@@ -1,0 +1,38 @@
+name: Feature request
+description: Propose a product capability or workflow improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and did not find the same request.
+          required: true
+        - label: This request contains no credentials, personal data, or private files.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the user problem before proposing an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Explain what successful behavior looks like for Web and macOS App where applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: Suggest observable acceptance criteria or real-use evidence.

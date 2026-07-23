@@ -1,0 +1,127 @@
+# Provider credentials are resolved from environment variables (not stored here).
+# Priority: MOZI_LIVE_<PROVIDER>_KEY > <PROVIDER>_API_KEYS > <PROVIDER>_API_KEY/aliases > <PROVIDER>_API_KEY_<N>
+# Alias examples: GEMINI_API_KEY or GOOGLE_API_KEY, ZAI_API_KEY or Z_AI_API_KEY.
+
+system:
+  max_parallel_agents: 5
+  watchdog_interval_seconds: 5
+  heartbeat_timeout_seconds: 15
+
+brain:
+  model: "claude-opus-4"
+  fallback_model: "claude-sonnet-4"
+  # Optional reasoning/thinking control. Accepts: false | low | medium | high | <budget_tokens>
+  think: "medium"
+  max_dag_depth: 5
+
+# Optional role-specific model routing overrides
+# model_router:
+#   brain_provider: "anthropic"
+#   roles:
+#     summary:
+#       provider: "openai"
+#       model: "gpt-4.1-mini"
+#       think: "low"
+
+token_budget:
+  watermark_soft: 0.70
+  watermark_hard: 0.85
+  watermark_rotate: 0.95
+  running_summary_cap_tokens: 2000
+  subagent_startup_budget_pct: 0.10
+
+tools:
+  loops:
+    # 0 = unlimited (recommended for MOZI agent runtime)
+    max_iterations: 0
+    dag_max_iterations: 0
+    subagent_max_iterations: 0
+    repeated_batch_threshold: 3
+    max_failed_tool_batches: 3
+  fs:
+    # true  = restrict read/write/edit/append/analyze_image to workspace + additional_allowed_roots
+    # false = allow absolute paths; use only when you intentionally need broad local FS access
+    workspace_only: true
+    allow_project_root_read: true
+    additional_allowed_roots: []
+  shell:
+    network_isolation: true
+    executor: "docker"
+    docker_image: "alpine:3.20"
+  subagents:
+    # Progressive rollout controls for DAG SubAgent runtime.
+    # If all are empty/false, DAG tasks execute in-process.
+    enabled: false
+    enabled_tenants: []
+    # Session key format: "<tenant_id>:<session_id_or_chat_id>"
+    enabled_sessions: []
+    # If present in incoming client capabilities, this session enables SubAgent runtime.
+    session_capability: "subagent_execution"
+
+tel:
+  tools:
+    shell:
+      timeout: 60
+      soft_timeout: 30
+      retries: 1
+      sandbox: "restricted"
+    playwright:
+      timeout: 120
+      soft_timeout: 60
+      retries: 2
+      sandbox: "docker"
+      fallback: "screenshot_and_report"
+
+evolution:
+  promote_min_spawns: 5
+  promote_min_score: 0.8
+  archive_inactive_days: 30
+  demote_min_tasks: 10
+  demote_score_threshold: 0.5
+
+rate_limits:
+  anthropic:
+    rpm: 50
+    tpm: 400000
+    concurrent: 10
+  openai:
+    rpm: 60
+    tpm: 600000
+    concurrent: 20
+
+security:
+  default_permission: "L0_READ_ONLY"
+  hard_gates:
+    - skill_register
+    - agent_promote
+    - l3_grant
+    - external_comm
+  enterprise:
+    oidc:
+      # Multi-tenant OIDC issuer bindings
+      issuers: []
+      # Example:
+      # - tenant_id: "acme"
+      #   issuer: "https://idp.acme.com"
+      #   audience: "mozi-api"
+      #   tenant_claim: "tenant_id"
+      #   user_claim: "sub"
+      #   roles_claim: "roles"
+    saml:
+      # Multi-tenant SAML IdP bindings
+      idps: []
+      # Example:
+      # - tenant_id: "acme"
+      #   entity_id: "urn:acme:idp"
+      #   certificate: "-----BEGIN PUBLIC KEY-----..."
+      #   audience: "urn:mozi:sp"
+      #   tenant_attribute: "tenant_id"
+      #   user_attribute: "user_id"
+      #   roles_attribute: "roles"
+
+telegram:
+  bot_token: ""
+
+server:
+  host: "0.0.0.0"
+  port: 3000

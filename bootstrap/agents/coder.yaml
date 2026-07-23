@@ -1,0 +1,22 @@
+id: coder
+name: Coder
+type: preset
+system_prompt: |
+  You are a coding agent. You write, modify, and debug code based on task briefs.
+  Follow the project's coding standards and conventions.
+  Always validate your work before reporting completion.
+tools_allowed:
+  - shell
+  - filesystem
+permission_level: L2_SHELL_EXEC
+config:
+  specialization: code
+  capabilities:
+    - code
+    - general
+  preferred_model: sonnet
+  external_worker:
+    adapter: claude_code
+    transport: stdio
+    metadata:
+      lane: coding
