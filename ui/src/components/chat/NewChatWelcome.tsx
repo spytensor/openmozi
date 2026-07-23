@@ -1,6 +1,5 @@
 import { lazy, Suspense, useState } from "react";
 import { ArrowDownRight, CalendarClock, Coffee, Compass, ListTodo } from "lucide-react";
-import MoziAvatar from "@/components/MoziAvatar";
 import { useLocale, type MessageKey } from "@/i18n";
 
 const TaskTemplatesSurface = lazy(() => import("@/components/task-templates/TaskTemplatesSurface"));
@@ -34,7 +33,7 @@ const STARTER_CATEGORIES: Array<{
   {
     categoryKey: "app.starters.cat.office",
     icon: Coffee,
-    iconClassName: "text-sky-400",
+    iconClassName: "text-ink/60 transition-colors duration-300 group-hover:text-action",
     chips: [
       { chipKey: "app.starters.chip.minutes", detailKey: "app.starters.office.detail" },
       { chipKey: "app.starters.chip.prd", detailKey: "app.starters.documents.detail" },
@@ -44,7 +43,7 @@ const STARTER_CATEGORIES: Array<{
   {
     categoryKey: "app.starters.cat.research",
     icon: Compass,
-    iconClassName: "text-violet-400",
+    iconClassName: "text-ink/60 transition-colors duration-300 group-hover:text-action",
     chips: [
       { chipKey: "app.starters.chip.pricing", detailKey: "app.starters.research.detail" },
       { chipKey: "app.starters.chip.retail", detailKey: "app.starters.data.detail" },
@@ -53,7 +52,7 @@ const STARTER_CATEGORIES: Array<{
   {
     categoryKey: "app.starters.cat.auto",
     icon: CalendarClock,
-    iconClassName: "text-amber-400",
+    iconClassName: "text-ink/60 transition-colors duration-300 group-hover:text-action",
     chips: [
       { chipKey: "app.starters.chip.plan", detailKey: "app.starters.background.detail" },
       { chipKey: "app.starters.chip.watch", detailKey: "app.starters.schedule.detail" },
@@ -67,15 +66,15 @@ export function NewChatWelcome({ onSelectPrompt }: { onSelectPrompt: (prompt: st
   const [activeCategory, setActiveCategory] = useState<number | "mine" | null>(null);
   const category = typeof activeCategory === "number" ? STARTER_CATEGORIES[activeCategory] : null;
   const cardClassName =
-    "group flex h-[104px] min-w-0 flex-col justify-between rounded-2xl border px-4 py-3.5 text-left transition-[background-color,border-color,transform] hover:-translate-y-0.5 hover:bg-ink/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/35";
+    "group flex h-[104px] min-w-0 flex-col justify-between rounded-[20px] border px-4 py-3.5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-medium hover:bg-surface-elevated hover:shadow-[0_12px_32px_-12px_rgba(0,0,0,0.5)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/35";
   const cardStyle = (active: boolean) => ({
     borderColor: active ? "var(--border-medium)" : "var(--border-subtle)",
-    background: active ? "rgb(var(--ink-rgb) / 0.03)" : "transparent",
+    background: active ? "var(--surface-elevated)" : "rgb(var(--ink-rgb) / 0.015)",
+    boxShadow: active ? "0 12px 32px -12px rgba(0,0,0,0.5)" : "none",
   });
 
   return (
     <div className="w-full text-center" data-testid="new-chat-welcome">
-      <MoziAvatar size={44} className="mb-4 opacity-65" />
       <h1 className="text-[26px] font-medium tracking-[-0.02em] text-ink/88 sm:text-[28px]">
         {t("app.emptyHeadline")}
       </h1>
@@ -95,7 +94,7 @@ export function NewChatWelcome({ onSelectPrompt }: { onSelectPrompt: (prompt: st
               style={cardStyle(active)}
             >
               <Icon className={`h-[17px] w-[17px] ${iconClassName}`} aria-hidden="true" />
-              <span className="text-[13px] font-medium leading-[1.45] text-ink/78">{t(categoryKey)}</span>
+              <span className="text-[13px] font-medium leading-[1.45] text-ink/80 transition-colors duration-300 group-hover:text-ink">{t(categoryKey)}</span>
             </button>
           );
         })}
@@ -107,8 +106,8 @@ export function NewChatWelcome({ onSelectPrompt }: { onSelectPrompt: (prompt: st
           className={cardClassName}
           style={cardStyle(activeCategory === "mine")}
         >
-          <ListTodo className="h-[17px] w-[17px] text-emerald-400" aria-hidden="true" />
-          <span className="text-[13px] font-medium leading-[1.45] text-ink/78">{t("app.taskTemplates.mine")}</span>
+          <ListTodo className="h-[17px] w-[17px] text-ink/60 transition-colors duration-300 group-hover:text-action" aria-hidden="true" />
+          <span className="text-[13px] font-medium leading-[1.45] text-ink/80 transition-colors duration-300 group-hover:text-ink">{t("app.taskTemplates.mine")}</span>
         </button>
       </div>
 

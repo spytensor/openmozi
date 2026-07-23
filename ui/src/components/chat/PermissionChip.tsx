@@ -166,7 +166,7 @@ export function PermissionChip({ sessionId }: { sessionId?: string | null }) {
           <button
             type="button"
             data-testid="permission-chip"
-            className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-md px-2 text-[12px] text-ink/70 transition-colors hover:bg-[var(--surface-hover)] hover:text-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-8 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-ink/70 transition-all duration-200 hover:bg-white/[0.04] hover:text-ink/95 disabled:cursor-not-allowed disabled:opacity-60 active:scale-[0.98]"
             style={toneColor ? { color: toneColor } : undefined}
             title={label}
             aria-label={label}
@@ -185,7 +185,7 @@ export function PermissionChip({ sessionId }: { sessionId?: string | null }) {
           side="top"
           align="end"
           sideOffset={8}
-          className="w-[280px] rounded-lg border border-ink/[0.10] bg-elevated p-1 text-ink shadow-[0_24px_70px_-28px_rgba(0,0,0,0.72)]"
+          className="w-[260px] rounded-xl border border-white/[0.08] bg-surface-overlay p-1.5 text-ink shadow-2xl backdrop-blur-xl"
         >
           <DropdownMenuLabel className="px-2 pb-1 pt-1 text-[11px] font-medium text-ink/45">
             {t("composer.permission.menuLabel")}
@@ -202,7 +202,7 @@ export function PermissionChip({ sessionId }: { sessionId?: string | null }) {
                 data-permission-option={option}
                 disabled={!!pendingLevel}
                 onSelect={() => selectLevel(option)}
-                className="flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-2 text-left focus:bg-ink/[0.06] focus:text-ink data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45"
+                className="flex cursor-pointer items-start gap-2.5 rounded-xl px-2.5 py-2.5 text-left transition-colors focus:bg-white/[0.04] hover:bg-white/[0.04] focus:text-ink data-[disabled]:cursor-not-allowed data-[disabled]:opacity-45"
               >
                 <OptionIcon className="mt-0.5 h-[18px] w-[18px] shrink-0 text-ink/70" strokeWidth={1.75} />
                 <span className="min-w-0 flex-1">

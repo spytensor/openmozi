@@ -335,13 +335,11 @@ describe('core/providers', () => {
     expect(isChatRoleEligibleProvider('gemini-cli')).toBe(false);
   });
 
-  it('exposes multiple selectable models for implemented CLI providers', () => {
+  it('keeps only CLI-owned static defaults in the provider catalog', () => {
     expect(getProvider('claude-cli')?.models.map(model => model.id)).toEqual(
       expect.arrayContaining(['_cli-default', 'sonnet', 'opus']),
     );
-    expect(getProvider('codex-cli')?.models.map(model => model.id)).toEqual(
-      expect.arrayContaining(['_cli-default', 'gpt-5.3-codex', 'gpt-5.2-codex']),
-    );
+    expect(getProvider('codex-cli')?.models.map(model => model.id)).toEqual(['_cli-default']);
   });
 
   it('each provider has at least one model', () => {

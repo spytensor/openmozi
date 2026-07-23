@@ -145,6 +145,7 @@ import { resolveRuntimeApiKey } from '../core/runtime-provider-keys.js';
 import { readConfigWithLegacyFallback, writeConfigObject } from '../config/storage.js';
 import { loadConfig, getConfig } from '../config/index.js';
 import {
+  discoverCodexCliModels,
   detectCodingWorkers,
   type CodingWorkerId,
   type CodingWorkerProbe,
@@ -1089,7 +1090,10 @@ function validateChatModelRole(roleName: 'brain' | 'light' | 'step' | 'plan_summ
   }
   const raw = readConfigWithLegacyFallback(getConfigPath()).config;
   const registered = ((raw.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
-  if (!resolveRuntimeModel(provider.id, role.model, { allowUnknown: registered[provider.id]?.includes(role.model) })) {
+  const validModel = provider.apiMode === 'cli-pipe'
+    ? provider.models.some(model => model.id === role.model) || registered[provider.id]?.includes(role.model)
+    : Boolean(resolveRuntimeModel(provider.id, role.model, { allowUnknown: registered[provider.id]?.includes(role.model) }));
+  if (!validModel) {
     throw new Error(`Invalid ${roleName} model for provider`);
   }
 }
@@ -1169,6 +1173,9 @@ async function buildProviderModels(provider: ProviderDef, allowedModels: string[
   if (allowedModels === null) {
     return models;
   }
+  if (provider.apiMode === 'cli-pipe') {
+    return models;
+  }
 
   for (const modelId of allowedModels) {
     if (includedIds.has(modelId)) continue;
@@ -1186,7 +1193,9 @@ function validateKnownModelGrant(input: string[] | null): string[] | null {
   const raw = readConfigWithLegacyFallback(getConfigPath()).config;
   const registered = ((raw.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
   const unknown = normalized.filter(model => !isSafeCustomModelId(model) || !providers.some(provider => Boolean(
-    getModel(provider.id, model) || registered[provider.id]?.includes(model),
+    provider.apiMode === 'cli-pipe'
+      ? provider.models.some(candidate => candidate.id === model) || registered[provider.id]?.includes(model)
+      : getModel(provider.id, model) || registered[provider.id]?.includes(model),
   )));
   if (unknown.length > 0) {
     throw new Error(`Unknown model id(s): ${unknown.join(', ')}`);
@@ -4330,11 +4339,25 @@ export async function registerApiRoutes(
       const hasKey = provider.apiMode === 'cli-pipe'
         ? readyCliProviders.has(provider.id)
         : storedKeys.has(provider.id) || !!apiKey || !!resolveApiKey(provider.id, rawProviders);
-      // cli-pipe providers (Codex/Claude Code CLI) have no HTTP endpoint — the
-      // CLI runs locally. Never attempt live model discovery (resolveBaseUrl
-      // would fall back to the shared OpenAI-compat URL and return an unrelated
-      // provider's models). Their catalog IS the authoritative model list.
-      let discovery: ModelDiscoveryResult = provider.apiMode === 'cli-pipe'
+      const codexProbe = provider.id === 'codex-cli' ? cliProbeByProvider.get(provider.id) : undefined;
+      const codexModels = codexProbe?.installed && codexProbe.authorized && codexProbe.commandPath
+        ? await discoverCodexCliModels(codexProbe.commandPath)
+        : null;
+      let discovery: ModelDiscoveryResult = codexModels
+        ? {
+            supported: true,
+            source: 'live',
+            fetchedAt: new Date().toISOString(),
+            capabilityConfidence: 'provider',
+            models: codexModels.map(model => ({
+              id: model.id,
+              name: model.name,
+              contextWindow: model.contextWindow,
+              supportsTools: false,
+              supportsVision: model.supportsVision,
+            })),
+          }
+        : provider.apiMode === 'cli-pipe'
         ? {
             supported: true,
             source: 'catalog',
@@ -4406,8 +4429,10 @@ export async function registerApiRoutes(
       const discovered = provider.models
         .filter(model => model.source === 'live' || model.source === 'cache')
         .map(model => model.id);
-      const merged = Array.from(new Set([...existing, ...discovered]));
-      if (merged.length !== existing.length) {
+      const merged = provider.apiMode === 'cli-pipe'
+        ? discovered
+        : Array.from(new Set([...existing, ...discovered]));
+      if (JSON.stringify(merged) !== JSON.stringify(existing)) {
         registeredModels[provider.id] = merged;
         discoveryConfigChanged = true;
       }
@@ -4444,7 +4469,12 @@ export async function registerApiRoutes(
     const existing = readConfigWithLegacyFallback(getConfigPath()).config;
     const registered = ((existing.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
     const requestedModel = String(body.model ?? '');
-    const model = resolveRuntimeModel(provider.id, requestedModel, { allowUnknown: registered[provider.id]?.includes(requestedModel) });
+    const cliModelAllowed = provider.apiMode !== 'cli-pipe'
+      || provider.models.some(model => model.id === requestedModel)
+      || registered[provider.id]?.includes(requestedModel);
+    const model = cliModelAllowed
+      ? resolveRuntimeModel(provider.id, requestedModel, { allowUnknown: registered[provider.id]?.includes(requestedModel) })
+      : undefined;
     if (!model) return reply.code(400).send({ success: false, error: 'Invalid model for provider' });
 
     if (!existing.brain) existing.brain = {};
@@ -4471,6 +4501,43 @@ export async function registerApiRoutes(
     const provider = getProvider(id);
     if (!provider) {
       return reply.code(404).send({ success: false, reason: 'unknown_provider', error: 'Unknown provider' });
+    }
+    if (provider.id === 'codex-cli') {
+      const probe = detectCodingWorkers().find(candidate => candidate.id === 'codex_cli');
+      if (!probe?.installed || !probe.authorized || !probe.commandPath) {
+        return reply.code(400).send({ success: false, reason: 'cli_not_ready', error: 'Codex CLI is not installed and authenticated' });
+      }
+      const models = await discoverCodexCliModels(probe.commandPath);
+      const raw = readConfigWithLegacyFallback(getConfigPath()).config;
+      const discoveryConfig = ensureRawConfigRecord(raw, 'model_discovery');
+      const registeredModels = ensureRawConfigRecord(discoveryConfig, 'models');
+      const fetchedAtByProvider = ensureRawConfigRecord(discoveryConfig, 'fetched_at');
+      const fetchedAt = new Date().toISOString();
+      registeredModels[provider.id] = models.map(model => model.id);
+      fetchedAtByProvider[provider.id] = fetchedAt;
+      writeConfigObject(getConfigPath(), raw);
+      return reply.send({
+        success: true,
+        provider: provider.id,
+        source: 'live',
+        fetched_at: fetchedAt,
+        fallback_reason: null,
+        models: models.map(model => ({
+          id: model.id,
+          name: model.name,
+          bundled: false,
+          resolvable: true,
+          capability_confidence: 'provider',
+          metadata: {
+            ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
+            supportsTools: false,
+            supportsVision: model.supportsVision,
+          },
+        })),
+      });
+    }
+    if (provider.apiMode === 'cli-pipe') {
+      return reply.code(404).send({ success: false, reason: 'live_discovery_unsupported', error: 'Provider does not expose live model discovery' });
     }
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
     const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string }> | undefined;
@@ -4524,6 +4591,9 @@ export async function registerApiRoutes(
     const provider = getProvider(id);
     if (!provider || !isChatRoleEligibleProvider(provider)) {
       return reply.code(400).send({ success: false, error: 'Unknown or ineligible provider' });
+    }
+    if (provider.apiMode === 'cli-pipe') {
+      return reply.code(400).send({ success: false, error: 'CLI provider models are owned by the installed CLI' });
     }
     const modelId = String((request.body as { model?: unknown } | null)?.model ?? '').trim();
     if (!isSafeCustomModelId(modelId)) {

@@ -27,10 +27,12 @@ import { getSecret, resolveMasterKey } from './security/secrets.js';
 import { createLocalUser, getUserById } from './security/users.js';
 import { getOnboardingStatus } from './security/onboarding.js';
 import { assignRole } from './security/rbac.js';
+import { setQuota } from './tenants/quotas.js';
 
 const routeMocks = vi.hoisted(() => ({
   checkProviderHealth: vi.fn(),
   detectCodingWorkers: vi.fn(() => [] as Array<Record<string, unknown>>),
+  discoverCodexCliModels: vi.fn(),
 }));
 
 vi.mock('./onboarding/index.js', () => ({
@@ -39,6 +41,7 @@ vi.mock('./onboarding/index.js', () => ({
 
 vi.mock('./onboarding/coding-workers.js', () => ({
   detectCodingWorkers: routeMocks.detectCodingWorkers,
+  discoverCodexCliModels: routeMocks.discoverCodexCliModels,
 }));
 
 describe('api route auth helpers', () => {
@@ -632,6 +635,14 @@ describe('api route auth helpers', () => {
         installHint: '',
       },
     ]);
+    routeMocks.discoverCodexCliModels.mockResolvedValue([
+      { id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', contextWindow: 272_000, supportsVision: true },
+      { id: 'gpt-5.6-luna', name: 'GPT-5.6-Luna', contextWindow: 272_000, supportsVision: true },
+    ]);
+    setQuota({
+      tenant_id: 'default',
+      allowed_models: ['gpt-5.6-luna', 'MiniMax-M3', 'deepseek-v4-flash', 'deepseek-v4-pro', 'kimi-k3', 'sonnet'],
+    });
     writeFileSync(getConfigPath(), JSON.stringify({
       brain: { model: '_cli-default' },
       model_router: { brain_provider: 'claude-cli' },
@@ -662,7 +673,7 @@ describe('api route auth helpers', () => {
 
       const providers = await app.inject({ method: 'GET', url: '/api/providers' });
       expect(providers.statusCode).toBe(200);
-      const providerPayload = providers.json() as { providers: Array<{ id: string; apiMode: string; brainEligible: boolean; lightEligible: boolean }> };
+      const providerPayload = providers.json() as { providers: Array<{ id: string; apiMode: string; brainEligible: boolean; lightEligible: boolean; models: Array<{ id: string }> }> };
       expect(providerPayload.providers.find((provider) => provider.id === 'claude-cli')).toMatchObject({
         brainEligible: true,
         lightEligible: true,
@@ -671,24 +682,54 @@ describe('api route auth helpers', () => {
         brainEligible: true,
         lightEligible: true,
       });
+      expect(providerPayload.providers.find((provider) => provider.id === 'codex-cli')?.models.map(model => model.id)).toEqual([
+        '_cli-default',
+        'gpt-5.6-sol',
+        'gpt-5.6-luna',
+      ]);
       expect(providerPayload.providers.find((provider) => provider.id === 'gemini-cli')).toBeUndefined();
       expect(providerPayload.providers.find((provider) => provider.id === 'openai')).toMatchObject({
         brainEligible: true,
         lightEligible: true,
       });
 
+      const liveModels = await app.inject({
+        method: 'GET',
+        url: '/api/providers/codex-cli/models/live',
+      });
+      expect(liveModels.statusCode).toBe(200);
+      expect(liveModels.json()).toMatchObject({
+        success: true,
+        provider: 'codex-cli',
+        source: 'live',
+        models: [
+          { id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', resolvable: true },
+          { id: 'gpt-5.6-luna', name: 'GPT-5.6-Luna', resolvable: true },
+        ],
+      });
+      expect(JSON.parse(readFileSync(getConfigPath(), 'utf8'))).toMatchObject({
+        model_discovery: {
+          models: { 'codex-cli': ['gpt-5.6-sol', 'gpt-5.6-luna'] },
+        },
+      });
+      expect((await app.inject({
+        method: 'POST',
+        url: '/api/providers/codex-cli/models/manual',
+        payload: { model: 'deepseek-v4-pro' },
+      })).statusCode).toBe(400);
+
       const patchBrain = await app.inject({
         method: 'PATCH',
         url: '/api/models/roles',
-        payload: { brain: { provider: 'codex-cli', model: 'gpt-5.3-codex' } },
+        payload: { brain: { provider: 'codex-cli', model: 'gpt-5.6-luna' } },
       });
       expect(patchBrain.statusCode).toBe(200);
       expect(patchBrain.json()).toMatchObject({
         success: true,
-        roles: { brain: { provider: 'codex-cli', model: 'gpt-5.3-codex', ready: true } },
+        roles: { brain: { provider: 'codex-cli', model: 'gpt-5.6-luna', ready: true } },
       });
       expect(JSON.parse(readFileSync(getConfigPath(), 'utf8'))).toMatchObject({
-        brain: { model: 'gpt-5.3-codex' },
+        brain: { model: 'gpt-5.6-luna' },
         model_router: { brain_provider: 'codex-cli' },
       });
 
@@ -719,6 +760,7 @@ describe('api route auth helpers', () => {
       if (savedOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
       else process.env.OPENAI_API_KEY = savedOpenAiKey;
       routeMocks.detectCodingWorkers.mockReturnValue([]);
+      routeMocks.discoverCodexCliModels.mockReset();
       loadConfig('/nonexistent/mozi.json');
     }
   });

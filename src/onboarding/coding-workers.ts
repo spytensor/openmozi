@@ -7,9 +7,10 @@
  * adapters are available at runtime.
  */
 
-import { execSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
+import { promisify } from 'node:util';
 import { readClaudeCliCredentials, readCodexCliCredentials } from '../core/cli-credentials.js';
 import { getProvider } from '../core/providers.js';
 
@@ -32,6 +33,17 @@ export interface CodingWorkerConfig {
   routing: CodingWorkerRouting;
   available: CodingWorkerId[];
 }
+
+export interface CodexCliModel {
+  id: string;
+  name: string;
+  contextWindow?: number;
+  supportsVision: boolean;
+}
+
+const execFileAsync = promisify(execFile);
+const CODEX_MODEL_DISCOVERY_TIMEOUT_MS = 15_000;
+const CODEX_MODEL_DISCOVERY_MAX_BUFFER = 4 * 1024 * 1024;
 
 const WORKER_DEFS: {
   id: CodingWorkerId;
@@ -88,7 +100,7 @@ function findOnPath(command: string): string | null {
 
 function getVersion(command: string): string | null {
   try {
-    const output = execSync(`${command} --version`, {
+    const output = execFileSync(command, ['--version'], {
       encoding: 'utf-8',
       timeout: 10_000,
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -99,6 +111,66 @@ function getVersion(command: string): string | null {
   } catch {
     return null;
   }
+}
+
+export function parseCodexCliModels(output: string): CodexCliModel[] {
+  const parsed = JSON.parse(output) as unknown;
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray((parsed as { models?: unknown }).models)) {
+    throw new Error('Codex CLI returned an invalid model catalog');
+  }
+
+  const rows = (parsed as { models: unknown[] }).models;
+  if (rows.length > 200) throw new Error('Codex CLI returned too many models');
+
+  const models: CodexCliModel[] = [];
+  const seen = new Set<string>();
+  for (const value of rows) {
+    if (!value || typeof value !== 'object') {
+      throw new Error('Codex CLI returned an invalid model entry');
+    }
+    const row = value as Record<string, unknown>;
+    if (row.visibility !== 'list') continue;
+    if (
+      typeof row.slug !== 'string'
+      || !/^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,199}$/.test(row.slug)
+      || typeof row.display_name !== 'string'
+      || row.display_name.length === 0
+      || row.display_name.length > 120
+      || (row.context_window !== undefined
+        && (!Number.isSafeInteger(row.context_window) || (row.context_window as number) <= 0 || (row.context_window as number) > 2_000_000))
+      || (row.input_modalities !== undefined
+        && (!Array.isArray(row.input_modalities) || !row.input_modalities.every(modality => typeof modality === 'string')))
+    ) {
+      throw new Error('Codex CLI returned an invalid visible model entry');
+    }
+    if (seen.has(row.slug)) continue;
+    seen.add(row.slug);
+    models.push({
+      id: row.slug,
+      name: row.display_name,
+      ...(typeof row.context_window === 'number' ? { contextWindow: row.context_window } : {}),
+      supportsVision: Array.isArray(row.input_modalities) && row.input_modalities.includes('image'),
+    });
+  }
+  if (models.length === 0) throw new Error('Codex CLI returned no visible models');
+  return models;
+}
+
+export async function discoverCodexCliModels(commandPath: string): Promise<CodexCliModel[]> {
+  if (!isAbsolute(commandPath)) throw new Error('Codex CLI command path must be absolute');
+  accessSync(commandPath, constants.X_OK);
+
+  const childEnv: NodeJS.ProcessEnv = {};
+  for (const key of ['HOME', 'PATH', 'CODEX_HOME', 'LANG', 'LC_ALL', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'SSL_CERT_FILE', 'SSL_CERT_DIR']) {
+    if (process.env[key] !== undefined) childEnv[key] = process.env[key];
+  }
+  const { stdout } = await execFileAsync(commandPath, ['debug', 'models'], {
+    encoding: 'utf-8',
+    timeout: CODEX_MODEL_DISCOVERY_TIMEOUT_MS,
+    maxBuffer: CODEX_MODEL_DISCOVERY_MAX_BUFFER,
+    env: childEnv,
+  });
+  return parseCodexCliModels(stdout);
 }
 
 /**

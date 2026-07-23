@@ -382,8 +382,9 @@ export default function WorkspaceSidebar({
             // The sidebar itself now shares --surface-input, so the search
             // field needs its own step: a quiet ink overlay reads as inset
             // on both themes without minting a new token.
-            background: "rgb(var(--ink-rgb) / 0.05)",
-            border: "1px solid var(--border-subtle)",
+            background: "rgb(var(--ink-rgb) / 0.03)",
+            border: "1px solid rgba(255, 255, 255, 0.03)",
+            boxShadow: "inset 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(255, 255, 255, 0.02)",
           }}
         >
           <Search className="h-3.5 w-3.5" style={{ color: "var(--text-muted)" }} />
@@ -538,7 +539,7 @@ function TopNavItem({
     <button
       data-testid={testId}
       onClick={onClick}
-      className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-colors hover:bg-ink/[0.035]"
+      className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left transition-all duration-200 hover:bg-ink/[0.04] active:scale-[0.98]"
       style={{
         background: active ? "var(--surface-active)" : "transparent",
         color: active ? "var(--text-primary)" : "rgb(var(--ink-rgb) / 0.62)",
@@ -600,7 +601,7 @@ function SessionLeaf({
     <div
       data-sidebar-row-kind="chat"
       data-session-id={id}
-      className="group relative flex items-center rounded-md transition-colors hover:bg-ink/[0.035]"
+      className="group relative flex items-center rounded-md transition-all duration-200 hover:bg-ink/[0.04] active:scale-[0.98]"
       style={{
         background: active ? "var(--surface-active)" : "transparent",
       }}

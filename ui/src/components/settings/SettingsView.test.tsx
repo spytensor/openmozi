@@ -464,6 +464,63 @@ describe("SettingsView", () => {
     }));
   });
 
+  it("replaces stale Codex CLI discoveries with the CLI-owned model list", async () => {
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/models/roles") return Promise.resolve({
+        data: {
+          brain: { provider: "deepseek", model: "deepseek-chat", ready: true },
+          light: { provider: "deepseek", model: "deepseek-chat", ready: true },
+          embedding: { provider: "auto", model: "", ready: true },
+        },
+      });
+      if (url === "/api/providers") return Promise.resolve({
+        data: {
+          providers: [{
+            id: "codex-cli",
+            name: "Codex CLI",
+            apiType: "cli-pipe",
+            apiMode: "cli-pipe",
+            defaultModel: "_cli-default",
+            hasKey: true,
+            models: [
+              { id: "_cli-default", name: "Codex CLI default", allowed: false },
+              { id: "deepseek-v4-pro", name: "deepseek-v4-pro", allowed: true, discovered: true, source: "catalog" },
+            ],
+          }],
+        },
+      });
+      if (url === "/api/providers/codex-cli/models/live") return Promise.resolve({
+        data: {
+          success: true,
+          provider: "codex-cli",
+          source: "live",
+          models: [{
+            id: "gpt-5.6-sol",
+            name: "GPT-5.6-Sol",
+            bundled: false,
+            resolvable: true,
+            metadata: { contextWindow: 272000, supportsVision: true, supportsTools: false },
+          }],
+        },
+        error: null,
+      });
+      if (url === "/api/keys") return Promise.resolve({ data: { keys: [] } });
+      if (url === "/api/services") return Promise.resolve({ data: { providers: [], activeSearchProvider: null } });
+      return Promise.resolve({ data: null });
+    });
+
+    renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
+    await screen.findByRole("heading", { name: "Settings" });
+    clickCategory("models");
+    await openActiveModelManager();
+    await screen.findByTestId("settings-active-model-deepseek-v4-pro");
+
+    fireEvent.click(screen.getByTestId("settings-refresh-live-codex-cli"));
+
+    await waitFor(() => expect(screen.queryByTestId("settings-active-model-deepseek-v4-pro")).not.toBeInTheDocument());
+    expect(screen.getByTestId("settings-add-model-codex-cli")).toHaveTextContent("Add models · 2");
+  });
+
   it("adds a search service key through the API Services flow and surfaces errors", async () => {
     postMock.mockImplementation((url: string) => {
       if (url === "/api/services/search1api/key") return Promise.resolve({ data: null, error: "Unable to store SEARCH1API_KEY" });

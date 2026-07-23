@@ -827,7 +827,7 @@ export default function App() {
           onLogout={auth.logout}
         />
 
-        <main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden" style={{ background: "var(--main-bg)" }}>
+        <main className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden" style={{ background: "var(--surface-elevated)" }}>
           {sidebarCollapsed && (
             <button
               type="button"

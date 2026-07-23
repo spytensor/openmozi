@@ -797,21 +797,6 @@ export const PROVIDERS: Record<string, ProviderDef> = {
         contextWindow: 400_000, maxOutputTokens: 16_000,
         supportsTools: false, supportsStreaming: false, supportsVision: false,
       }),
-      model({
-        id: 'gpt-5.3-codex', name: 'GPT-5.3-Codex', tier: 'high',
-        contextWindow: 400_000, maxOutputTokens: 128_000,
-        supportsTools: false, supportsStreaming: false, supportsVision: false,
-      }),
-      model({
-        id: 'gpt-5.2-codex', name: 'GPT-5.2-Codex', tier: 'high',
-        contextWindow: 400_000, maxOutputTokens: 128_000,
-        supportsTools: false, supportsStreaming: false, supportsVision: false,
-      }),
-      model({
-        id: 'gpt-5.1-codex-max', name: 'GPT-5.1-Codex-Max', tier: 'high',
-        contextWindow: 400_000, maxOutputTokens: 128_000,
-        supportsTools: false, supportsStreaming: false, supportsVision: false,
-      }),
     ],
     forwardCompat: [
       { pattern: /./i, templateModel: '_cli-default' },

@@ -572,7 +572,7 @@ function SkillCard({ skill, onOpen }: { skill: SkillInfo; onOpen: () => void }) 
       type="button"
       onClick={onOpen}
       aria-label={t("skills.detail.open", { name: display.name })}
-      className="card-surface group min-w-0 p-4 text-left transition-all duration-180ms hover:-translate-y-0.5 hover:border-selection/35 hover:bg-elevated/80 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-focus/45"
+      className="card-surface group min-w-0 p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-white/10 hover:bg-hover active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-focus/45"
     >
       <div className="flex min-w-0 items-start gap-3.5">
         <SkillIconTile skill={skill} />

@@ -456,10 +456,15 @@ export default function SettingsView({
         }));
       return {
         ...provider,
-        models: [
-          ...provider.models,
-          ...liveModels.filter((model) => !existingIds.has(model.id)),
-        ].map((model) => liveModels.find((liveModel) => liveModel.id === model.id) ?? model),
+        models: provider.apiMode === "cli-pipe"
+          ? [
+              ...provider.models.filter((model) => !model.discovered),
+              ...liveModels,
+            ]
+          : [
+              ...provider.models,
+              ...liveModels.filter((model) => !existingIds.has(model.id)),
+            ].map((model) => liveModels.find((liveModel) => liveModel.id === model.id) ?? model),
       };
     }));
   };
@@ -733,8 +738,8 @@ export default function SettingsView({
         aria-modal="true"
         aria-labelledby="settings-dialog-title"
         tabIndex={-1}
-        className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-[1180px] flex-col overflow-hidden rounded-xl border shadow-xl outline-none"
-        style={{ background: "var(--surface-elevated)", borderColor: "var(--border-medium)" }}
+        className="flex h-[min(760px,calc(100vh-2rem))] w-full max-w-[1180px] flex-col overflow-hidden rounded-xl border outline-none"
+        style={{ background: "var(--surface-elevated)", borderColor: "rgba(255, 255, 255, 0.04)", boxShadow: "var(--composer-shadow)" }}
       >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: "var(--border-subtle)" }}>
         <div>
@@ -1751,23 +1756,25 @@ function ActiveModelsBlock({
                     >
                       <RefreshCw className={cn("h-3.5 w-3.5", refreshingProviderIds.has(provider.id) && "animate-spin")} />
                     </button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label={`${t("common.more")} · ${provider.name}`}
-                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink/38 transition-colors hover:bg-ink/[0.05] hover:text-ink/65"
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem onSelect={() => setManualProviderId(manualOpen ? null : provider.id)}>
-                          <Plus className="mr-2 h-3.5 w-3.5" />
-                          {t("settings.models.activation.addCustom")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    {provider.apiMode !== "cli-pipe" && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={`${t("common.more")} · ${provider.name}`}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink/38 transition-colors hover:bg-ink/[0.05] hover:text-ink/65"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onSelect={() => setManualProviderId(manualOpen ? null : provider.id)}>
+                            <Plus className="mr-2 h-3.5 w-3.5" />
+                            {t("settings.models.activation.addCustom")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
                   </div>
 
                   {manualOpen && (

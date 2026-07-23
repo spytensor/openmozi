@@ -16,13 +16,12 @@ describe("NewChatWelcome", () => {
     renderWithLocale(<NewChatWelcome onSelectPrompt={vi.fn()} />, { locale: "en" });
 
     expect(screen.getByRole("heading")).toHaveTextContent("What would you like MOZI to help with today?");
-    // Level one keeps MOZI's own bordered card language (operator decision
-    // 2026-07-19: don't copy the competitor's pills) — three category cards
-    // plus the "My tasks" card, no chips until one is chosen.
+    expect(screen.queryByTestId("mozi-avatar")).not.toBeInTheDocument();
+    // Level one has three category cards plus the "My tasks" card, with no
+    // chips until one is chosen.
     const cards = screen.getAllByTestId("starter-category-card");
     expect(cards).toHaveLength(3);
     for (const card of [...cards, screen.getByTestId("my-tasks-card")]) {
-      expect(card).toHaveStyle({ background: "transparent" });
       expect(card).toHaveAttribute("aria-pressed", "false");
     }
     expect(screen.queryByTestId("starter-chip")).not.toBeInTheDocument();

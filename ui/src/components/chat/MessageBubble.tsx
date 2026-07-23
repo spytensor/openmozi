@@ -277,8 +277,8 @@ export default memo(function MessageBubble({
     return (
       <div data-testid="message-user" className="group flex flex-col items-end min-w-0">
         {content && (
-        <div data-testid="message-user-bubble" className="bg-selection/15 border border-selection/15 rounded-2xl rounded-br-md px-4 py-2.5 max-w-[75%] shadow-sm overflow-hidden">
-          <p className="text-sm whitespace-pre-wrap break-words leading-relaxed overflow-wrap-anywhere">{content}</p>
+        <div data-testid="message-user-bubble" className="bg-surface-card border border-white/[0.07] rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[75%] overflow-hidden shadow-sm" style={{ boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 2px 8px rgba(0,0,0,0.3)" }}>
+          <p className="text-[13.5px] text-ink/[0.92] tracking-[-0.01em] whitespace-pre-wrap break-words leading-[1.55] overflow-wrap-anywhere">{content}</p>
         </div>
         )}
         {attachments.length > 0 && (
@@ -297,11 +297,12 @@ export default memo(function MessageBubble({
                     ? () => onOpenArtifact!(buildFileArtifact({ path: att.path, filename: att.filename, mime: att.mimeType, size: att.size }))
                     : undefined}
                   title={canOpen ? t("chat.attachment.open", { name: att.filename }) : att.filename}
-                  className={`flex max-w-[75%] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors ${canOpen ? "cursor-pointer hover:border-selection/40 hover:bg-elevated/70" : ""}`}
+                  className={`flex max-w-[75%] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all duration-200 ${canOpen ? "cursor-pointer hover:bg-hover hover:border-white/10 active:scale-[0.98]" : ""}`}
                   style={{
-                    borderColor: "var(--border-medium)",
+                    borderColor: "var(--border-subtle)",
                     background: "var(--surface-input)",
                     color: "var(--text-secondary)",
+                    boxShadow: "inset 0 1px 1px rgba(255, 255, 255, 0.02)",
                   }}
                 >
                   <TypeIcon type={(att.filename || "").split(".").pop() || "file"} size={28} />
@@ -343,8 +344,8 @@ export default memo(function MessageBubble({
       )}
       <div className="min-w-0 flex-1">
       {chatError ? (
-        <div data-testid="message-error" className="max-w-full rounded-md border border-danger/25 bg-danger/[0.06] px-3 py-2.5 text-sm text-ink/75">
-          <div className="flex items-start gap-2">
+        <div data-testid="message-error" className="max-w-full rounded-xl border border-danger/25 bg-danger/[0.05] p-3 text-[13px] text-ink/85 shadow-sm">
+          <div className="flex items-start gap-2.5">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
             <div className="min-w-0 flex-1">
               <p className="font-medium text-ink/85">{t(`chat.error.${chatError.kind}.title`)}</p>

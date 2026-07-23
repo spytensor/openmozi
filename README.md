@@ -28,7 +28,7 @@
 MOZI is a desktop AI agent (think of a personal, self-hosted Codex) that runs entirely on your machine. You point it at a project folder, give it a task, and it executes: shell commands, file edits, web research, document generation. Every deliverable it claims is verified against the filesystem before it reports done — no fake success.
 
 <p align="center">
-  <img src="docs/assets/readme/home.en.png" alt="OpenMozi desktop app in Dark mode, ready for a new task" width="920" />
+  <img src="docs/assets/readme/hero.en.png" alt="MOZI — Execute. Automate. Govern." width="920" />
 </p>
 
 The composer is the cockpit: pick a **project** (any folder or git repo), the **git branch** to work on, the **permission level** (read-only → full access), and the **model** — then describe what you want.
@@ -41,12 +41,6 @@ The composer is the cockpit: pick a **project** (any folder or git repo), the **
 - **Remember** — long-term memory across sessions. Tell it something once; it's there next week.
 - **Automate** — scheduled and recurring tasks with a dedicated UI, plus reusable task templates.
 - **Skills** — 25 built-in skills (the [Anthropic official skill catalog](https://github.com/anthropics/skills) adapted to MOZI, plus MOZI's own). Skills load on demand: the model sees a one-line catalog and pulls full instructions only when a task needs them. Drop a `SKILL.md` into your workspace to add your own.
-
-<p align="center">
-  <img src="docs/assets/readme/run.en.png" alt="OpenMozi completing a safe synthetic dashboard task in Dark mode" width="920" />
-</p>
-
-*Above: an isolated synthetic demo used for documentation. It contains no real account, project, conversation, key, or machine data.*
 
 ## Get the App
 

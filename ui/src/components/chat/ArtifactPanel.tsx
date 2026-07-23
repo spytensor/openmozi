@@ -226,7 +226,7 @@ export default function ArtifactPanel({
       data-artifact-kind={kind}
       className={cn(
         "artifact-panel",
-        "fixed inset-y-0 right-0 z-40 flex flex-col overflow-hidden bg-base border-l border-ink/[0.06]",
+        "fixed inset-y-0 right-0 z-40 flex flex-col overflow-hidden bg-elevated/95 backdrop-blur-2xl border-l border-white/[0.04] shadow-[-20px_0_60px_-15px_rgba(0,0,0,0.5)]",
         resizing ? "" : "transition-[inset,width] duration-200",
         fullscreen ? "inset-0 z-[100]" : docked ? "" : "left-0 w-full",
       )}
@@ -250,7 +250,7 @@ export default function ArtifactPanel({
       )}
 
       {/* Header */}
-      <div className="artifact-panel-header desktop-window-drag-region flex items-center gap-2 px-4 py-2.5 border-b border-ink/[0.06] bg-surface/95 backdrop-blur-sm shrink-0">
+      <div className="artifact-panel-header desktop-window-drag-region flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.04] bg-transparent shrink-0">
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-ink/[0.04] px-1.5 py-1 text-[11px] font-medium text-ink/48">
           <TypeIcon type={type} size={20} />
           <span>{typeLabel}</span>

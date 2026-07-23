@@ -2,11 +2,47 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCodingWorkerConfig,
   detectCodingWorkers,
+  parseCodexCliModels,
   recommendRouting,
   type CodingWorkerProbe,
 } from './coding-workers.js';
 
 describe('onboarding/coding-workers', () => {
+  it('parses only visible Codex CLI models and whitelists metadata', () => {
+    expect(parseCodexCliModels(JSON.stringify({
+      models: [
+        {
+          slug: 'gpt-5.6-sol',
+          display_name: 'GPT-5.6-Sol',
+          visibility: 'list',
+          context_window: 272_000,
+          input_modalities: ['text', 'image'],
+          base_instructions: 'must not leave the CLI process',
+        },
+        {
+          slug: 'codex-auto-review',
+          display_name: 'Codex Auto Review',
+          visibility: 'hide',
+          context_window: 272_000,
+        },
+      ],
+    }))).toEqual([
+      {
+        id: 'gpt-5.6-sol',
+        name: 'GPT-5.6-Sol',
+        contextWindow: 272_000,
+        supportsVision: true,
+      },
+    ]);
+  });
+
+  it('rejects malformed visible Codex CLI model entries', () => {
+    expect(() => parseCodexCliModels(JSON.stringify({
+      models: [{ slug: '../unsafe', display_name: 'Unsafe', visibility: 'list' }],
+    }))).toThrow('invalid visible model entry');
+    expect(() => parseCodexCliModels('{"models":[]}')).toThrow('no visible models');
+  });
+
   it('detects coding workers from PATH (real system check)', () => {
     const probes = detectCodingWorkers();
 

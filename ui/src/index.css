@@ -13,127 +13,127 @@
 @layer base {
   :root {
     color-scheme: dark;
-    --mozi-app-bg: 24 24 24;
-    --mozi-sidebar-bg: 32 32 32; /* = surface-elevated: the composer CONTAINER surface — sidebar and composer share one surface (operator decision 2026-07-19; first pass wrongly matched --surface-input, a token the composer does not use) */
-    --mozi-main-bg: 24 24 24;
-    --mozi-surface-base: 24 24 24;
-    --mozi-surface-elevated: 32 32 32;
-    --mozi-surface-input: 32 37 44;
-    --mozi-surface-hover: 39 45 53;
-    --mozi-surface-active: 48 55 65;
-    --mozi-action: 190 145 87;
-    --mozi-action-hover: 208 166 108;
-    --mozi-activity: 111 174 153;
-    --mozi-link: 142 170 190;
-    --mozi-link-hover: 166 190 207;
-    --mozi-code: 210 178 132;
-    --mozi-focus: 176 150 102;
-    --mozi-selection: 134 124 158;
-    --mozi-success: 122 203 139;
-    --mozi-warning: 227 182 90;
-    --mozi-danger: 224 108 117;
+    --mozi-app-bg: 0 0 0;
+    --mozi-sidebar-bg: 10 10 10;
+    --mozi-main-bg: 0 0 0;
+    --mozi-surface-base: 0 0 0;
+    --mozi-surface-elevated: 15 15 15;
+    --mozi-surface-input: 20 20 20;
+    --mozi-surface-hover: 30 30 30;
+    --mozi-surface-active: 40 40 40;
+    --mozi-action: 255 255 255;
+    --mozi-action-hover: 224 224 224;
+    --mozi-activity: 255 255 255;
+    --mozi-link: 161 161 170;
+    --mozi-link-hover: 255 255 255;
+    --mozi-code: 212 212 216;
+    --mozi-focus: 255 255 255;
+    --mozi-selection: 255 255 255;
+    --mozi-success: 16 185 129;
+    --mozi-warning: 245 158 11;
+    --mozi-danger: 239 68 68;
 
-    --app-bg: #181818;
-    --sidebar-bg: #202020; /* = --surface-elevated (composer container) */
-    --main-bg: #181818;
-    --surface-base: #181818;
-    --surface-elevated: #202020;
-    /* Overlays (popovers/dialogs/menus) are SOLID — the previous #202020dd let
-       page text ghost through every dark-mode menu, which both reads as broken
-       and violates the no-decorative-translucency red line (DESIGN.md). One
-       step above elevated so a menu separates from the composer it opens over. */
-    --surface-overlay: #262626;
-    --surface-input: #20252c;
-    --surface-hover: #272d35;
-    --surface-active: #303741;
-    --action: #be9157;
-    --action-hover: #d0a66c;
-    --action-fg: #181818;
-    --activity: #6fae99;
-    --link: #8eaabe;
-    --link-hover: #a6becf;
-    --code-inline-fg: #d2b284;
-    --focus: #b09666;
-    --selection: #867c9e;
-    --nav-active-indicator: var(--selection);
-    --success: #7acb8b;
-    --warning: #e3b65a;
-    --danger: #e06c75;
-    --activity-glow: rgba(111, 174, 153, 0.14);
-    --code-bg: rgba(0, 0, 0, 0.4);
-    --composer-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 18px 54px -38px rgba(0, 0, 0, 0.72);
-    --composer-shadow-empty: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 28px 82px -48px rgba(0, 0, 0, 0.78);
-    --composer-shadow-active: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 18px 58px -44px rgba(0, 0, 0, 0.78);
+    --app-bg: #000000;
+    --sidebar-bg: #0a0a0a;
+    --main-bg: #000000;
+    --surface-base: #000000;
+    --surface-elevated: #111111;
+    --surface-card: #161616;
+    --surface-overlay: #1a1a1a;
+    --surface-input: #111111;
+    --surface-hover: rgba(255, 255, 255, 0.08);
+    --surface-active: rgba(255, 255, 255, 0.12);
+    --action: #ffffff;
+    --action-hover: #e0e0e0;
+    --action-fg: #000000;
+    --activity: #ffffff;
+    --link: #a1a1aa;
+    --link-hover: #ffffff;
+    --code-inline-fg: #ededed;
+    --focus: #ffffff;
+    --selection: rgba(255,255,255,0.2);
+    --nav-active-indicator: #ffffff;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --activity-glow: rgba(255, 255, 255, 0.15);
+    --code-bg: rgba(255, 255, 255, 0.05);
+
+    /* Top-inner highlight shadow & multi-stage depth */
+    --composer-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 8px 40px -12px rgba(0,0,0,0.8);
+    --composer-shadow-empty: 0 0 0 1px rgba(255,255,255,0.1), 0 16px 50px -16px rgba(0,0,0,0.9);
+    --composer-shadow-active: 0 0 0 1px rgba(255,255,255,0.15), 0 12px 45px -15px rgba(0,0,0,0.85);
+
     --ink-rgb: 255 255 255;
     --sheet-rgb: 255 255 255;
-    --text-primary: rgba(255, 255, 255, 0.9);
-    --text-secondary: rgba(255, 255, 255, 0.7);
-    --text-muted: rgba(255, 255, 255, 0.46);
-    --text-disabled: rgba(255, 255, 255, 0.25);
-    --border-subtle: rgba(255, 255, 255, 0.06);
-    --border-medium: rgba(255, 255, 255, 0.1);
-    --radius-card: 8px;
-    --radius-button: 6px;
-    --radius-badge: 4px;
+    --text-primary: #ededed;
+    --text-secondary: #a1a1aa;
+    --text-muted: #71717a;
+    --text-disabled: #3f3f46;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-medium: rgba(255, 255, 255, 0.15);
+    --radius-card: 12px;
+    --radius-button: 8px;
+    --radius-badge: 6px;
   }
 
   [data-theme="light"] {
     color-scheme: light;
-    --mozi-app-bg: 246 247 249;
-    --mozi-sidebar-bg: 255 255 255; /* = surface-elevated (composer container) */
-    --mozi-main-bg: 246 247 249;
-    --mozi-surface-base: 246 247 249;
+    --mozi-app-bg: 250 250 250;
+    --mozi-sidebar-bg: 244 244 245;
+    --mozi-main-bg: 250 250 250;
+    --mozi-surface-base: 250 250 250;
     --mozi-surface-elevated: 255 255 255;
-    --mozi-surface-input: 247 248 250;
-    --mozi-surface-hover: 236 239 243;
-    --mozi-surface-active: 226 230 235;
-    --mozi-action: 139 94 47;
-    --mozi-action-hover: 113 73 35;
-    --mozi-activity: 57 123 104;
-    --mozi-link: 69 108 134;
-    --mozi-link-hover: 50 83 105;
-    --mozi-code: 122 84 48;
-    --mozi-focus: 139 107 62;
-    --mozi-selection: 102 91 122;
-    --mozi-success: 59 139 85;
-    --mozi-warning: 154 106 22;
-    --mozi-danger: 183 68 82;
+    --mozi-surface-input: 244 244 245;
+    --mozi-surface-hover: 228 228 231;
+    --mozi-surface-active: 212 212 216;
+    --mozi-action: 0 0 0;
+    --mozi-action-hover: 39 39 42;
+    --mozi-activity: 0 0 0;
+    --mozi-link: 82 82 91;
+    --mozi-link-hover: 0 0 0;
+    --mozi-code: 39 39 42;
+    --mozi-focus: 0 0 0;
+    --mozi-selection: 228 228 231;
+    --mozi-success: 16 185 129;
+    --mozi-warning: 245 158 11;
+    --mozi-danger: 239 68 68;
 
-    --app-bg: #f6f7f9;
-    --sidebar-bg: #ffffff; /* = --surface-elevated (composer container; pre-existing pure-white deviation, tracked in DESIGN.md) */
-    --main-bg: #f6f7f9;
-    --surface-base: #f6f7f9;
+    --app-bg: #fafafa;
+    --sidebar-bg: #f4f4f5;
+    --main-bg: #fafafa;
+    --surface-base: #fafafa;
     --surface-elevated: #ffffff;
     --surface-overlay: #ffffff;
-    --surface-input: #f7f8fa;
-    --surface-hover: #eceff3;
-    --surface-active: #e2e6eb;
-    --action: #8b5e2f;
-    --action-hover: #714923;
+    --surface-input: #f4f4f5;
+    --surface-hover: #e4e4e7;
+    --surface-active: #d4d4d8;
+    --action: #000000;
+    --action-hover: #27272a;
     --action-fg: #ffffff;
-    --activity: #397b68;
-    --link: #456c86;
-    --link-hover: #325369;
-    --code-inline-fg: #7a5430;
-    --focus: #8b6b3e;
-    --selection: #665b7a;
-    --nav-active-indicator: var(--selection);
-    --success: #3b8b55;
-    --warning: #9a6a16;
-    --danger: #b74452;
-    --activity-glow: rgba(57, 123, 104, 0.16);
-    --code-bg: rgba(23, 25, 28, 0.055);
-    --composer-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 12px 32px -24px rgba(17, 24, 39, 0.2);
-    --composer-shadow-empty: 0 1px 0 rgba(255, 255, 255, 0.96) inset, 0 18px 48px -34px rgba(17, 24, 39, 0.18);
-    --composer-shadow-active: 0 1px 0 rgba(255, 255, 255, 0.94) inset, 0 14px 38px -28px rgba(17, 24, 39, 0.18);
-    --ink-rgb: 23 25 28;
+    --activity: #000000;
+    --link: #52525b;
+    --link-hover: #000000;
+    --code-inline-fg: #27272a;
+    --focus: #000000;
+    --selection: #e4e4e7;
+    --nav-active-indicator: #000000;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --activity-glow: rgba(0, 0, 0, 0.08);
+    --code-bg: rgba(0, 0, 0, 0.04);
+    --composer-shadow: 0 0 0 1px rgba(0,0,0,0.06), 0 8px 30px -12px rgba(0,0,0,0.12);
+    --composer-shadow-empty: 0 0 0 1px rgba(0,0,0,0.08), 0 16px 40px -16px rgba(0,0,0,0.15);
+    --composer-shadow-active: 0 0 0 1px rgba(0,0,0,0.15), 0 12px 35px -15px rgba(0,0,0,0.12);
+    --ink-rgb: 0 0 0;
     --sheet-rgb: 255 255 255;
-    --text-primary: #17191c;
-    --text-secondary: #667085;
-    --text-muted: #8b95a5;
-    --text-disabled: #b3bac5;
-    --border-subtle: rgba(31, 41, 55, 0.1);
-    --border-medium: rgba(31, 41, 55, 0.16);
+    --text-primary: #09090b;
+    --text-secondary: #52525b;
+    --text-muted: #71717a;
+    --text-disabled: #a1a1aa;
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-medium: rgba(0, 0, 0, 0.15);
   }
 
   * {
@@ -267,9 +267,13 @@
   .btn-primary:hover {
     background-color: var(--action-hover);
   }
+  .btn-primary:active {
+    transform: scale(0.97);
+  }
   .btn-primary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    transform: none;
   }
 
   .btn-ghost {
@@ -286,6 +290,9 @@
     background: rgb(var(--ink-rgb) / 0.05);
     color: var(--text-primary);
   }
+  .btn-ghost:active {
+    transform: scale(0.97);
+  }
 
   .btn-success {
     background-color: var(--success);
@@ -299,6 +306,7 @@
     border: none;
   }
   .btn-success:hover { background-color: #67b978; }
+  .btn-success:active { transform: scale(0.97); }
 
   .btn-danger {
     background-color: var(--danger);
@@ -312,6 +320,7 @@
     border: none;
   }
   .btn-danger:hover { background-color: #d35e68; }
+  .btn-danger:active { transform: scale(0.97); }
 
   .input-field {
     background: var(--surface-input);

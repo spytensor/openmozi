@@ -490,7 +490,7 @@ export default function FilesView({
   );
 
   const renderFolderTile = (entry: FsEntry) => (
-    <div key={entry.path} className={`group relative rounded-xl border transition-colors hover:bg-ink/[0.03] ${selected.has(entry.path) ? "border-selection/50" : "border-ink/[0.07]"}`}>
+    <div key={entry.path} className={`group relative rounded-xl border transition-all duration-200 active:scale-[0.98] ${selected.has(entry.path) ? "border-selection/50 bg-selection/10" : "border-white/[0.04] bg-surface-elevated hover:bg-hover hover:border-white/10 shadow-sm"}`}>
       <button type="button" onClick={() => openEntry(entry)} className="flex w-full min-w-0 items-center gap-2.5 px-3 py-3 pl-8 text-left">
         <Folder className="h-5 w-5 shrink-0 text-selection/70" aria-hidden="true" />
         <span className="min-w-0 flex-1 truncate pr-6 text-[12.5px] font-medium text-ink/78">{entryLabel(entry)}</span>
@@ -500,7 +500,7 @@ export default function FilesView({
   );
 
   const renderFileCard = (entry: FsEntry) => (
-    <div key={entry.path} className={`group relative overflow-visible rounded-xl border transition-colors hover:bg-ink/[0.02] ${selected.has(entry.path) ? "border-selection/50" : "border-ink/[0.07]"}`}>
+    <div key={entry.path} className={`group relative overflow-visible rounded-xl border transition-all duration-200 active:scale-[0.98] ${selected.has(entry.path) ? "border-selection/50 bg-selection/10" : "border-white/[0.04] bg-surface-elevated hover:bg-hover hover:border-white/10 shadow-sm"}`}>
       <button type="button" onClick={() => openEntry(entry)} className="block w-full text-left">
         <span className="flex aspect-[4/3] items-center justify-center overflow-hidden rounded-t-xl" style={{ background: "rgb(var(--ink-rgb) / 0.03)" }}>
           {entry.artifactKind === "image" ? (

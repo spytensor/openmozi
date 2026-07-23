@@ -65,7 +65,8 @@ export default function ApprovalCard({ request, onApprove, onReject, repeatCount
   return (
     <div
       data-testid="approval-card"
-      className="rounded-xl border border-ink/[0.10] bg-elevated/70 px-3 py-2.5 shadow-sm"
+      className="rounded-xl border border-white/[0.08] bg-surface-card p-3.5"
+      style={{ boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.07), 0 6px 20px -6px rgba(0, 0, 0, 0.5)" }}
     >
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         <div className="flex min-w-[220px] flex-1 items-start gap-2.5">
@@ -112,14 +113,14 @@ export default function ApprovalCard({ request, onApprove, onReject, repeatCount
           <button
             type="button"
             onClick={() => onReject(request.id)}
-            className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-xs text-ink/55 transition-colors hover:bg-ink/[0.05] hover:text-ink/80"
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2.5 text-[12px] text-ink/65 transition-colors hover:bg-white/[0.06] hover:text-ink"
           >
             <X size={13} /> {t("approval.reject")}
           </button>
           <button
             type="button"
             onClick={() => onApprove(request.id, hasSessionOption ? "once" : undefined)}
-            className="inline-flex h-8 items-center gap-1 rounded-md bg-action px-3 text-xs font-medium text-action-foreground transition-colors hover:bg-action-hover"
+            className="inline-flex h-7 items-center gap-1 rounded-md bg-action px-3 text-[12px] font-medium text-action-foreground transition-colors hover:bg-action-hover shadow-sm active:scale-[0.98]"
           >
             <Check size={13} /> {hasSessionOption ? t("approval.allowOnce") : t("approval.approve")}
           </button>
@@ -132,7 +133,7 @@ export default function ApprovalCard({ request, onApprove, onReject, repeatCount
                   aria-label={t("approval.moreOptions")}
                   title={t("approval.moreOptions")}
                   onClick={() => setSessionMenuOpen(true)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-ink/45 transition-colors hover:bg-ink/[0.05] hover:text-ink/75"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-md text-ink/55 transition-colors hover:bg-white/[0.06] hover:text-ink"
                 >
                   <MoreHorizontal size={15} />
                 </button>
@@ -141,11 +142,11 @@ export default function ApprovalCard({ request, onApprove, onReject, repeatCount
                 side="bottom"
                 align="end"
                 sideOffset={6}
-                className="w-[260px] rounded-lg border border-ink/[0.10] bg-elevated p-1 text-ink shadow-[0_20px_60px_-28px_rgba(0,0,0,0.72)]"
+                className="w-[240px] rounded-xl border border-white/[0.08] bg-surface-overlay p-1.5 text-ink shadow-2xl backdrop-blur-xl"
               >
                 <DropdownMenuItem
                   onSelect={() => onApprove(request.id, "session")}
-                  className="cursor-pointer items-start gap-2 rounded-md px-2.5 py-2 focus:bg-ink/[0.06] focus:text-ink"
+                  className="cursor-pointer items-start gap-2 rounded-xl px-2.5 py-2.5 transition-colors focus:bg-white/[0.04] hover:bg-white/[0.04] focus:text-ink"
                 >
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-ink/55" />
                   <span className="min-w-0">

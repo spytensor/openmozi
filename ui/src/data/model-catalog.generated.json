@@ -475,42 +475,6 @@
           "reasoning": false,
           "inputCostPer1M": null,
           "outputCostPer1M": null
-        },
-        {
-          "id": "gpt-5.3-codex",
-          "name": "GPT-5.3-Codex",
-          "tier": "high",
-          "contextWindow": 400000,
-          "maxOutputTokens": 128000,
-          "supportsTools": false,
-          "supportsVision": false,
-          "reasoning": false,
-          "inputCostPer1M": null,
-          "outputCostPer1M": null
-        },
-        {
-          "id": "gpt-5.2-codex",
-          "name": "GPT-5.2-Codex",
-          "tier": "high",
-          "contextWindow": 400000,
-          "maxOutputTokens": 128000,
-          "supportsTools": false,
-          "supportsVision": false,
-          "reasoning": false,
-          "inputCostPer1M": null,
-          "outputCostPer1M": null
-        },
-        {
-          "id": "gpt-5.1-codex-max",
-          "name": "GPT-5.1-Codex-Max",
-          "tier": "high",
-          "contextWindow": 400000,
-          "maxOutputTokens": 128000,
-          "supportsTools": false,
-          "supportsVision": false,
-          "reasoning": false,
-          "inputCostPer1M": null,
-          "outputCostPer1M": null
         }
       ]
     },

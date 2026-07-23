@@ -17,7 +17,7 @@ const CHAT_PROSE_SHARED =
   "[&_h1]:text-ink/95 [&_h2]:text-ink/95 [&_h3]:text-ink/90 [&_h4]:text-ink/90 " +
   "[&_pre]:bg-[var(--code-bg)] [&_pre]:border [&_pre]:border-ink/[0.06] [&_pre]:rounded-lg [&_pre]:p-3.5 [&_pre]:overflow-x-auto [&_pre]:text-xs [&_pre]:font-mono " +
   "[&_code]:text-code [&_code]:text-xs [&_code]:font-mono " +
-  "[&_p]:my-[0.9em] [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-[0.8em] [&_ol]:my-[0.8em] [&_ul]:pl-[1.35em] [&_ol]:pl-[1.35em] [&_li]:my-[0.35em] [&_li>p]:my-[0.4em] [&_li>ul]:my-[0.4em] [&_li>ol]:my-[0.4em] " +
+  "[&_p]:my-[0.5em] [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_ul]:my-[0.5em] [&_ol]:my-[0.5em] [&_ul]:pl-[1.35em] [&_ol]:pl-[1.35em] [&_li]:my-[0.2em] [&_li>p]:my-[0.2em] [&_li>ul]:my-[0.2em] [&_li>ol]:my-[0.2em] " +
   // Tailwind preflight strips list markers app-wide; a reading surface needs
   // them back (muted, so bullets don't shout louder than their text).
   "[&_ul]:list-disc [&_ol]:list-decimal [&_li]:marker:text-ink/35 " +
@@ -32,7 +32,7 @@ const CHAT_PROSE_SHARED =
   "[&_thead]:bg-ink/[0.04] [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-ink/10 [&_th]:px-3.5 [&_th]:py-2 [&_th]:text-left [&_th]:font-medium [&_th]:text-ink/60 " +
   "[&_td]:border-b [&_td]:border-ink/[0.05] [&_td]:px-3.5 [&_td]:py-2 [&_td]:text-ink/70 [&_td]:tabular-nums [&_tbody_tr:nth-child(even)_td]:bg-ink/[0.02] [&_tr:last-child_td]:border-b-0";
 
-export const CHAT_PROSE_CLASS = `text-[15px] leading-[1.75] max-w-none ${CHAT_PROSE_SHARED}`;
+export const CHAT_PROSE_CLASS = `text-[15px] leading-[1.6] max-w-none ${CHAT_PROSE_SHARED}`;
 
 /**
  * Primary answer typography. This deliberately does not replace
@@ -54,7 +54,7 @@ const READING_PROSE_SHARED =
   "[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-ink/[0.08] [&_pre]:bg-[var(--code-bg)] [&_pre]:p-3.5 [&_pre]:font-mono [&_pre]:text-[0.85em] " +
   "[&_code]:mx-[0.25em] [&_code]:inline [&_code]:rounded-[0.25em] [&_code]:border [&_code]:border-ink/[0.08] [&_code]:bg-ink/[0.04] [&_code]:px-[0.4em] [&_code]:py-[0.2em] [&_code]:font-mono [&_code]:text-[0.875em] [&_code]:leading-none [&_code]:text-code " +
   "[&_pre_code]:m-0 [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[1em] [&_pre_code]:[line-height:inherit] " +
-  "[&_p]:my-1 [&_p]:[line-height:inherit] [&_p]:tracking-[0.02em] [&_p:not(:first-child)]:mt-[0.5em] [&_p:not(:last-child)]:mb-[0.5em] " +
+  "[&_p]:my-[0.25em] [&_p]:[line-height:inherit] [&_p]:tracking-[0.02em] [&_p:not(:first-child)]:mt-[0.35em] [&_p:not(:last-child)]:mb-[0.35em] " +
   "[&_ul]:ml-[1em] [&_ol]:ml-[1em] [&_ul]:list-none [&_ol]:list-decimal [&_ul]:pl-0 [&_ol]:pl-0 " +
   "[&_li]:my-[0.33em] [&_ul>li]:relative [&_ul>li]:ml-[1em] [&_ol>li]:ml-[1em] [&_ul>li]:before:absolute [&_ul>li]:before:-ml-[1em] [&_ul>li]:before:opacity-50 [&_ul>li]:before:content-['-'] " +
   "[&_a]:text-link hover:[&_a]:text-link-hover " +
@@ -69,17 +69,17 @@ const READING_PROSE_SHARED =
   "[&_h1:focus]:outline-none [&_h2:focus]:outline-none [&_h3:focus]:outline-none [&_h4:focus]:outline-none [&_h5:focus]:outline-none [&_h6:focus]:outline-none";
 
 export const CHAT_ANSWER_PROSE_CLASS =
-  `text-[14px] leading-[1.6] text-ink/[0.86] ${READING_PROSE_SHARED} ` +
-  "[&_h1]:my-[14px] [&_h2]:my-[14px] [&_h3]:my-[14px] [&_h4]:my-[14px] [&_h5]:my-[14px] [&_h6]:my-[14px] " +
-  "[&_h1]:text-[19.25px] [&_h2]:text-[17.5px] [&_h3]:text-[15.75px] [&_h4]:text-[14.875px] [&_h5]:text-[14px] [&_h6]:text-[14px] " +
-  "[&_ul]:my-[0.5em] [&_ol]:my-[0.5em] [&_ul]:!list-disc [&_ul>li]:before:hidden [&_li]:marker:text-ink/45 " +
-  "[&_blockquote]:my-[0.5em] [&_hr]:my-[1.5em] [&_.markdown-table-frame]:my-[0.5em] [&_img]:my-[0.5em]";
+  `text-[13.5px] leading-[1.5] text-ink/[0.88] tracking-[-0.01em] ${READING_PROSE_SHARED} ` +
+  "[&_h1]:my-[10px] [&_h2]:my-[8px] [&_h3]:my-[6px] [&_h4]:my-[6px] [&_h5]:my-[6px] [&_h6]:my-[6px] " +
+  "[&_h1]:text-[17px] [&_h2]:text-[15.5px] [&_h3]:text-[14.5px] [&_h4]:text-[13.5px] [&_h5]:text-[13px] [&_h6]:text-[13px] " +
+  "[&_ul]:my-[0.3em] [&_ol]:my-[0.3em] [&_ul]:!list-disc [&_ul>li]:before:hidden [&_li]:marker:text-ink/40 " +
+  "[&_blockquote]:my-[0.3em] [&_hr]:my-[1em] [&_.markdown-table-frame]:my-[0.3em] [&_img]:my-[0.3em]";
 
 export const DOCUMENT_PROSE_CLASS =
-  `text-[15px] leading-[1.7] text-ink/[0.86] ${READING_PROSE_SHARED} ` +
-  "[&_h1]:my-[15px] [&_h2]:my-[15px] [&_h3]:my-[15px] [&_h4]:my-[15px] [&_h5]:my-[15px] [&_h6]:my-[15px] " +
-  "[&_h1]:text-[30px] [&_h2]:text-[24px] [&_h3]:text-[20px] [&_h4]:text-[17px] [&_h5]:text-[15px] [&_h6]:text-[15px] " +
-  "[&_table]:!w-full [&_ul]:my-[0.85em] [&_ol]:my-[0.85em] [&_blockquote]:my-[0.85em] [&_hr]:my-[2.25em] [&_.markdown-table-frame]:my-[0.85em] [&_img]:my-[0.85em]";
+  `text-[14px] leading-[1.55] text-ink/[0.88] tracking-[-0.01em] ${READING_PROSE_SHARED} ` +
+  "[&_h1]:my-[12px] [&_h2]:my-[10px] [&_h3]:my-[8px] [&_h4]:my-[8px] [&_h5]:my-[8px] [&_h6]:my-[8px] " +
+  "[&_h1]:text-[26px] [&_h2]:text-[21px] [&_h3]:text-[18px] [&_h4]:text-[15.5px] [&_h5]:text-[14px] [&_h6]:text-[14px] " +
+  "[&_table]:!w-full [&_ul]:my-[0.5em] [&_ol]:my-[0.5em] [&_blockquote]:my-[0.5em] [&_hr]:my-[1.5em] [&_.markdown-table-frame]:my-[0.5em] [&_img]:my-[0.5em]";
 
 /**
  * Subordinate variant for PROCESS text inside the turn fold (查看处理过程).
@@ -87,4 +87,4 @@ export const DOCUMENT_PROSE_CLASS =
  * read at answer size or the capsule has no hierarchy against the reply
  * (operator report 2026-07-19: "胶囊里面的字体太大").
  */
-export const CHAT_PROSE_COMPACT_CLASS = `text-[13px] leading-[1.7] max-w-none ${CHAT_PROSE_SHARED}`;
+export const CHAT_PROSE_COMPACT_CLASS = `text-[12.5px] leading-[1.45] tracking-[-0.01em] max-w-none ${CHAT_PROSE_SHARED}`;

@@ -535,11 +535,11 @@ export default function InputBar({
       {COMMANDS_ENABLED && showCommands && (
         <div
           ref={panelRef}
-          className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-50 overflow-hidden rounded-lg backdrop-blur-xl"
+          className="absolute bottom-[calc(100%+8px)] left-0 right-0 z-50 overflow-hidden rounded-[18px] backdrop-blur-xl"
           style={{
-            background: "color-mix(in srgb, var(--surface-elevated) 92%, transparent)",
-            border: "1px solid var(--border-medium)",
-            boxShadow: "0 20px 60px -20px rgba(0,0,0,0.55)",
+            background: "color-mix(in srgb, var(--surface-elevated) 80%, transparent)",
+            border: "1px solid color-mix(in srgb, white 4%, transparent)",
+            boxShadow: "var(--composer-shadow)",
           }}
         >
           <Command className="bg-transparent" shouldFilter={true}>
@@ -602,13 +602,11 @@ export default function InputBar({
 
       <div
         data-drag-active={dragActive || undefined}
-        className="rounded-[20px] transition-colors"
+        className="rounded-[18px] transition-all duration-200"
         style={{
           background: "var(--surface-elevated)",
-          // Dropping a file anywhere on the window attaches it here — the
-          // accent border is the "this is where it lands" signal.
-          border: dragActive ? "1px solid var(--focus)" : "1px solid var(--border-medium)",
-          boxShadow: isEmptyVariant ? "var(--composer-shadow-empty)" : "var(--composer-shadow-active)",
+          border: dragActive ? "1px solid var(--focus)" : "1px solid var(--border-subtle)",
+          boxShadow: isEmptyVariant ? "var(--composer-shadow-empty)" : "var(--composer-shadow)",
         }}
       >
         <div className={cn("relative", isEmptyVariant ? "px-4 pb-3 pt-3" : "px-3.5 pb-2.5 pt-2.5")}>
@@ -689,7 +687,7 @@ export default function InputBar({
             decision 2026-07-18: a two-tone composer reads as fragmented). */}
         <div
           data-testid="composer-controls-tray"
-          className="flex min-h-11 items-center justify-between gap-2 rounded-b-[19px] px-3 py-2"
+          className="flex min-h-11 items-center justify-between gap-2 rounded-b-[23px] px-3 py-2"
         >
           <div className="relative flex min-w-0 items-center gap-1">
             {showWorkspaceContext && (
@@ -743,17 +741,15 @@ export default function InputBar({
                   disabled={disabled || uploading}
                   onClick={handleAttachClick}
                   className={cn(
-                    "flex h-7 items-center justify-center transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                    isEmptyVariant ? "gap-1.5 rounded-md px-2.5 text-[12px]" : "w-7 rounded-full",
+                    "flex h-8 items-center justify-center transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-white/[0.04] active:scale-[0.97]",
+                    isEmptyVariant ? "gap-1.5 rounded-lg px-3 text-[12.5px]" : "w-8 rounded-full",
                   )}
                   style={{ background: "transparent", color: "var(--text-muted)" }}
                   onMouseEnter={(e) => {
                     if (disabled || uploading) return;
-                    e.currentTarget.style.background = "var(--surface-hover)";
                     e.currentTarget.style.color = "var(--text-primary)";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "transparent";
                     e.currentTarget.style.color = "var(--text-muted)";
                   }}
                 >
@@ -802,7 +798,7 @@ function IconButton({
   onClick,
   disabled = false,
 }: {
-  children: ReactNode;
+  children: React.ReactNode;
   title: string;
   onClick?: () => void;
   disabled?: boolean;
@@ -813,18 +809,8 @@ function IconButton({
       title={title}
       onClick={onClick}
       disabled={disabled}
-      className="flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+      className="flex h-7 w-7 items-center justify-center rounded-md transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/[0.06] hover:text-ink/90 active:scale-[0.97]"
       style={{ color: "var(--text-muted)" }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.background = "var(--surface-hover)";
-        e.currentTarget.style.color = "var(--text-primary)";
-      }}
-      onMouseLeave={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.background = "transparent";
-        e.currentTarget.style.color = "var(--text-muted)";
-      }}
     >
       {children}
     </button>
@@ -872,7 +858,7 @@ function SubmitButton({
       data-state={cancelling ? "cancelling" : working ? "working" : "idle"}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      className="flex h-7 w-7 items-center justify-center rounded-md transition-all disabled:cursor-not-allowed"
+      className="flex h-8 w-8 items-center justify-center rounded-lg transition-all duration-200 hover:scale-[0.97] active:scale-[0.95] disabled:cursor-not-allowed"
       style={{
         background,
         color,
