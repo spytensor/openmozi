@@ -383,16 +383,16 @@ describe("ExecutionBlock", () => {
     expect(screen.getByText("×3")).toBeInTheDocument();
   });
 
-  it("uses the transcript locale over the global UI locale for chat progress", () => {
+  it("uses the selected UI locale over the transcript locale for product chrome", () => {
     renderWithLocale(<ExecutionBlock block={{ ...partialSourceBlock(), locale: "zh-CN" }} />, { locale: "en" });
 
-    expect(screen.getByTestId("execution-summary")).toHaveTextContent("查看处理过程");
-    expect(screen.queryByText("View work")).not.toBeInTheDocument();
+    expect(screen.getByTestId("execution-summary")).toHaveTextContent("View work");
+    expect(screen.queryByText("查看处理过程")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("execution-summary"));
 
-    expect(screen.getAllByTestId("execution-step-label").some((node) => node.textContent?.includes("读取 example.com"))).toBe(true);
-    expect(screen.getByText("一个来源无法访问，已换用其他来源")).toBeInTheDocument();
+    expect(screen.getAllByTestId("execution-step-label").some((node) => node.textContent?.includes("Read example.com"))).toBe(true);
+    expect(screen.getByText("One source was unreachable; used another")).toBeInTheDocument();
   });
 
   it("frames partial source failures as skipped sources without leaking crawl internals", () => {
@@ -705,6 +705,40 @@ describe("ExecutionBlock", () => {
     // 2026-07-18) — it shows in the capsule's one-line status too.
     expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Loading skill imagegen");
     expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
+  });
+
+  it("localizes the latest completed tool instead of falling back to raw runtime intent", () => {
+    const block: ExecutionBlockModel = {
+      key: "turn-skill-fallback",
+      turnId: "turn-skill-fallback",
+      locale: "zh-CN",
+      headline: "Load skill imagegen",
+      status: "running",
+      toolCount: 1,
+      taskCount: 0,
+      issueCount: 0,
+      totalElapsedMs: 0,
+      issueSummaries: [],
+      tasks: [],
+      tools: [
+        {
+          id: "tool-skill-fallback",
+          callId: "skill-fallback",
+          turnId: "turn-skill-fallback",
+          tool: "use_skill",
+          phase: "end",
+          status: "success",
+          skillName: "imagegen",
+          intent: "Load skill imagegen",
+          timestamp: 1,
+        },
+      ],
+    };
+
+    renderWithLocale(<ExecutionBlock block={block} />, { locale: "en" });
+
+    expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Loading skill imagegen");
+    expect(screen.getByTestId("execution-live-work")).not.toHaveTextContent("正在处理");
   });
 
   it("shows an active working stage before any tool output exists", () => {
