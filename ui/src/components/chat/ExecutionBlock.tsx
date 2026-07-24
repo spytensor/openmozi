@@ -1238,6 +1238,13 @@ function liveLabel(block: ExecutionBlockModel, locale: Locale): string {
     return status || title || translateMessage(locale, "execution.summary.runningCompact");
   }
 
+  const latestTool = [...getDisplayTools(block.tools)].reverse()[0];
+  if (latestTool) {
+    const summary = buildToolStepSummary(latestTool, locale);
+    if (summary.isSkillActivation) return toolRunningActionLabel(latestTool.tool, locale, summary.skillName);
+    return summary.label;
+  }
+
   return block.headline || translateMessage(locale, "execution.summary.runningCompact");
 }
 
@@ -1270,8 +1277,7 @@ function LiveExecutionLine({ block, locale }: { block: ExecutionBlockModel; loca
 }
 
 export function ExecutionBlock({ block, interrupted = false, embedded = false, onOpenSources, suppressTechnicalDetails = false }: ExecutionBlockProps) {
-  const { locale: uiLocale } = useLocale();
-  const locale = block.locale ?? uiLocale;
+  const { locale } = useLocale();
   const [expanded, setExpanded] = useState(false);
   // The turn envelope may have terminalized this block as crash-interrupted
   // (Issue #626); treat that exactly like a runtime-lost block so running rows

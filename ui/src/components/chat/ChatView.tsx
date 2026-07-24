@@ -10,10 +10,10 @@ import ApprovalCard from "./ApprovalCard";
 import ArtifactCard from "./ArtifactCard";
 import InlineVisualCard, { isInlineVisualArtifact } from "./InlineVisualCard";
 import SupportingFilesGroup from "./SupportingFilesGroup";
-import { buildExecutionBlockModel, buildExecutionIssueSummaries, inferMessageLocale, isCancelledTask, isExecutionTimelineItem, toolRunningActionLabel, type ChatRenderItem } from "./execution";
+import { buildExecutionBlockModel, buildExecutionIssueSummaries, isCancelledTask, isExecutionTimelineItem, toolRunningActionLabel, type ChatRenderItem } from "./execution";
 import { canProjectDeterministically, projectLegacyTimeline, projectTimelineByTurn } from "./turn-projection";
 import { MemoryUpdateNotice } from "./MemoryUpdateNotice";
-import { translateMessage, useLocale, type Locale, type MessageKey } from "@/i18n";
+import { translateMessage, useLocale, type MessageKey } from "@/i18n";
 
 const WELCOME_SUGGESTIONS: MessageKey[] = [
   "chat.card.research.prompt",
@@ -104,41 +104,6 @@ function precedingProjectedUserPrompt(renderItems: ChatRenderItem[], index: numb
     if (message.role === "user") return stripInjectedContext(message.content);
   }
   return undefined;
-}
-
-function isUiLocale(value: unknown): value is Locale {
-  return value === "en" || value === "zh-CN";
-}
-
-/**
- * The presentation locale for the current/active turn's live status labels.
- * On the authoritative path (Issue #628) this is the locale the server carried
- * on the turn's envelope — no character scan. The per-message scan survives only
- * as a legacy fallback for turns whose envelope predates the carried field.
- */
-function latestTurnLocale(
-  timeline: TimelineItem[],
-  turns: TurnEnvelope[] | undefined,
-  activeTurnId: string | null,
-  fallback: Locale,
-): Locale {
-  const carried = (turnId: string | null | undefined) => {
-    if (!turnId) return undefined;
-    const env = turns?.find((t) => t.turnId === turnId);
-    return isUiLocale(env?.locale) ? env.locale : undefined;
-  };
-  // Prefer the active turn's carried locale, else the latest recorded turn's.
-  const activeCarried = carried(activeTurnId) ?? (turns?.length ? carried(turns[turns.length - 1]!.turnId) : undefined);
-  if (activeCarried) return activeCarried;
-
-  for (let i = timeline.length - 1; i >= 0; i--) {
-    const item = timeline[i];
-    if (item.type !== "message") continue;
-    const message = item.data as ChatMessage;
-    if (message.role !== "user") continue;
-    return inferMessageLocale(message.content) ?? fallback;
-  }
-  return fallback;
 }
 
 function isStreamingAssistantAnswer(item?: TimelineItem): boolean {
@@ -683,8 +648,7 @@ function TurnFold({
 }) {
   const { locale: uiLocale } = useLocale();
   const [expanded, setExpanded] = useState(false);
-  const firstBlock = group.items.find((ri): ri is ChatRenderItem & { kind: "execution" } => ri.kind === "execution");
-  const locale = firstBlock?.block.locale ?? uiLocale;
+  const locale = uiLocale;
 
   const mergedTechnicalBlock = useMemo<ExecutionBlockModel | null>(() => {
     const blocks = group.items
@@ -1070,12 +1034,12 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     const model = buildExecutionBlockModel(
       planItem ? [planItem, ...turnItems] : turnItems,
       `live-turn-${liveWorkTurnId}`,
-      latestTurnLocale(timeline, turns, liveWorkTurnId, locale),
+      locale,
     );
     // The turn is live by envelope truth here — the card must stay in its
     // live shape between steps instead of flashing a collapsed summary.
     return { ...model, status: "running" as const };
-  }, [timeline, liveWorkTurnId, turns, locale]);
+  }, [timeline, liveWorkTurnId, locale]);
 
   if (timeline.length === 0 && sessionState === "IDLE") {
     return (
@@ -1113,7 +1077,6 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // Non-hook derivations (safe after the early return). The deterministic Turn
   // projection (Issue #625) is memoized above.
   const activityIndicator = deriveActivityIndicator(timeline, renderItems, sessionState, activeTool, activeTurnId);
-  const turnLocale = latestTurnLocale(timeline, turns, activeTurnId, locale);
   // Turns whose ENVELOPE is terminally failed: their process never folds and
   // keeps one turn-scoped surface. The final assistant message remains the
   // visible failure report; process details open only when the user asks.
@@ -1132,7 +1095,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // technology announces one meaningful change — never every low-level tool event.
   const liveActivity = deriveLiveActivity(activityIndicator, renderItems, sessionState, turns);
   const liveAnnouncement =
-    liveActivity === "idle" ? "" : translateMessage(turnLocale, LIVE_ACTIVITY_KEY[liveActivity]);
+    liveActivity === "idle" ? "" : translateMessage(locale, LIVE_ACTIVITY_KEY[liveActivity]);
 
   let assistantAvatarShownInTurn = false;
 
@@ -1158,7 +1121,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         return (
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
             <LiveToolLine
-              label={toolRunningActionLabel(activeTool, turnLocale, activeToolSkillName)}
+              label={toolRunningActionLabel(activeTool, locale, activeToolSkillName)}
               detailBlocks={detailBlocks}
             />
           </AssistantColumnRow>
@@ -1169,7 +1132,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
             <div data-testid="chat-responding-status-line" className="flex items-center gap-2 py-1 text-xs text-ink/40">
               <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-              <span>{translateMessage(turnLocale, "chat.status.responding")}</span>
+              <span>{translateMessage(locale, "chat.status.responding")}</span>
             </div>
           </AssistantColumnRow>
         );
@@ -1181,7 +1144,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
               <div className="flex items-center gap-2 py-1">
                 <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
                 <span className="text-xs text-ink/40">
-                  {translateMessage(turnLocale, activityIndicator === "working" ? "chat.status.working" : "chat.status.thinking")}
+                  {translateMessage(locale, activityIndicator === "working" ? "chat.status.working" : "chat.status.thinking")}
                 </span>
               </div>
             </div>
@@ -1306,7 +1269,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
                 onClick={() => handleOpenArtifactsIndex(artifactTurn)}
                 className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[12px] text-ink/40 transition-colors hover:bg-ink/[0.04] hover:text-ink/65"
               >
-                {translateMessage(turnLocale, "chat.artifacts.viewAll", { count: turnArtifactsCount })}
+                {translateMessage(locale, "chat.artifacts.viewAll", { count: turnArtifactsCount })}
                 <ChevronDown className="h-3 w-3 -rotate-90" aria-hidden="true" />
               </button>
             )}
@@ -1590,7 +1553,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
               onClick={() => setShowEarlier(true)}
               className="mx-auto mb-1 inline-flex h-8 items-center rounded-full border border-ink/[0.12] px-3 text-[12px] text-ink/55 transition-colors hover:border-ink/[0.2] hover:text-ink/85"
             >
-              {translateMessage(turnLocale, "chat.timeline.showEarlier", { count: String(hiddenEarlierCount) })}
+              {translateMessage(locale, "chat.timeline.showEarlier", { count: String(hiddenEarlierCount) })}
             </button>
           )}
           {rows.map(({ key, node }, mountedIndex) => (

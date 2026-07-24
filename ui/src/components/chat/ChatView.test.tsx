@@ -253,9 +253,9 @@ describe("ChatView", () => {
     ]);
 
     const summary = screen.getByTestId("turn-fold-summary");
-    expect(summary.textContent).toContain("查看处理过程");
-    expect(summary.textContent).toContain("约 7 分钟");
-    expect(summary.textContent).not.toMatch(/毫秒|ms|秒/);
+    expect(summary.textContent).toContain("View work");
+    expect(summary.textContent).toContain("about 7 min");
+    expect(summary.textContent).not.toMatch(/milliseconds|ms|seconds/);
   });
 
   it("leaves no successful execution residue beside a simple final answer", () => {
@@ -643,7 +643,7 @@ describe("ChatView", () => {
   it("names the loading skill in the live line", () => {
     renderWithLocale(
       <ChatView
-        timeline={[message("user", "Use imagegen", 1)]}
+        timeline={[message("user", "使用 imagegen", 1)]}
         sessionState="WORKING"
         activeTool="use_skill"
         activeToolSkillName="imagegen"
@@ -869,7 +869,7 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
     fireEvent.click(screen.getByTestId("turn-fold-summary"));
     const fold = screen.getByTestId("turn-fold-content");
     expect(within(fold).getByText("收集市场数据")).toBeInTheDocument();
-    expect(within(fold).getByTestId("chat-view-all-artifacts")).toHaveTextContent("查看全部产物（2）");
+    expect(within(fold).getByTestId("chat-view-all-artifacts")).toHaveTextContent("View all artifacts (2)");
     expect(within(fold).getByTestId("execution-technical-summary")).toBeInTheDocument();
   });
 
@@ -898,7 +898,7 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
       expect(live).toHaveTextContent("");
     });
 
-    it("announces one coarse activity phase — Responding — in the turn's language", () => {
+    it("announces one coarse activity phase in the selected display language", () => {
       // A streaming assistant message with no renderable content yet → the
       // "responding" phase (before any answer text appears).
       const en = renderChat(
@@ -908,14 +908,12 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
       expect(screen.getByTestId("chat-live-status")).toHaveTextContent("MOZI is responding");
       en.unmount();
 
-      // Same runtime state, Chinese turn locale carried on the envelope → the
-      // screen-reader announcement is Chinese. This is the authoritative-path
-      // parity: presentation language follows the carried locale, not the UI.
+      // A Chinese turn must not override the user's English display language.
       renderChat(
         [message("user", "你好", 1), message("assistant", "", 2, { streaming: true, requestId: "r1", turnId: "turn_1" })],
         { sessionState: "RESPONDING", timelineCapabilities: ["timeline_v1"], turns: [{ turnId: "turn_1", sessionId: "s", chatId: "c", origin: "user", status: "active", seqHighWater: 2, startedAt: 1, locale: "zh-CN" }] },
       );
-      expect(screen.getByTestId("chat-live-status")).toHaveTextContent("MOZI 正在回复");
+      expect(screen.getByTestId("chat-live-status")).toHaveTextContent("MOZI is responding");
     });
 
     function approvalRequest(status: "pending" | "approved" | "rejected"): TimelineItem {
