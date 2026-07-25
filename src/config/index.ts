@@ -471,6 +471,7 @@ const ProviderOverrideSchema = z.preprocess((val) => {
 }, z.object({
   apikey: z.string().optional(),
   baseurl: z.string().optional(),
+  apiversion: z.string().optional(),
 }).passthrough());
 
 const MoziConfigSchema = z.object({

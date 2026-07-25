@@ -162,6 +162,17 @@ describe('write scope × permission level — L3 bypasses project-scope gate (BU
     expect(() => resolveWritePath(outsideScopeInWorkspace, '', roots, projectRoot)).toThrow(PathScopeError);
   });
 
+  it('enforcedWriteRoots pins writes to the run dir even at full access and ignores fs policy', () => {
+    hoisted.workspaceOnly = false;
+    const runDir = resolve(hoisted.workspaceDir, 'output', 'agents', 'demo', 'run-1');
+    const pinned = resolveWriteRoots({ ...ctx('L3_FULL_ACCESS'), enforcedWriteRoots: [runDir] });
+    expect(pinned).toEqual([resolve(runDir)]);
+    hoisted.workspaceOnly = true;
+    const pinnedStrict = resolveWriteRoots({ ...ctx('L3_FULL_ACCESS'), enforcedWriteRoots: [runDir] });
+    expect(pinnedStrict).toEqual([resolve(runDir)]);
+    expect(pinnedStrict).not.toContain(resolve(hoisted.workspaceDir));
+  });
+
   it('L3 (full access) does NOT narrow to the project root — the same workspace write is ALLOWED with no approval', () => {
     hoisted.workspaceOnly = true;
     const roots = resolveWriteRoots(ctx('L3_FULL_ACCESS'));

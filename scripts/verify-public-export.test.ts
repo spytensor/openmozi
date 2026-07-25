@@ -38,6 +38,73 @@ describe('verify-public-export', () => {
     ]);
   });
 
+  it('requires the exact canonical public repository slug', () => {
+    const wrongRepository = ['https://github.com', 'spytensor', 'OpenMozi.git'].join('/');
+    expect(findPublicExportViolations(
+      ['dist/README.md'],
+      () => `first line\n${wrongRepository}\n`,
+    )).toEqual([
+      'dist/README.md:2: non-canonical public repository slug "OpenMozi" (expected "openmozi")',
+    ]);
+
+    expect(findPublicExportViolations(
+      ['dist/README.md'],
+      () => 'https://github.com/spytensor/openmozi.git\nhttps://github.com/spytensor/openmozi/issues\n',
+    )).toEqual([]);
+  });
+
+  it('accepts the canonical slug inside markdown emphasis, code spans and tables', () => {
+    // Terminator-class regression: `openmozi\`` / `openmozi**` / `openmozi|`
+    // must not be read as the slug, or writing the correct URL in inline code
+    // would block the export.
+    expect(findPublicExportViolations(
+      ['dist/README.md'],
+      () => [
+        '`https://github.com/spytensor/openmozi`',
+        '**https://github.com/spytensor/openmozi**',
+        '| https://github.com/spytensor/openmozi | cell |',
+        '_https://github.com/spytensor/openmozi_',
+        'See https://github.com/spytensor/openmozi!',
+      ].join('\n'),
+    )).toEqual([]);
+  });
+
+  it('rejects upstream tree references, mirror wording, and upstream version numbers', () => {
+    // The export tooling itself used to name the upstream project, its version
+    // and its commit sha in the published commit message, and the published
+    // CHANGELOG described itself the same way. None of that means anything to
+    // a reader there, and it exposes the upstream release cadence.
+    // Fixtures are assembled from fragments so this test file does not itself
+    // trip the gate it is testing — the same idiom the gate uses.
+    const upstreamWord = ['inter', 'nal'].join('');
+    const product = ['MO', 'ZI'].join('');
+    const cases: Array<[string, string]> = [
+      [`Mirrors ${upstreamWord} ${product} v2.15.0 (854ec4a0).\n`, 'upstream tree reference'],
+      [`This tree mirrors the ${upstreamWord} repository.\n`, 'upstream tree reference'],
+      [`Cut from ${product} v2.13.1.\n`, 'upstream version reference'],
+    ];
+    for (const [content, label] of cases) {
+      expect(findPublicExportViolations(['dist/CHANGELOG.md'], () => content), content)
+        .toContain(`dist/CHANGELOG.md: ${label}`);
+    }
+
+    // Public-facing release prose must stay clean.
+    expect(findPublicExportViolations(
+      ['dist/CHANGELOG.md'],
+      () => '## [v1.1.0]\n\nAdds user-defined agents and Azure OpenAI support.\n',
+    )).toEqual([]);
+  });
+
+  it('rejects the private repository in its SSH and API forms, not just as an https URL', () => {
+    const sshRemote = ['git@github.com:spytensor', 'Mozi.git'].join('/');
+    expect(findPublicExportViolations(['dist/setup.md'], () => `${sshRemote}\n`))
+      .toEqual(['dist/setup.md: private repository SSH remote']);
+
+    const apiUrl = ['https://api.github.com/repos/spytensor', 'Mozi/releases'].join('/');
+    expect(findPublicExportViolations(['dist/setup.md'], () => `${apiUrl}\n`))
+      .toEqual(['dist/setup.md: private repository API URL']);
+  });
+
   it('keeps the public license contract consistent and ships notices in the Mac app', () => {
     for (const path of ['package.json', 'ui/package.json', 'desktop/package.json']) {
       const manifest = JSON.parse(readFileSync(path, 'utf8')) as { license?: string };

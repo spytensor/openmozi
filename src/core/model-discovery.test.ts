@@ -34,6 +34,24 @@ describe('provider model discovery', () => {
     expect(ollama.models[0]?.id).toBe('llama-new:latest');
   });
 
+  it('reports Azure deployment discovery as unsupported without making a request', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const result = await discoverProviderModels({
+      provider: getProvider('azure')!,
+      baseUrl: 'https://resource.openai.azure.com',
+      apiKey: 'secret',
+      tenantId: 't',
+      fetchImpl,
+    });
+    expect(result).toMatchObject({
+      supported: false,
+      source: 'catalog',
+      fallbackReason: 'provider_does_not_list_models',
+      models: [],
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('accepts bounded model ids and rejects unsafe manual values', () => {
     expect(isSafeCustomModelId('vendor/model-v2:free')).toBe(true);
     expect(isSafeCustomModelId('../model')).toBe(false);

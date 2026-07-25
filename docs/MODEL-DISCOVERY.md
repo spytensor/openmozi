@@ -10,6 +10,7 @@ MOZI treats provider APIs as the source of available model IDs when they expose 
 | Anthropic-compatible | Anthropic, MiniMax, Xiaomi | Authenticated `GET /v1/models`; MiniMax model discovery uses its OpenAI-compatible `/v1/models` root because chat uses a separate Anthropic path |
 | Gemini native | Google | `GET https://generativelanguage.googleapis.com/v1beta/models`, filtered to `generateContent` models |
 | Ollama native | Ollama | Local `GET /api/tags`; only auto-probed when Ollama is active, with explicit refresh available otherwise |
+| Azure OpenAI | Azure OpenAI | No generic model discovery through MOZI; register the Azure deployment name manually because chat addresses deployments rather than model IDs |
 | AWS control plane | Bedrock | No generic HTTP discovery through the configured runtime endpoint; use catalog or manual model ID because listing requires the separately authenticated Bedrock control-plane API |
 | Local CLI | Claude CLI, Codex CLI | Curated chat-role catalog when the binary and authentication are ready; `_cli-default` keeps the CLI default |
 | Managed CLI only | Gemini CLI | Not a chat-role provider because no model bridge is registered |
@@ -21,5 +22,5 @@ Official protocol references: [OpenAI models](https://platform.openai.com/docs/a
 - API keys stay on the server. The browser only receives model IDs and metadata.
 - Successful results are cached for five minutes and their IDs plus fetch time are persisted for restart-safe last-known fallback.
 - A model can be selected when it is cataloged, returned by live discovery, or explicitly registered for one provider.
-- Unknown live/manual models use conservative metadata: no assumed tools, vision, reasoning, pricing, or large context window.
+- Unknown live/manual models use conservative metadata, except Azure deployment names, which use the Azure catalog's forward-compatible capability templates so custom deployment names remain tool-capable.
 - Invalid IDs and unregistered typos remain rejected, so discovery does not weaken routing health checks.

@@ -10,10 +10,10 @@ import ApprovalCard from "./ApprovalCard";
 import ArtifactCard from "./ArtifactCard";
 import InlineVisualCard, { isInlineVisualArtifact } from "./InlineVisualCard";
 import SupportingFilesGroup from "./SupportingFilesGroup";
-import { buildExecutionBlockModel, buildExecutionIssueSummaries, isCancelledTask, isExecutionTimelineItem, toolRunningActionLabel, type ChatRenderItem } from "./execution";
+import { buildExecutionBlockModel, buildExecutionIssueSummaries, inferMessageLocale, isCancelledTask, isExecutionTimelineItem, toolRunningActionLabel, type ChatRenderItem } from "./execution";
 import { canProjectDeterministically, projectLegacyTimeline, projectTimelineByTurn } from "./turn-projection";
 import { MemoryUpdateNotice } from "./MemoryUpdateNotice";
-import { translateMessage, useLocale, type MessageKey } from "@/i18n";
+import { translateMessage, useLocale, type Locale, type MessageKey } from "@/i18n";
 
 const WELCOME_SUGGESTIONS: MessageKey[] = [
   "chat.card.research.prompt",
@@ -46,9 +46,11 @@ function AssistantColumnRow({ children, showAvatar = false }: { children: ReactN
 function LiveToolLine({
   label,
   detailBlocks,
+  onOpenAgentRun,
 }: {
   label: string;
   detailBlocks: Array<Extract<ChatRenderItem, { kind: "execution" }>["block"]>;
+  onOpenAgentRun?: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const canExpand = detailBlocks.length > 0;
@@ -75,7 +77,7 @@ function LiveToolLine({
       {open && canExpand && (
         <div className="mt-2 space-y-3 border-l border-ink/[0.07] pl-3 duration-180ms motion-safe:animate-in motion-safe:fade-in-0">
           {detailBlocks.map((block) => (
-            <ExecutionBlock key={block.key} block={block} embedded />
+            <ExecutionBlock key={block.key} block={block} embedded onOpenAgentRun={onOpenAgentRun} />
           ))}
         </div>
       )}
@@ -104,6 +106,41 @@ function precedingProjectedUserPrompt(renderItems: ChatRenderItem[], index: numb
     if (message.role === "user") return stripInjectedContext(message.content);
   }
   return undefined;
+}
+
+function isUiLocale(value: unknown): value is Locale {
+  return value === "en" || value === "zh-CN";
+}
+
+/**
+ * The presentation locale for the current/active turn's live status labels.
+ * On the authoritative path (Issue #628) this is the locale the server carried
+ * on the turn's envelope — no character scan. The per-message scan survives only
+ * as a legacy fallback for turns whose envelope predates the carried field.
+ */
+function latestTurnLocale(
+  timeline: TimelineItem[],
+  turns: TurnEnvelope[] | undefined,
+  activeTurnId: string | null,
+  fallback: Locale,
+): Locale {
+  const carried = (turnId: string | null | undefined) => {
+    if (!turnId) return undefined;
+    const env = turns?.find((t) => t.turnId === turnId);
+    return isUiLocale(env?.locale) ? env.locale : undefined;
+  };
+  // Prefer the active turn's carried locale, else the latest recorded turn's.
+  const activeCarried = carried(activeTurnId) ?? (turns?.length ? carried(turns[turns.length - 1]!.turnId) : undefined);
+  if (activeCarried) return activeCarried;
+
+  for (let i = timeline.length - 1; i >= 0; i--) {
+    const item = timeline[i];
+    if (item.type !== "message") continue;
+    const message = item.data as ChatMessage;
+    if (message.role !== "user") continue;
+    return inferMessageLocale(message.content) ?? fallback;
+  }
+  return fallback;
 }
 
 function isStreamingAssistantAnswer(item?: TimelineItem): boolean {
@@ -632,6 +669,7 @@ function TurnFold({
   artifactsTotal,
   onOpenArtifact,
   onViewAllArtifacts,
+  onOpenAgentRun,
 }: {
   group: TurnFoldGroup;
   onOpenSources?: OpenSourcesHandler;
@@ -645,10 +683,12 @@ function TurnFold({
   artifactsTotal?: number;
   onOpenArtifact?: (artifact: Artifact) => void;
   onViewAllArtifacts?: () => void;
+  onOpenAgentRun?: (path: string) => void;
 }) {
   const { locale: uiLocale } = useLocale();
   const [expanded, setExpanded] = useState(false);
-  const locale = uiLocale;
+  const firstBlock = group.items.find((ri): ri is ChatRenderItem & { kind: "execution" } => ri.kind === "execution");
+  const locale = firstBlock?.block.locale ?? uiLocale;
 
   const mergedTechnicalBlock = useMemo<ExecutionBlockModel | null>(() => {
     const blocks = group.items
@@ -708,9 +748,9 @@ function TurnFold({
             if (foldHasPlan && mergedTechnicalBlock) {
               if (mergedCardRendered) return null;
               mergedCardRendered = true;
-              return <ExecutionBlock key={`merged-${mergedTechnicalBlock.key}`} block={mergedTechnicalBlock} embedded suppressTechnicalDetails onOpenSources={onOpenSources} />;
+              return <ExecutionBlock key={`merged-${mergedTechnicalBlock.key}`} block={mergedTechnicalBlock} embedded suppressTechnicalDetails onOpenSources={onOpenSources} onOpenAgentRun={onOpenAgentRun} />;
             }
-            return <ExecutionBlock key={ri.block.key} block={ri.block} embedded suppressTechnicalDetails onOpenSources={onOpenSources} />;
+            return <ExecutionBlock key={ri.block.key} block={ri.block} embedded suppressTechnicalDetails onOpenSources={onOpenSources} onOpenAgentRun={onOpenAgentRun} />;
           })}
           {supportingArtifacts && supportingArtifacts.length > 0 && (
             <SupportingFilesGroup artifacts={supportingArtifacts} onOpen={onOpenArtifact} />
@@ -766,6 +806,7 @@ interface ChatViewProps {
   onOpenArtifact?: (artifact: Artifact) => void;
   onOpenModelSettings?: () => void;
   onOpenMemory?: () => void;
+  onOpenAgentRun?: (path: string) => void;
   /** Older timeline pages exist beyond what is loaded (server hasMore). */
   hasOlderHistory?: boolean;
   /** An older page is currently being fetched. */
@@ -777,7 +818,7 @@ interface ChatViewProps {
 /** Scrolling within this many px of the top pulls the next older history page. */
 const OLDER_HISTORY_TRIGGER_PX = 240;
 
-export default function ChatView({ sessionId = null, timeline, sessionState, activeTool, activeToolSkillName = null, activeTurnId = null, timelineCapabilities, turns, onApprove, onReject, onSend, onRegenerate, onDeleteMessage, onOpenArtifact, onOpenModelSettings, onOpenMemory, hasOlderHistory = false, loadingOlderHistory = false, onLoadOlderHistory }: ChatViewProps) {
+export default function ChatView({ sessionId = null, timeline, sessionState, activeTool, activeToolSkillName = null, activeTurnId = null, timelineCapabilities, turns, onApprove, onReject, onSend, onRegenerate, onDeleteMessage, onOpenArtifact, onOpenModelSettings, onOpenMemory, onOpenAgentRun, hasOlderHistory = false, loadingOlderHistory = false, onLoadOlderHistory }: ChatViewProps) {
   const { locale, t } = useLocale();
   const scrollRegionRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
@@ -1034,12 +1075,12 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     const model = buildExecutionBlockModel(
       planItem ? [planItem, ...turnItems] : turnItems,
       `live-turn-${liveWorkTurnId}`,
-      locale,
+      latestTurnLocale(timeline, turns, liveWorkTurnId, locale),
     );
     // The turn is live by envelope truth here — the card must stay in its
     // live shape between steps instead of flashing a collapsed summary.
     return { ...model, status: "running" as const };
-  }, [timeline, liveWorkTurnId, locale]);
+  }, [timeline, liveWorkTurnId, turns, locale]);
 
   if (timeline.length === 0 && sessionState === "IDLE") {
     return (
@@ -1077,6 +1118,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // Non-hook derivations (safe after the early return). The deterministic Turn
   // projection (Issue #625) is memoized above.
   const activityIndicator = deriveActivityIndicator(timeline, renderItems, sessionState, activeTool, activeTurnId);
+  const turnLocale = latestTurnLocale(timeline, turns, activeTurnId, locale);
   // Turns whose ENVELOPE is terminally failed: their process never folds and
   // keeps one turn-scoped surface. The final assistant message remains the
   // visible failure report; process details open only when the user asks.
@@ -1095,7 +1137,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // technology announces one meaningful change — never every low-level tool event.
   const liveActivity = deriveLiveActivity(activityIndicator, renderItems, sessionState, turns);
   const liveAnnouncement =
-    liveActivity === "idle" ? "" : translateMessage(locale, LIVE_ACTIVITY_KEY[liveActivity]);
+    liveActivity === "idle" ? "" : translateMessage(turnLocale, LIVE_ACTIVITY_KEY[liveActivity]);
 
   let assistantAvatarShownInTurn = false;
 
@@ -1121,8 +1163,9 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         return (
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
             <LiveToolLine
-              label={toolRunningActionLabel(activeTool, locale, activeToolSkillName)}
+              label={toolRunningActionLabel(activeTool, turnLocale, activeToolSkillName)}
               detailBlocks={detailBlocks}
+              onOpenAgentRun={onOpenAgentRun}
             />
           </AssistantColumnRow>
         );
@@ -1132,7 +1175,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
             <div data-testid="chat-responding-status-line" className="flex items-center gap-2 py-1 text-xs text-ink/40">
               <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-              <span>{translateMessage(locale, "chat.status.responding")}</span>
+              <span>{translateMessage(turnLocale, "chat.status.responding")}</span>
             </div>
           </AssistantColumnRow>
         );
@@ -1144,7 +1187,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
               <div className="flex items-center gap-2 py-1">
                 <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
                 <span className="text-xs text-ink/40">
-                  {translateMessage(locale, activityIndicator === "working" ? "chat.status.working" : "chat.status.thinking")}
+                  {translateMessage(turnLocale, activityIndicator === "working" ? "chat.status.working" : "chat.status.thinking")}
                 </span>
               </div>
             </div>
@@ -1173,6 +1216,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
           <ExecutionBlock
             block={ri.block}
             onOpenSources={handleOpenSources}
+            onOpenAgentRun={onOpenAgentRun}
           />
         </AssistantColumnRow>
       );
@@ -1269,7 +1313,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
                 onClick={() => handleOpenArtifactsIndex(artifactTurn)}
                 className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[12px] text-ink/40 transition-colors hover:bg-ink/[0.04] hover:text-ink/65"
               >
-                {translateMessage(locale, "chat.artifacts.viewAll", { count: turnArtifactsCount })}
+                {translateMessage(turnLocale, "chat.artifacts.viewAll", { count: turnArtifactsCount })}
                 <ChevronDown className="h-3 w-3 -rotate-90" aria-hidden="true" />
               </button>
             )}
@@ -1349,7 +1393,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         // (operator feedback 2026-07-18).
         <div className="-mt-1.5">
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
-            <ExecutionBlock block={liveTurnWorkModel} onOpenSources={handleOpenSources} />
+            <ExecutionBlock block={liveTurnWorkModel} onOpenSources={handleOpenSources} onOpenAgentRun={onOpenAgentRun} />
           </AssistantColumnRow>
         </div>
       ),
@@ -1367,7 +1411,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         key: failedTurnGroup.key,
         node: (
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
-            <ExecutionBlock block={failedTurnGroup.block} onOpenSources={handleOpenSources} />
+            <ExecutionBlock block={failedTurnGroup.block} onOpenSources={handleOpenSources} onOpenAgentRun={onOpenAgentRun} />
           </AssistantColumnRow>
         ),
       });
@@ -1392,6 +1436,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
             <TurnFold
               group={foldGroup}
               onOpenSources={handleOpenSources}
+              onOpenAgentRun={onOpenAgentRun}
               supportingArtifacts={foldSupporting}
               artifactsTotal={indexTurn ? turnArtifactIndex.get(indexTurn)!.length : 0}
               onOpenArtifact={onOpenArtifact}
@@ -1553,7 +1598,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
               onClick={() => setShowEarlier(true)}
               className="mx-auto mb-1 inline-flex h-8 items-center rounded-full border border-ink/[0.12] px-3 text-[12px] text-ink/55 transition-colors hover:border-ink/[0.2] hover:text-ink/85"
             >
-              {translateMessage(locale, "chat.timeline.showEarlier", { count: String(hiddenEarlierCount) })}
+              {translateMessage(turnLocale, "chat.timeline.showEarlier", { count: String(hiddenEarlierCount) })}
             </button>
           )}
           {rows.map(({ key, node }, mountedIndex) => (

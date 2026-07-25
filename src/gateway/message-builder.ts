@@ -64,6 +64,15 @@ export function formatWorkspaceContext(msg: IncomingMessage): string | null {
   return blocks.length > 0 ? blocks.join('\n\n') : null;
 }
 
+/** Format structured Web composer mentions as turn-only Brain context. */
+export function formatMentionContext(msg: IncomingMessage): string | null {
+  if (!msg.mentions?.length) return null;
+  return [
+    `The user explicitly mentioned these agents: ${msg.mentions.join(', ')}.`,
+    'Treat every name exactly as supplied, including unavailable or unknown names. Follow the delegation policy: write a self-contained brief and call delegate_to_agent when delegation is appropriate; otherwise explain the issue to the user.',
+  ].join('\n');
+}
+
 /**
  * Build a text-only user message string from an IncomingMessage.
  * Used for DB persistence and when the brain model does not support vision.

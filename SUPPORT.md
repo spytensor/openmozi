@@ -7,7 +7,7 @@ OpenMozi is a community-maintained open-source project. Support is best-effort a
 - Reproducible product defects: use the Bug report form.
 - Product proposals: use the Feature request form.
 - Documentation corrections: use the Documentation issue form.
-- Security vulnerabilities: use [GitHub Private Vulnerability Reporting](https://github.com/spytensor/OpenMozi/security/advisories/new).
+- Security vulnerabilities: use [GitHub Private Vulnerability Reporting](https://github.com/spytensor/openmozi/security/advisories/new).
 
 Do not use public issues for credentials, private data, provider billing disputes, or security vulnerabilities. Redact logs and screenshots before attaching them.
 

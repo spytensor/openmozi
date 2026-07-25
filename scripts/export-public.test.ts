@@ -102,8 +102,12 @@ describe('export-public end to end', () => {
     const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'));
     expect(pkg.version).toBe('1.0.0');
 
+    // The operator's own console may name the source version; the published
+    // commit message may not — it is read by people with no access to it.
     expect(output).toContain('internal v9.9.9');
-    expect(git(target, ['log', '-1', '--format=%s'])).toContain('sync: update public tree');
+    const publishedSubject = git(target, ['log', '-1', '--format=%s']);
+    expect(publishedSubject).toContain('sync: update public tree for v1.0.0');
+    expect(publishedSubject).not.toMatch(/9\.9\.9|MOZI|internal/i);
     expect(git(target, ['status', '--porcelain']).trim()).toBe('');
   });
 

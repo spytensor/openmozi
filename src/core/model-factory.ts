@@ -52,8 +52,9 @@ export function createModelFactory(params: {
   apiMode: ProviderApiMode;
   apiKey: string;
   baseUrl: string;
+  apiVersion?: string;
 }): ModelFactory {
-  const { providerId, apiMode, apiKey, baseUrl } = params;
+  const { providerId, apiMode, apiKey, baseUrl, apiVersion } = params;
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
 
   switch (apiMode) {
@@ -81,6 +82,18 @@ export function createModelFactory(params: {
     case 'google-generative-ai':
       return createOpenAICompatModelFactory(providerId, apiKey, toOpenAICompatBaseUrl(normalizedBaseUrl));
 
+    case 'azure-openai': {
+      if (!normalizedBaseUrl) throw new Error('Azure OpenAI base URL is required');
+      if (!apiVersion) throw new Error('Azure OpenAI API version is required');
+      const resourceRoot = toAzureResourceRoot(normalizedBaseUrl);
+      if (!resourceRoot) throw new Error('Azure OpenAI base URL is required');
+      return createOpenAICompatModelFactory(providerId, apiKey, resourceRoot, {
+        baseUrlTemplate: `${resourceRoot}/openai/deployments/{modelId}`,
+        headers: { 'api-key': apiKey },
+        queryParams: { 'api-version': apiVersion },
+      });
+    }
+
     case 'bedrock-converse-stream':
       return createOpenAICompatModelFactory(providerId, apiKey, normalizedBaseUrl, { stripToolChoice: true });
 
@@ -102,6 +115,25 @@ export function createModelFactory(params: {
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
+}
+
+/**
+ * Reduce whatever the user pasted to the Azure resource root.
+ *
+ * The Azure portal shows the full target URI, so operators routinely paste
+ * `https://res.openai.azure.com/openai/deployments/<dep>/chat/completions?api-version=…`.
+ * Appending the deployment path to that yields a 404 — or worse, when the
+ * pasted URL already ends in `/chat/completions`, the SDK folds the appended
+ * path into the query string and every request silently hits the one
+ * hard-coded deployment instead of the selected model.
+ */
+function toAzureResourceRoot(baseUrl: string): string {
+  const trimmed = normalizeBaseUrl(baseUrl.trim());
+  if (!trimmed) return '';
+  const withoutQuery = trimmed.split(/[?#]/)[0] ?? trimmed;
+  const deploymentsAt = withoutQuery.search(/\/openai(?:\/|$)/i);
+  const root = deploymentsAt >= 0 ? withoutQuery.slice(0, deploymentsAt) : withoutQuery;
+  return normalizeBaseUrl(root);
 }
 
 function toOpenAICompatBaseUrl(baseUrl: string): string {
@@ -224,13 +256,22 @@ function createOpenAICompatModelFactory(
   providerId: string,
   apiKey: string,
   baseUrl: string,
-  options: { stripToolChoice?: boolean } = {},
+  options: {
+    stripToolChoice?: boolean;
+    headers?: Record<string, string>;
+    queryParams?: Record<string, string>;
+    baseUrlTemplate?: string;
+  } = {},
 ): ModelFactory {
   const stripToolChoice = options.stripToolChoice ?? true;
   return (modelId) => createOpenAICompatible({
     name: providerId,
-    apiKey,
-    baseURL: normalizeBaseUrl(baseUrl),
+    ...(options.headers ? {} : { apiKey }),
+    baseURL: normalizeBaseUrl(
+      options.baseUrlTemplate?.replace('{modelId}', encodeURIComponent(modelId)) ?? baseUrl,
+    ),
+    ...(options.headers ? { headers: options.headers } : {}),
+    ...(options.queryParams ? { queryParams: options.queryParams } : {}),
     transformRequestBody: (body: Record<string, unknown>) => {
       const cleaned: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(body)) {

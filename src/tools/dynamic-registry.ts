@@ -11,6 +11,7 @@ import { getDb } from '../store/db.js';
 import { ALL_TOOLS } from './definitions.js';
 import { isCodingWorkerConfigured } from './delegation-tools.js';
 import { isAnySearchProviderConfigured } from '../core/service-providers.js';
+import { hasReadyAgentDefinitionSync } from '../agents/definition-loader.js';
 
 const logger = pino({ name: 'mozi:tools:dynamic-registry' });
 const execFileAsync = promisify(execFile);
@@ -78,6 +79,7 @@ const BUILTIN_TOOL_PREDICATES: Record<string, () => boolean> = {
   web_fetch: isAnySearchProviderConfigured,
   connector_execute: isAnyConnectorConfigured,
   delegate_coding_task: isCodingWorkerDelegationAvailable,
+  delegate_to_agent: hasReadyAgentDefinitionSync,
   browser_open: isPlaywrightAvailable,
   browser_click: isPlaywrightAvailable,
   browser_type: isPlaywrightAvailable,

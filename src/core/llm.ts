@@ -1,4 +1,4 @@
-import { getProvider, resolveBaseUrl } from './providers.js';
+import { getProvider, resolveApiVersion, resolveBaseUrl } from './providers.js';
 import { resolveCliOAuthKey } from './cli-credentials.js';
 import { createModelFactory } from './model-factory.js';
 import { resolveRuntimeApiKey } from './runtime-provider-keys.js';
@@ -67,7 +67,7 @@ export function create(
     model?: string;
     apiKey?: string;
     baseUrl?: string;
-    configProviders?: Record<string, { apikey?: string; baseurl?: string }>;
+    configProviders?: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }>;
     tenantId?: string;
   } = {}
 ): LLMClient {
@@ -125,6 +125,7 @@ export function create(
         apiMode: def.apiMode,
         apiKey,
         baseUrl,
+        apiVersion: resolveApiVersion(provider, process.env, options.configProviders),
       }),
     );
   }

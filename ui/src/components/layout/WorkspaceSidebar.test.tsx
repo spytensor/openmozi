@@ -88,6 +88,7 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByTestId("new-chat-command")).toHaveTextContent("New chat");
     expect(screen.getByRole("button", { name: /Scheduled/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Skills/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /My agents/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Admin" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("new-chat-command"));
@@ -181,7 +182,7 @@ describe("WorkspaceSidebar", () => {
     expect(screen.getByText("Project implementation")).toBeInTheDocument();
   });
 
-  it("routes scheduled and skills nav entries to main views", () => {
+  it("routes scheduled, skills, and agents nav entries to main views", () => {
     const props = renderSidebar();
 
     fireEvent.click(screen.getByRole("button", { name: /Scheduled/i }));
@@ -191,6 +192,10 @@ describe("WorkspaceSidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
     expect(props.onNavChange).toHaveBeenCalledWith("skills");
     expect(props.onViewChange).toHaveBeenCalledWith("skills");
+
+    fireEvent.click(screen.getByRole("button", { name: "My agents" }));
+    expect(props.onNavChange).toHaveBeenCalledWith("agents");
+    expect(props.onViewChange).toHaveBeenCalledWith("agents");
   });
 
   it("exposes admin from the account menu for admins only", async () => {

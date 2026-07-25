@@ -168,6 +168,14 @@ export function assertNotSensitiveWrite(resolvedPath: string): void {
 }
 
 export function resolveWriteRoots(context?: ToolContext): string[] | undefined {
+  // Sandboxed runs (delegated agents) carry a hard allow-list that applies
+  // regardless of fs policy or full-access level — the run-dir pin must not
+  // dissolve into output-dir-wide or unrestricted writes.
+  const enforced = (context?.enforcedWriteRoots ?? []).filter(isAbsolute).map(p => resolve(p));
+  if (enforced.length > 0) {
+    const grants = (context?.scopeGrants ?? []).filter(isAbsolute).map(p => resolve(p));
+    return Array.from(new Set([...enforced, ...grants]));
+  }
   if (!getFsPolicy().workspaceOnly) return undefined;
   // Directories the user approved via the out-of-scope write escalation. Only
   // real absolute paths are grants — non-path sentinels (e.g. the L1 write

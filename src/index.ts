@@ -42,6 +42,7 @@ import {
 } from './core/capability-manifest.js';
 import { formatTasksCommandOutput } from './core/task-command.js';
 import { formatRuntimeSkillsCommandOutput, listRuntimeSkills } from './skills/workspace-manager.js';
+import { discoverAgentDefinitions, formatAgentDefinitionsCommandOutput } from './agents/definition-loader.js';
 import type { Telegraf } from 'telegraf';
 import { on as onProgressEvent, type ProgressEvent } from './progress/event-bus.js';
 import { createTelegramProgressBridge } from './progress/progress-bridge.js';
@@ -640,7 +641,7 @@ export function createMessageHandler(
             : `Cancellation requested: ${taskId}`;
         }
         case 'agents':
-          return 'Agents: coder (preset), reviewer (preset)';
+          return formatAgentDefinitionsCommandOutput(await discoverAgentDefinitions());
         case 'skills':
           return await handleSkills(config, tenantId);
         case 'config':
@@ -1363,7 +1364,7 @@ async function main(): Promise<void> {
   const llmClient = brainProvider
     ? createLLMClient(brainProvider, {
       model: brainModel,
-      configProviders: config.providers as Record<string, { apikey?: string; baseurl?: string }>,
+      configProviders: config.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }>,
     })
     : createDeferredLLMClient(() => {
       const liveConfig = getConfig();
@@ -1371,7 +1372,7 @@ async function main(): Promise<void> {
       if (!liveProvider) return null;
       return createLLMClient(liveProvider, {
         model: liveConfig.brain.model,
-        configProviders: liveConfig.providers as Record<string, { apikey?: string; baseurl?: string }>,
+        configProviders: liveConfig.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }>,
       });
     });
   if (brainProvider) {
@@ -1587,6 +1588,7 @@ async function main(): Promise<void> {
         userId: wsMsg.userId,
         username: wsMsg.username,
         text: wsMsg.text,
+        mentions: wsMsg.mentions,
         isCommand: wsMsg.isCommand,
         command: wsMsg.command,
         commandArgs: wsMsg.commandArgs,

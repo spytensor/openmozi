@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { analyzeImage } from './vision.js';
+import { getSelectionForRole } from '../core/model-router.js';
+import { getProvider, resolveApiKey, resolveApiVersion, resolveBaseUrl } from '../core/providers.js';
 import { createTempDir, removeTempDir } from '../test-helpers.js';
 
 let tmpDir: string;
@@ -13,6 +15,10 @@ vi.mock('../core/model-router.js', () => ({
     model: 'gpt-4.1-mini',
     role: 'vision',
   }),
+}));
+
+vi.mock('../config/index.js', () => ({
+  getConfig: vi.fn().mockReturnValue({ providers: {} }),
 }));
 
 vi.mock('../core/providers.js', () => ({
@@ -28,6 +34,7 @@ vi.mock('../core/providers.js', () => ({
     return undefined;
   }),
   resolveBaseUrl: vi.fn().mockReturnValue('https://api.openai.com/v1'),
+  resolveApiVersion: vi.fn().mockReturnValue(undefined),
   getVisionCapableProviders: vi.fn().mockReturnValue([]),
 }));
 
@@ -85,6 +92,36 @@ describe('capabilities/vision', () => {
     expect(body.messages[0].content[0]?.text).toBe('custom prompt');
     expect(body.messages[0].content[1]?.type).toBe('image_url');
     expect(body.messages[0].content[1]?.image_url?.url.startsWith('data:image/jpeg;base64,')).toBe(true);
+  });
+
+  it('uses Azure deployment vision URL and api-key authentication', async () => {
+    vi.mocked(getSelectionForRole).mockReturnValueOnce({
+      provider: 'azure',
+      model: 'vision-deployment',
+      role: 'vision',
+    });
+    vi.mocked(getProvider).mockReturnValueOnce({
+      id: 'azure',
+      name: 'Azure OpenAI',
+      apiMode: 'azure-openai',
+    } as ReturnType<typeof getProvider>);
+    vi.mocked(resolveApiKey).mockReturnValueOnce('azure-secret');
+    vi.mocked(resolveBaseUrl).mockReturnValueOnce('https://resource.openai.azure.com');
+    vi.mocked(resolveApiVersion).mockReturnValueOnce('2024-10-21');
+    const imagePath = join(tmpDir, 'photo.png');
+    writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'azure vision' } }] }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(analyzeImage(imagePath)).resolves.toBe('azure vision');
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://resource.openai.azure.com/openai/deployments/vision-deployment/chat/completions?api-version=2024-10-21');
+    expect((init.headers as Record<string, string>)['api-key']).toBe('azure-secret');
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
   it('throws when API key is missing for the vision provider', async () => {

@@ -102,6 +102,12 @@ describe('core/capability-manifest', () => {
     expect(manifest.metadata.channels.find(channel => channel.id === 'wechat')?.capabilities.proactive).toBe(false);
     // skill_extensions are now file-based (discovered from SKILL.md files)
     expect(Array.isArray(manifest.skill_extensions)).toBe(true);
+    expect(Array.isArray(manifest.agent_extensions)).toBe(true);
+    expect(manifest.agent_extensions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agent_id: 'coder', status: 'definition-ready' }),
+      expect.objectContaining({ agent_id: 'researcher', status: 'definition-ready' }),
+      expect.objectContaining({ agent_id: 'reviewer', status: 'definition-ready' }),
+    ]));
   });
 
   it('does not enable capabilities whose runtime surfaces are absent', () => {
@@ -217,12 +223,13 @@ describe('core/capability-manifest', () => {
 
     expect(prompt).toContain('## Runtime Capability Contract (Authoritative)');
     expect(prompt).toContain('### Runtime Built-ins');
-    expect(prompt).toContain('### Extensions (Skills / Upgrades)');
+    expect(prompt).toContain('### Extensions (Skills / Agents / Upgrades)');
+    expect(prompt).toContain('definition-ready');
     expect(prompt).toContain('### Runtime Self-Report Template');
     expect(prompt).toContain('Do not describe DAG as "fully dormant"');
 
     expect(capabilitiesCommand).toContain('Runtime Built-ins:');
-    expect(capabilitiesCommand).toContain('Extensions (Skills / Upgrades):');
+    expect(capabilitiesCommand).toContain('Extensions (Skills / Agents / Upgrades):');
   });
 
   it('formats a compact per-turn capability summary', () => {
@@ -240,6 +247,19 @@ describe('core/capability-manifest', () => {
     expect(summary).not.toContain('### Runtime Built-ins');
     const full = formatCapabilityPromptSection(manifest);
     expect(summary.length).toBeLessThan(full.length / 2);
+  });
+
+  it('marks ready agent extensions executable when delegate_to_agent is registered', () => {
+    const manifest = buildRuntimeCapabilityManifest(
+      createTestConfig(),
+      ['delegate_to_agent'],
+      'default',
+    );
+    expect(capability(manifest, 'agent_delegation').status).toBe('enabled');
+    expect(manifest.agent_extensions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agent_id: 'researcher', status: 'execution-ready' }),
+    ]));
+    expect(formatCapabilitySummarySection(manifest)).toContain('agent_delegation=enabled');
   });
 
   it('buildRoutingExplainability returns usable models, defaults, and sample decisions', () => {
@@ -352,7 +372,7 @@ describe('core/capability-manifest', () => {
     expect(output).toContain('Sample Routing Decisions:');
     // Also still has normal manifest sections
     expect(output).toContain('Runtime Built-ins:');
-    expect(output).toContain('Extensions (Skills / Upgrades):');
+    expect(output).toContain('Extensions (Skills / Agents / Upgrades):');
   });
 
   it('formatCapabilityCommandOutput works without routing explainability', () => {

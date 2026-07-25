@@ -112,6 +112,7 @@ interface ProviderDefInput {
   name: string;
   envKey: string;
   baseUrl: string;
+  apiVersion?: string;
   apiMode: ProviderApiMode;
   defaultModel: string;
   models: ModelDef[];
@@ -222,6 +223,78 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     forwardCompat: [
       { pattern: /^gpt-5(?:[.-].*)?$/i, templateModel: 'gpt-5' },
       { pattern: /^gpt-4(?:[.-].*)?$/i, templateModel: 'gpt-4.1' },
+    ],
+  }),
+
+  azure: defineProvider({
+    id: 'azure',
+    name: 'Azure OpenAI',
+    envKey: 'AZURE_OPENAI_API_KEY',
+    baseUrl: '',
+    apiVersion: '2024-10-21',
+    apiMode: 'azure-openai',
+    defaultModel: 'gpt-4o',
+    placeholder: 'Azure OpenAI API key',
+    hint: 'Azure resource URL, deployment name, and API version required',
+    models: [
+      model({
+        id: 'gpt-4o', name: 'GPT-4o deployment', tier: 'high',
+        contextWindow: 128_000, maxOutputTokens: 16_384,
+        supportsVision: true,
+        inputCostPer1M: 2.5, outputCostPer1M: 10,
+      }),
+      model({
+        id: 'gpt-4o-mini', name: 'GPT-4o Mini deployment', tier: 'low',
+        contextWindow: 128_000, maxOutputTokens: 16_384,
+        supportsVision: true,
+        inputCostPer1M: 0.15, outputCostPer1M: 0.6,
+      }),
+      model({
+        id: 'gpt-4.1', name: 'GPT-4.1 deployment', tier: 'high',
+        contextWindow: 1_047_576, maxOutputTokens: 32_768,
+        supportsVision: true,
+        inputCostPer1M: 2, outputCostPer1M: 8,
+      }),
+      model({
+        id: 'gpt-4.1-mini', name: 'GPT-4.1 Mini deployment', tier: 'low',
+        contextWindow: 1_047_576, maxOutputTokens: 32_768,
+        supportsVision: true,
+        inputCostPer1M: 0.4, outputCostPer1M: 1.6,
+      }),
+      model({
+        id: 'o1', name: 'o1 deployment', tier: 'high',
+        contextWindow: 200_000, maxOutputTokens: 100_000,
+        supportsVision: true, reasoning: true,
+        inputCostPer1M: 15, outputCostPer1M: 60,
+      }),
+      model({
+        id: 'o3', name: 'o3 deployment', tier: 'high',
+        contextWindow: 200_000, maxOutputTokens: 100_000,
+        supportsVision: true, reasoning: true,
+        inputCostPer1M: 2, outputCostPer1M: 8,
+      }),
+      model({
+        id: 'o3-mini', name: 'o3-mini deployment', tier: 'mid',
+        contextWindow: 200_000, maxOutputTokens: 100_000,
+        reasoning: true,
+        inputCostPer1M: 1.1, outputCostPer1M: 4.4,
+      }),
+    ],
+    forwardCompat: [
+      { pattern: /o3[-_. ]?mini/i, templateModel: 'o3-mini' },
+      { pattern: /(?:^|[-_. ])o3(?:$|[-_. ])/i, templateModel: 'o3' },
+      { pattern: /(?:^|[-_. ])o1(?:$|[-_. ])/i, templateModel: 'o1' },
+      { pattern: /gpt[-_. ]?4[._-]?1[-_. ]?mini/i, templateModel: 'gpt-4.1-mini' },
+      { pattern: /gpt[-_. ]?4[._-]?1/i, templateModel: 'gpt-4.1' },
+      { pattern: /gpt[-_. ]?4o[-_. ]?mini/i, templateModel: 'gpt-4o-mini' },
+      // Anchored on real model families, never a catch-all: `/./` would make
+      // getModel('azure', <anything>) truthy, and resolveModelPricing only
+      // infers a provider when exactly one matches — a catch-all here silently
+      // turns every other provider's model into "unknown" pricing, which the
+      // billing reconciler then rewrites to cost 0.
+      { pattern: /gpt[-_. ]?4o/i, templateModel: 'gpt-4o' },
+      { pattern: /gpt[-_. ]?4/i, templateModel: 'gpt-4o' },
+      { pattern: /gpt[-_. ]?3\.?5/i, templateModel: 'gpt-4o-mini' },
     ],
   }),
 
@@ -857,6 +930,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
 /** Providers shown in `mozi onboard` (common first-run choices). */
 export const WIZARD_PROVIDER_IDS = [
   'openai',
+  'azure',
   'anthropic',
   'minimax',
   'deepseek',

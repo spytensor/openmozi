@@ -388,10 +388,18 @@ async function handleToolCalls(
       taskId,
       toolName: resultToolName,
       toolCallId: result.tool_call_id,
-      result: result.is_error ? undefined : asString(result.content).slice(0, 200),
+      result: result.is_error
+        ? undefined
+        : resultToolName === 'delegate_to_agent'
+          ? asString(result.content)
+          : asString(result.content).slice(0, 200),
       sources: result.is_error ? undefined : result.sources,
       elapsed_ms: toolElapsed,
-      error: result.is_error ? asString(result.content).slice(0, 280) : undefined,
+      error: result.is_error
+        ? resultToolName === 'delegate_to_agent'
+          ? asString(result.content)
+          : asString(result.content).slice(0, 280)
+        : undefined,
       skillName: result.skillName,
       skillDescription: result.skillDescription,
       skillLoadOutcome: result.skillLoadOutcome,

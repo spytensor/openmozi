@@ -1,8 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { extname } from 'node:path';
 import pino from 'pino';
+import { getConfig } from '../config/index.js';
 import { getSelectionForRole, type RoutingContext } from '../core/model-router.js';
-import { getProvider, resolveApiKey, resolveBaseUrl, getVisionCapableProviders, type ProviderApiMode } from '../core/providers.js';
+import {
+  getProvider,
+  resolveApiKey,
+  resolveApiVersion,
+  resolveBaseUrl,
+  getVisionCapableProviders,
+  type ProviderApiMode,
+} from '../core/providers.js';
 
 const logger = pino({ name: 'mozi:capability:vision' });
 
@@ -43,6 +51,7 @@ interface VisionTarget {
   model: string;
   apiMode: ProviderApiMode;
   baseUrl: string;
+  apiVersion?: string;
   apiKey: string;
 }
 
@@ -86,12 +95,21 @@ function extractAnthropicText(data: AnthropicMessageResponse): string {
 // ---------------------------------------------------------------------------
 
 async function callOpenAIVision(target: VisionTarget, imageBase64: string, mime: string, prompt: string): Promise<string> {
-  const url = `${target.baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const base = target.baseUrl.replace(/\/+$/, '');
+  // Operators paste the portal's full target URI, so reduce it to the resource
+  // root before appending — otherwise the deployment path is duplicated and
+  // every vision call 404s. Mirrors toAzureResourceRoot in model-factory.
+  const azureRoot = base.split(/[?#]/)[0]?.replace(/\/openai(?:\/.*)?$/i, '').replace(/\/+$/, '') ?? base;
+  const url = target.apiMode === 'azure-openai'
+    ? `${azureRoot}/openai/deployments/${encodeURIComponent(target.model)}/chat/completions?api-version=${encodeURIComponent(target.apiVersion || '')}`
+    : `${base}/chat/completions`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${target.apiKey}`,
+      ...(target.apiMode === 'azure-openai'
+        ? { 'api-key': target.apiKey }
+        : { Authorization: `Bearer ${target.apiKey}` }),
     },
     body: JSON.stringify({
       model: target.model,
@@ -168,12 +186,13 @@ async function callVision(target: VisionTarget, imageBase64: string, mime: strin
 function buildVisionChain(routingContext?: RoutingContext): VisionTarget[] {
   const chain: VisionTarget[] = [];
   const seen = new Set<string>();
+  const configProviders = getConfig().providers;
 
   // 1. Primary: model-router's vision role pick (may already be vision-capable)
   const selection = getSelectionForRole('vision', routingContext);
   if (selection.provider && selection.model) {
     const providerDef = getProvider(selection.provider);
-    const apiKey = resolveApiKey(selection.provider);
+    const apiKey = resolveApiKey(selection.provider, configProviders);
     if (providerDef && apiKey) {
       const key = `${selection.provider}:${selection.model}`;
       seen.add(key);
@@ -181,24 +200,26 @@ function buildVisionChain(routingContext?: RoutingContext): VisionTarget[] {
         provider: selection.provider,
         model: selection.model,
         apiMode: providerDef.apiMode,
-        baseUrl: resolveBaseUrl(selection.provider),
+        baseUrl: resolveBaseUrl(selection.provider, process.env, configProviders),
+        apiVersion: resolveApiVersion(selection.provider, process.env, configProviders),
         apiKey,
       });
     }
   }
 
   // 2. All other vision-capable providers (already sorted by format preference)
-  for (const entry of getVisionCapableProviders()) {
+  for (const entry of getVisionCapableProviders(configProviders)) {
     const key = `${entry.provider}:${entry.model}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const apiKey = resolveApiKey(entry.provider);
+    const apiKey = resolveApiKey(entry.provider, configProviders);
     if (!apiKey) continue;
     chain.push({
       provider: entry.provider,
       model: entry.model,
       apiMode: entry.apiMode,
       baseUrl: entry.baseUrl,
+      apiVersion: resolveApiVersion(entry.provider, process.env, configProviders),
       apiKey,
     });
   }

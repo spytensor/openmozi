@@ -1,9 +1,22 @@
 {
   "name": "mozi-ui",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spytensor/openmozi.git"
+  },
+  "homepage": "https://github.com/spytensor/openmozi#readme",
+  "bugs": {
+    "url": "https://github.com/spytensor/openmozi/issues"
+  },
   "type": "module",
+  "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=22.12 <26",
+    "pnpm": "10.29.2"
+  },
   "scripts": {
     "dev": "vite",
     "build": "node ../scripts/sync-brand-assets.mjs --check && node ../scripts/gen-ui-model-catalog.mjs && vite build",

@@ -14,7 +14,7 @@ import {
   createVerify,
   randomUUID,
   randomBytes,
-  type webcrypto,
+  type JsonWebKey as CryptoJsonWebKey,
 } from 'node:crypto';
 import { getDb } from '../store/db.js';
 import { log as logEvent } from '../store/events.js';
@@ -23,7 +23,10 @@ import { verify as verifyJwt, type JwtPayload } from './jwt.js';
 import pino from 'pino';
 
 const logger = pino({ name: 'mozi:security:enterprise-auth' });
-type JsonWebKey = webcrypto.JsonWebKey & {
+// Based on node:crypto's own JsonWebKey (the one createPublicKey accepts), not
+// webcrypto's: only the former carries the string index signature, and without
+// it a JWK cannot be passed to createPublicKey under @types/node 22.
+type JsonWebKey = CryptoJsonWebKey & {
   kid?: string;
   kty?: string;
 };
@@ -645,7 +648,7 @@ function selectJwk(jwks: JwksDocument, kid?: string): JsonWebKey | null {
 
 function verifyRs256(signingInput: string, signature: Buffer, jwk: JsonWebKey): boolean {
   try {
-    const key = createPublicKey({ key: jwk, format: 'jwk' });
+    const key = createPublicKey({ key: jwk as import('node:crypto').JsonWebKey, format: 'jwk' });
     const verifier = createVerify('RSA-SHA256');
     verifier.update(signingInput);
     verifier.end();

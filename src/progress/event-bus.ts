@@ -75,6 +75,8 @@ export interface ProgressEvent {
   errorPreview?: string;
   error?: string;
   agentId?: string;
+  /** Definition color token id for file-defined agent presentation. */
+  agentColor?: string;
   agentRole?: string;
   /** For budget_warning: 'soft' | 'hard' | 'rotate' */
   level?: string;
@@ -101,6 +103,8 @@ export interface ProgressEvent {
   workerStatus?: string;
   /** Managed worker execution lane */
   lane?: string;
+  /** Archived working directory for an in-process agent delegation run. */
+  runDir?: string;
   /** Managed worker sandbox profile */
   sandboxProfile?: string;
   /** Whether this worker_status event is a periodic heartbeat */

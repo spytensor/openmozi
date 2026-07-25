@@ -8,7 +8,7 @@ OpenMozi maintains its own version line.
 
 ### Added
 
-- Release queue reset after v1.0.0; new entries land here.
+- Release queue reset after v1.1.0; new entries land here.
 
 ### Changed
 
@@ -18,10 +18,49 @@ OpenMozi maintains its own version line.
 
 - None yet.
 
+## [v1.1.0] - 2026-07-25
+
+### Added
+
+- User-defined agents: describe an expert in `AGENT.md` (persona, model, bound
+  skills, tool whitelist, permission level), manage them in the MY AGENTS view,
+  and summon one with `@name` in chat. MOZI stays the single orchestrator — it
+  writes the brief, the agent runs in an isolated loop, and only a contracted
+  result envelope returns to the conversation while the full transcript and
+  artifacts are archived under the session's output directory.
+- Azure OpenAI as a first-class provider, using deployment-based routing, the
+  `api-key` header and an `api-version` query parameter. Configure it with
+  `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_BASE_URL` and
+  `AZURE_OPENAI_API_VERSION`. Azure does not enumerate models, so register your
+  deployment name manually; deployments named after a model family inherit that
+  family's capabilities.
+
+### Fixed
+
+- **Installs now fail fast with a clear message instead of dying in node-gyp.**
+  The supported range is declared and enforced (`engines`, `.nvmrc`, `.npmrc`):
+  Node >= 22.12 and < 26, because the bundled native database has no prebuilt
+  binary past Node 25 and the build toolchain needs 22.12 or newer.
+- **`pnpm install` now runs Electron's install script**, so a clean clone can
+  actually build the desktop app. Two competing build-script allowlists meant
+  the Electron binary was silently never downloaded, with the usual pnpm warning
+  suppressed by the conflict.
+- Peer resolution is pinned in the repository's own `.npmrc`, so the install no
+  longer depends on each user's global pnpm strictness settings.
+- Removed a five-month-stale `ui/pnpm-lock.yaml` that pinned React 19 against
+  React 18 sources.
+- Clone instructions across the README, the deployment guide and the generated
+  user guides point at this repository. Several pointed at a private repository
+  that 404s for everyone.
+- Docker builds pin pnpm to the version this repository's lockfile was written
+  with, instead of resolving `pnpm@latest`.
+
 ## [v1.0.0] - 2026-07-23
 
 Initial public release of OpenMozi — a personal AI agent that lives on your
-machine. ### Highlights
+machine.
+
+### Highlights
 
 - **Agent runtime** — a 5-layer architecture (channels → gateway → brain →
   execution support → capabilities) with a direct LLM/tool loop, durable

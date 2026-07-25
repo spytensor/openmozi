@@ -25,7 +25,6 @@ pnpm release:cut -- --version 2.0.1
 - `package.json` version
 - `ui/package.json` version
 - `desktop/package.json` version
-- `README.md` top version badge
 - `CHANGELOG.md` (creates or prepends current release entry)
 
 ## Required local tools

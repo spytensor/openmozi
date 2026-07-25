@@ -6,7 +6,7 @@ vi.mock('../capabilities/vision.js', () => ({
   analyzeImage: vi.fn().mockResolvedValue('A photo of a test image'),
 }));
 
-import { buildUserMessage, buildMultimodalUserMessage, formatWorkspaceContext } from './message-builder.js';
+import { buildUserMessage, buildMultimodalUserMessage, formatMentionContext, formatWorkspaceContext } from './message-builder.js';
 import { analyzeImage } from '../capabilities/vision.js';
 
 function makeMsg(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
@@ -23,6 +23,16 @@ function makeMsg(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
 }
 
 describe('gateway/message-builder', () => {
+  it('formats explicit mentions as turn-only context without parsing message text', () => {
+    const context = formatMentionContext(makeMsg({
+      text: '@reviewer inspect this',
+      mentions: ['reviewer', 'not-ready'],
+    }));
+    expect(context).toContain('reviewer, not-ready');
+    expect(context).toContain('exactly as supplied');
+    expect(formatMentionContext(makeMsg({ text: '@reviewer inspect this' }))).toBeNull();
+  });
+
   describe('media file attachments', () => {
     it('includes voice attachment metadata but NOT absolute path in built message', async () => {
       const msg = makeMsg({

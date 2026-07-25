@@ -1,11 +1,23 @@
 {
   "name": "mozi-desktop",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spytensor/openmozi.git"
+  },
+  "homepage": "https://github.com/spytensor/openmozi#readme",
+  "bugs": {
+    "url": "https://github.com/spytensor/openmozi/issues"
+  },
   "type": "module",
   "main": "build/main.js",
   "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=22.12 <26",
+    "pnpm": "10.29.2"
+  },
   "scripts": {
     "build": "tsup src/main.ts --no-config --format esm --platform=node --target=node22 --out-dir build --clean --external electron && tsup src/preload.ts --no-config --format cjs --platform=node --target=node22 --out-dir build --external electron",
     "dev": "pnpm build && electron .",
@@ -13,7 +25,7 @@
     "dist:mac": "pnpm build && electron-builder --mac dmg zip"
   },
   "devDependencies": {
-    "@types/node": "^25.3.0",
+    "@types/node": "^22.16.5",
     "electron": "^38.8.6",
     "electron-builder": "^26.15.3",
     "tsup": "^8.5.1",

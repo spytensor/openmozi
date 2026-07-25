@@ -48,7 +48,7 @@ import { getTextContent, type LLMClient, type ChatMessage, type ChatResponse, ty
 import type { IncomingMessage } from '../channels/telegram.js';
 import type { OutputChannel } from '../channels/output-channel.js';
 // Tool execution now handled by brain-engine.ts
-import { buildUserMessage, formatWorkspaceContext } from './message-builder.js';
+import { buildUserMessage, formatMentionContext, formatWorkspaceContext } from './message-builder.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
 import { log as logEvent } from '../store/events.js';
 import type { ArtifactEvent } from '../artifacts/types.js';
@@ -594,6 +594,7 @@ export async function handleMessage(
     // user content — inject it into the system prompt so it never pollutes the
     // persisted user bubble or the auto-title.
     const workspaceContextHint = formatWorkspaceContext(msg);
+    const mentionContextHint = formatMentionContext(msg);
     // NOTE: workspaceContextHint (uploaded file paths, selected workspace) is
     // intentionally NOT appended to the base system prompt here. The identity
     // slot is run through fitTextSlot(), which truncates from the bottom — so a
@@ -742,7 +743,8 @@ export async function handleMessage(
       // system message AFTER compression, so it is never dropped by identity-slot
       // truncation or history compression. Placed right after the main system
       // prompt if present, otherwise at the front.
-      if (workspaceContextHint) {
+      const turnContextHints = [workspaceContextHint, mentionContextHint].filter((hint): hint is string => Boolean(hint));
+      if (turnContextHints.length > 0) {
         let lastUserIndex = -1;
         for (let index = compressed.length - 1; index >= 0; index--) {
           if (compressed[index]?.role === 'user') {
@@ -751,7 +753,7 @@ export async function handleMessage(
           }
         }
         const insertAt = lastUserIndex >= 0 ? lastUserIndex : compressed.length;
-        compressed.splice(insertAt, 0, { role: 'system', content: workspaceContextHint });
+        compressed.splice(insertAt, 0, { role: 'system', content: turnContextHints.join('\n\n') });
       }
       throwIfAborted(abortSignal, 'Request cancelled');
 

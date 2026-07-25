@@ -28,6 +28,7 @@ const OnboardingWizard = lazy(() => import("@/components/onboarding/OnboardingWi
 const AdminShell = lazy(() => import("@/components/admin/AdminShell"));
 const ScheduledView = lazy(() => import("@/components/scheduler/ScheduledView"));
 const SkillsView = lazy(() => import("@/components/skills/SkillsView"));
+const AgentsView = lazy(() => import("@/components/agents/AgentsView"));
 const FilesView = lazy(() => import("@/components/files/FilesView"));
 const ArtifactPanel = lazy(() => import("@/components/chat/ArtifactPanel"));
 
@@ -41,7 +42,7 @@ const GENERAL_ROOT_STORAGE_VALUE = "__general__";
 const VIEW_STORAGE_KEY = "mozi.ui.view";
 // `memory` is a Settings category, not a standalone workspace surface. Older
 // builds could persist that dead view and restore a blank main area.
-const RESTORABLE_VIEWS: readonly AppView[] = ["chat", "scheduled", "skills", "files", "settings"];
+const RESTORABLE_VIEWS: readonly AppView[] = ["chat", "scheduled", "skills", "agents", "files", "settings"];
 
 function readStoredView(): AppView {
   if (typeof window === "undefined") return "chat";
@@ -171,6 +172,7 @@ export default function App() {
   const [scopeUpdateError, setScopeUpdateError] = useState<string | null>(null);
   const [pendingComposerAttachment, setPendingComposerAttachment] = useState<PendingComposerAttachment | null>(null);
   const [pendingComposerDraft, setPendingComposerDraft] = useState<ComposerDraftRequest | null>(null);
+  const [filesInitialPath, setFilesInitialPath] = useState<string | null>(null);
   const pendingComposerAttachmentIdRef = useRef(0);
   const pendingComposerDraftIdRef = useRef(0);
   const scopeTransitionRef = useRef<Promise<void> | null>(null);
@@ -201,6 +203,11 @@ export default function App() {
     setSettingsInitialCategory("memory");
     setView("settings");
     setActiveNav(navForView("settings"));
+  }, []);
+  const openAgentRun = useCallback((path: string) => {
+    setFilesInitialPath(path);
+    setView("files");
+    setActiveNav("files");
   }, []);
 
   const session = useSession();
@@ -569,6 +576,7 @@ export default function App() {
     content: string,
     targetSessionId?: string,
     attachments?: UploadedAttachment[],
+    mentions?: string[],
     regenerate = false,
     beforeSend?: () => void,
   ) => {
@@ -587,19 +595,23 @@ export default function App() {
       ...(attachments?.length
         ? { attachments: attachments.map(({ filename, path }) => ({ filename, path })) }
         : {}),
+      ...(mentions?.length ? { mentions } : {}),
     });
     return true;
   }, [ws.send, chat.setSessionState, session.activeSessionId]);
 
-  const handleSend = useCallback(async (content: string, attachments?: UploadedAttachment[]) => {
-    await sendRuntimeMessage(content, undefined, attachments, false, () => {
+  const handleSend = useCallback(async (content: string, attachments?: UploadedAttachment[], mentions?: string[]) => {
+    await sendRuntimeMessage(content, undefined, attachments, mentions, false, () => {
       chat.addMessage("user", content, undefined, undefined, attachments);
     });
   }, [chat.addMessage, sendRuntimeMessage]);
 
   const handleRegenerate = useCallback(async (content: string) => {
     chat.prepareRegenerate(content);
-    await sendRuntimeMessage(content, undefined, undefined, true);
+    // Re-running "@reviewer …" must carry the same delegation intent as the
+    // original turn, so recover the mentions from the message text.
+    const mentions = [...new Set((content.match(/@[a-z0-9][a-z0-9_-]*/gi) ?? []).map((token) => token.slice(1).toLowerCase()))];
+    await sendRuntimeMessage(content, undefined, undefined, mentions.length > 0 ? mentions : undefined, true);
   }, [chat.prepareRegenerate, sendRuntimeMessage]);
 
   const handleCancelTurn = useCallback(() => {
@@ -814,6 +826,10 @@ export default function App() {
           onNavChange={setActiveNav}
           onViewChange={(nextView) => {
             if (nextView === "settings") setSettingsInitialCategory("general");
+            // Opening FILES from the rail is a request for the library, not for
+            // whichever agent run was last inspected — the deep link is
+            // one-shot, so drop it here.
+            if (nextView === "files") setFilesInitialPath(null);
             setView(nextView);
           }}
           onSelectSession={handleSessionSelect}
@@ -925,6 +941,7 @@ export default function App() {
                       onOpenArtifact={handleOpenArtifact}
                       onOpenModelSettings={openModelSettings}
                       onOpenMemory={openMemory}
+                      onOpenAgentRun={openAgentRun}
                     />
                     <div data-testid="composer-dock" className="shrink-0 px-5 pb-3 pt-2">
                       <div data-testid="composer-reading-rail" className="mx-auto w-full max-w-[960px] px-4">
@@ -957,6 +974,9 @@ export default function App() {
               {contentView === "skills" && (
                 <Suspense fallback={<LazySurfaceFallback />}><SkillsView /></Suspense>
               )}
+              {contentView === "agents" && (
+                <Suspense fallback={<LazySurfaceFallback />}><AgentsView /></Suspense>
+              )}
               {contentView === "files" && (
                 <Suspense fallback={<LazySurfaceFallback />}><FilesView
                   onOpenArtifact={handleOpenArtifact}
@@ -964,6 +984,7 @@ export default function App() {
                   onAttachToChat={handleFilesAttachToChat}
                   onOpenSession={handleSessionSelect}
                   roots={runtimeRoots}
+                  initialPath={filesInitialPath}
                 /></Suspense>
               )}
               {contentView === "scheduled" && (

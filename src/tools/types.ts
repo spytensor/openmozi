@@ -104,6 +104,13 @@ export interface ToolContext {
    *  When set, filesystem WRITES are restricted to this root (+ output dir and
    *  any per-session scope grants); reads stay unrestricted. */
   workspaceRootPath?: string;
+  /** Runtime-owned cwd for isolated execution surfaces. Relative filesystem
+   * paths remain governed by workspaceRootPath. */
+  workingDirectory?: string;
+  /** Hard write allow-list for sandboxed runs (delegated agents). Unlike
+   *  workspaceRootPath this is enforced regardless of fs policy or permission
+   *  level and does NOT widen to the shared output dir. */
+  enforcedWriteRoots?: string[];
   /** Extra directories the user granted write access to for THIS session
    *  (out-of-project-scope escalations). */
   scopeGrants?: string[];

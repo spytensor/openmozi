@@ -25,6 +25,8 @@ interface TaskPayload {
   parentTaskId?: string;
   status?: string;
   rawStatus?: string;
+  agentId?: string;
+  runDir?: string;
 }
 
 function restoredTasks(): Array<{ turnId?: string; data: TaskPayload }> {
@@ -109,5 +111,57 @@ describe('Issue #624 — parent identity survives WS + persistence + restore', (
     const worker = restoredTasks().find((t) => t.data.task_id === SUB_A);
     expect(worker?.data.parentTaskId).toBe(ROOT);
     expect(worker?.turnId).toBe('turn_A');
+  });
+
+  it('restores an agent identity row and complete result envelope from the timeline', () => {
+    const runDir = '/workspace/output/agents/reviewer/run-7';
+    const envelope = JSON.stringify({
+      status: 'succeeded',
+      summary: 'Review complete',
+      key_findings: ['Finding retained after refresh'],
+      artifacts: [`${runDir}/report.md`],
+      transcript_path: `${runDir}/transcript.md`,
+    });
+    broadcastProgressEvent({
+      type: 'worker_status',
+      agentId: 'reviewer',
+      agentColor: 'jade',
+      runDir,
+      runtimeLabel: 'reviewer',
+      workerStatus: 'completed',
+      summary: 'Review complete',
+      chatId: CHAT,
+      tenantId: TENANT,
+      sessionId: SESSION,
+      turnId: 'turn_A',
+      timestamp: 3000,
+    });
+    broadcastProgressEvent({
+      type: 'tool_result',
+      taskId: 'turn_A:simple',
+      toolName: 'delegate_to_agent',
+      toolCallId: 'delegate-call-1',
+      result: envelope,
+      chatId: CHAT,
+      tenantId: TENANT,
+      sessionId: SESSION,
+      turnId: 'turn_A',
+      timestamp: 3001,
+    });
+
+    const restored = getSessionTimelinePage(SESSION, { tenantId: TENANT }).timeline;
+    const task = restored.find(item => item.type === 'task_update')?.data as TaskPayload;
+    const tool = restored.find(item => item.type === 'tool_event')?.data as { result?: string };
+    expect(task).toMatchObject({
+      task_id: `agent:reviewer:${runDir}`,
+      agentId: 'reviewer',
+      runDir,
+      rawStatus: 'completed',
+    });
+    expect(JSON.parse(tool.result ?? '{}')).toMatchObject({
+      summary: 'Review complete',
+      key_findings: ['Finding retained after refresh'],
+      transcript_path: `${runDir}/transcript.md`,
+    });
   });
 });

@@ -1,5 +1,7 @@
+import { resolve } from 'node:path';
 import type { ToolDefinition } from '../core/llm.js';
 import type { ToolResult, ToolContext } from './types.js';
+import { isPathInsideRoot } from './workspace-policy.js';
 
 // ── Definitions ──
 
@@ -115,19 +117,35 @@ export async function executeGitTool(
   name: string,
   args: Record<string, unknown>,
   id: string,
-  _context?: ToolContext,
+  context?: ToolContext,
 ): Promise<ToolResult | null> {
+  const cwd = context?.workingDirectory;
+  if (cwd) {
+    // A pinned working directory (delegated agent run) must be its own repo:
+    // git resolves the nearest ancestor repo, which would let a sandboxed run
+    // operate on an unrelated parent repository.
+    const { gitToplevel } = await import('../tools/git.js');
+    const toplevel = await gitToplevel(cwd);
+    const pin = resolve(cwd);
+    if (!toplevel || (resolve(toplevel) !== pin && !isPathInsideRoot(resolve(toplevel), pin))) {
+      return {
+        tool_call_id: id,
+        content: `Error: ${cwd} is not a git repository. Run git init inside this directory before using git tools.`,
+        is_error: true,
+      };
+    }
+  }
   switch (name) {
     case 'git_status': {
       const { gitStatus } = await import('../tools/git.js');
-      const status = await gitStatus();
+      const status = await gitStatus(cwd);
       return { tool_call_id: id, content: JSON.stringify(status, null, 2), is_error: false };
     }
 
     case 'git_diff': {
       const { gitDiff } = await import('../tools/git.js');
       const diffFile = args.file as string | undefined;
-      const diff = await gitDiff(diffFile);
+      const diff = await gitDiff(diffFile, cwd);
       return { tool_call_id: id, content: diff || '(no changes)', is_error: false };
     }
 
@@ -137,7 +155,7 @@ export async function executeGitTool(
       if (!Array.isArray(files) || files.length === 0) {
         return { tool_call_id: id, content: 'Error: "files" parameter is required and must be a non-empty array', is_error: true };
       }
-      const addResult = await gitAdd(files);
+      const addResult = await gitAdd(files, cwd);
       return { tool_call_id: id, content: addResult, is_error: false };
     }
 
@@ -147,7 +165,7 @@ export async function executeGitTool(
       if (!commitMsg || typeof commitMsg !== 'string') {
         return { tool_call_id: id, content: 'Error: "message" parameter is required and must be a string', is_error: true };
       }
-      const commitResult = await gitCommit(commitMsg);
+      const commitResult = await gitCommit(commitMsg, cwd);
       return { tool_call_id: id, content: JSON.stringify(commitResult, null, 2), is_error: false };
     }
 
@@ -155,21 +173,21 @@ export async function executeGitTool(
       const { gitPush } = await import('../tools/git.js');
       const pushRemote = args.remote as string | undefined;
       const pushBranch = args.branch as string | undefined;
-      const pushResult = await gitPush(pushRemote, pushBranch);
+      const pushResult = await gitPush(pushRemote, pushBranch, cwd);
       return { tool_call_id: id, content: pushResult, is_error: false };
     }
 
     case 'git_log': {
       const { gitLog } = await import('../tools/git.js');
       const logCount = args.count as number | undefined;
-      const entries = await gitLog(logCount);
+      const entries = await gitLog(logCount, cwd);
       return { tool_call_id: id, content: JSON.stringify(entries, null, 2), is_error: false };
     }
 
     case 'git_revert': {
       const { gitRevert } = await import('../tools/git.js');
       const revertCount = args.count as number | undefined;
-      const revertResult = await gitRevert(revertCount);
+      const revertResult = await gitRevert(revertCount, cwd);
       return { tool_call_id: id, content: revertResult, is_error: false };
     }
 

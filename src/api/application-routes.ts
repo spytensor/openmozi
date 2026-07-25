@@ -178,6 +178,7 @@ import { getDb } from '../store/db.js';
 import { registerOfficeRoutes } from '../api/office-routes.js';
 import { registerGitBranchRoutes } from '../api/git-branch-routes.js';
 import { registerMemoryRoutes } from '../api/memory-routes.js';
+import { registerAgentDefinitionRoutes } from '../api/agent-definition-routes.js';
 import { registerSchedulerRoutes } from '../api/scheduler-routes.js';
 import { registerTaskTemplateRoutes } from '../api/task-template-routes.js';
 import {
@@ -968,7 +969,7 @@ function ensureRawConfigRecord(parent: RawConfigRecord, key: string): RawConfigR
 
 function providerHasConfiguredKey(
   providerId: string,
-  rawProviders: Record<string, { apikey?: string; baseurl?: string }> | undefined,
+  rawProviders: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined,
   storedKeyProviders: Set<string>,
   readyCliProviders: Set<string> = new Set(),
 ): boolean {
@@ -991,7 +992,7 @@ function detectReadyCliProviderIds(probes: CodingWorkerProbe[] = detectCodingWor
 
 function embeddingRoleReady(
   providerId: string,
-  rawProviders: Record<string, { apikey?: string; baseurl?: string }> | undefined,
+  rawProviders: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined,
   storedKeyProviders: Set<string>,
   embeddingConfig: { api_key?: string; base_url?: string },
 ): boolean {
@@ -1026,7 +1027,7 @@ function defaultChatModelForProvider(providerId: string): string {
 }
 
 function resolveFallbackChatRoleSlot(
-  rawProviders: Record<string, { apikey?: string; baseurl?: string }> | undefined,
+  rawProviders: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined,
   storedKeyProviders: Set<string>,
   readyCliProviders: Set<string>,
 ): ModelRoleSlot {
@@ -1047,7 +1048,7 @@ function resolveChatRoleSlot(
   roleName: 'brain' | 'light' | 'step' | 'plan_summary',
   providerId: string,
   modelId: string,
-  rawProviders: Record<string, { apikey?: string; baseurl?: string }> | undefined,
+  rawProviders: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined,
   storedKeyProviders: Set<string>,
   readyCliProviders: Set<string>,
 ): ModelRoleSlot {
@@ -1166,7 +1167,8 @@ async function buildProviderModels(provider: ProviderDef, allowedModels: string[
     if (includedIds.has(modelId)) continue;
     const resolved = resolveRuntimeModel(provider.id, modelId, { allowUnknown: true });
     if (!resolved) continue;
-    models.push(serializeCatalogModel(resolved, allowedModels === null || allowedModels.includes(modelId), true, null, 'manual', 'conservative'));
+    const confidence = getModel(provider.id, modelId) ? 'catalog' : 'conservative';
+    models.push(serializeCatalogModel(resolved, allowedModels === null || allowedModels.includes(modelId), true, null, 'manual', confidence));
     includedIds.add(modelId);
   }
 
@@ -1195,6 +1197,8 @@ function validateKnownModelGrant(input: string[] | null): string[] | null {
   const unknown = normalized.filter(model => !isSafeCustomModelId(model) || !providers.some(provider => Boolean(
     provider.apiMode === 'cli-pipe'
       ? provider.models.some(candidate => candidate.id === model) || registered[provider.id]?.includes(model)
+      : provider.apiMode === 'azure-openai'
+        ? provider.models.some(candidate => candidate.id === model) || registered[provider.id]?.includes(model)
       : getModel(provider.id, model) || registered[provider.id]?.includes(model),
   )));
   if (unknown.length > 0) {
@@ -1210,7 +1214,7 @@ function validateRequestedModelAllowed(ctx: ApiTenantContext, modelId: string): 
 function getModelRolesForTenant(tenantId: string): { brain: ModelRoleSlot; light: ModelRoleSlot; step: ModelRoleSlot; plan_summary: ModelRoleSlot; embedding: ModelRoleSlot } {
   const raw = readConfigWithLegacyFallback(getConfigPath()).config;
   const config = loadConfig(getConfigPath());
-  const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string }> | undefined;
+  const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
   const storedKeyProviders = new Set(listTenantApiKeys(tenantId).map((entry) => entry.provider));
   const readyCliProviders = detectReadyCliProviderIds();
 
@@ -3455,6 +3459,8 @@ export async function registerApiRoutes(
 
   registerTaskTemplateRoutes(app);
 
+  registerAgentDefinitionRoutes(app);
+
   // ── REST API: config hot-reload ──
   registerConfigRoutes(app);
 
@@ -4318,7 +4324,7 @@ export async function registerApiRoutes(
     const allowedModels = ctx ? resolveAllowedModels(ctx.tenant_id, ctx.user_id).models : null;
     const storedKeys = new Set(listTenantApiKeys(tenantId).map((entry) => entry.provider));
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string }> | undefined;
+    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
     const manualModels = ((raw.model_discovery as Record<string, unknown> | undefined)?.manual_models ?? {}) as Record<string, string[]>;
     const persistedModels = ((raw.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
     const persistedFetchedAt = ((raw.model_discovery as Record<string, unknown> | undefined)?.fetched_at ?? {}) as Record<string, string>;
@@ -4374,11 +4380,13 @@ export async function registerApiRoutes(
             timeoutMs: provider.apiMode === 'ollama-native' ? 500 : 3_000,
           })
         : {
-            supported: provider.apiMode !== 'bedrock-converse-stream',
+            supported: !['bedrock-converse-stream', 'azure-openai'].includes(provider.apiMode),
             source: 'catalog',
             fetchedAt: null,
             capabilityConfidence: 'catalog',
-            fallbackReason: 'provider_not_configured',
+            fallbackReason: provider.apiMode === 'azure-openai'
+              ? 'provider_does_not_list_models'
+              : 'provider_not_configured',
             models: [],
           };
       if (discovery.models.length === 0 && (persistedModels[provider.id]?.length ?? 0) > 0) {
@@ -4466,6 +4474,19 @@ export async function registerApiRoutes(
     if (provider.apiMode === 'cli-pipe' && !detectReadyCliProviderIds().has(provider.id)) {
       return reply.code(400).send({ success: false, error: 'Provider CLI is not installed and authenticated' });
     }
+    if (provider.apiMode === 'azure-openai') {
+      // Azure needs a per-user resource URL, and the model factory throws
+      // without one. That throw happens during startup client construction, so
+      // accepting this selection would leave the daemon unable to boot.
+      const rawBrainConfig = readConfigWithLegacyFallback(getConfigPath()).config as Record<string, unknown>;
+      const brainRawProviders = rawBrainConfig.providers as Record<string, { baseurl?: string }> | undefined;
+      if (!resolveBaseUrl(provider.id, process.env, brainRawProviders)) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Azure OpenAI needs a resource URL first. Set AZURE_OPENAI_BASE_URL (or providers.azure.baseurl), then select this provider.',
+        });
+      }
+    }
     const existing = readConfigWithLegacyFallback(getConfigPath()).config;
     const registered = ((existing.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
     const requestedModel = String(body.model ?? '');
@@ -4540,7 +4561,7 @@ export async function registerApiRoutes(
       return reply.code(404).send({ success: false, reason: 'live_discovery_unsupported', error: 'Provider does not expose live model discovery' });
     }
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string }> | undefined;
+    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
     const masterSecret = resolveTenantMasterSecret();
     const apiKey = resolveRuntimeApiKey(id, {
       configProviders: rawProviders,
@@ -4611,7 +4632,14 @@ export async function registerApiRoutes(
     return reply.send({
       success: true,
       provider: id,
-      model: serializeCatalogModel(resolveRuntimeModel(id, modelId, { allowUnknown: true })!, true, true, null, 'manual', 'conservative'),
+      model: serializeCatalogModel(
+        resolveRuntimeModel(id, modelId, { allowUnknown: true })!,
+        true,
+        true,
+        null,
+        'manual',
+        getModel(id, modelId) ? 'catalog' : 'conservative',
+      ),
     });
   });
 
@@ -4628,7 +4656,7 @@ export async function registerApiRoutes(
     if (!provider) return reply.code(400).send({ ok: false, error: 'Unknown provider' });
 
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string }> | undefined;
+    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
     const masterSecret = resolveTenantMasterSecret();
     const apiKey = resolveRuntimeApiKey(id, {
       configProviders: rawProviders,

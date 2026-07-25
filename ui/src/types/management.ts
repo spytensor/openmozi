@@ -50,6 +50,29 @@ export interface SkillDetail extends SkillInfo {
   files: Array<{ name: string; size: number }>;
 }
 
+export type AgentDefinitionStatus = "ready" | "needs-setup" | "disabled";
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  description: string;
+  model: string | null;
+  skills: string[];
+  color: string | null;
+  source: "bundled" | "workspace";
+  status: AgentDefinitionStatus;
+  enabled: boolean;
+  missing_skills: string[];
+  invalid_model: string | null;
+}
+
+export interface AgentDetail extends AgentInfo {
+  tools: string[];
+  permission_level: "L0_READ_ONLY" | "L1_READ_WRITE" | "L2_SHELL_EXEC" | "L3_FULL_ACCESS" | null;
+  persona: string;
+  content: string;
+}
+
 export interface SystemConfig {
   llm_providers?: Array<{ name: string; model: string; api_key_set?: boolean }>;
   language?: string;

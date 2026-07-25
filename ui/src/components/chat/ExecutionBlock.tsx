@@ -33,6 +33,7 @@ import {
 import { buildTaskTree, type TaskGroupNode, type TaskNodeState, type TaskTreeNode } from "./task-tree";
 import { formatDurationForLocale, translateMessage, useLocale, type Locale } from "@/i18n";
 import { formatApproximateDurationForLocale } from "@/i18n/format";
+import { agentAvatarColor, agentInitial } from "@/lib/agent-colors";
 
 /** Open the workbench source panel for an aggregated activity row. */
 export type OpenSourcesHandler = (sources: ExecutionSourceRef[], label: string) => void;
@@ -56,9 +57,193 @@ interface ExecutionBlockProps {
    * timeline plus the Technical details expander.
    */
   embedded?: boolean;
+  /** Open a persisted agent run directory in the Files surface. */
+  onOpenAgentRun?: (path: string) => void;
 }
 
 const EXECUTION_TIMELINE_SCROLL_THRESHOLD = 8;
+
+interface AgentEnvelope {
+  status: "succeeded" | "failed" | "blocked";
+  summary: string;
+  key_findings: string[];
+  artifacts: string[];
+  blocker?: string;
+  transcript_path: string;
+}
+
+function parseAgentEnvelope(tool?: ToolEvent): AgentEnvelope | null {
+  if (!tool || tool.tool !== "delegate_to_agent") return null;
+  const raw = tool.result ?? tool.error;
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw) as Partial<AgentEnvelope>;
+    if (
+      (value.status === "succeeded" || value.status === "failed" || value.status === "blocked")
+      && typeof value.summary === "string"
+      && Array.isArray(value.key_findings)
+      && Array.isArray(value.artifacts)
+      && typeof value.transcript_path === "string"
+    ) {
+      return value as AgentEnvelope;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function agentStatus(task: TaskUpdate | undefined, envelope: AgentEnvelope | null): "launching" | "running" | "completed" | "failed" | "blocked" {
+  if (envelope?.status === "blocked" || task?.rawStatus === "blocked") return "blocked";
+  if (envelope?.status === "failed" || task?.rawStatus === "failed") return "failed";
+  if (envelope?.status === "succeeded" || task?.rawStatus === "completed") return "completed";
+  return task?.rawStatus === "launching" ? "launching" : "running";
+}
+
+function runDirOfEnvelope(envelope: AgentEnvelope | null): string | undefined {
+  return envelope?.transcript_path ? envelope.transcript_path.replace(/[\\/][^\\/]+$/, "") : undefined;
+}
+
+/** The tool intent reads `<agent>: <brief>` (approval cards need the brief). */
+function agentNameFromIntent(intent?: string): string | undefined {
+  const name = intent?.split(":")[0]?.trim();
+  return name || undefined;
+}
+
+interface AgentDelegation {
+  key: string;
+  task?: TaskUpdate;
+  tool?: ToolEvent;
+  envelope: AgentEnvelope | null;
+}
+
+/**
+ * One card per delegation, not one per turn: a turn may summon several agents
+ * (`@coder @reviewer …`) and every result must stay visible. Runs are keyed by
+ * their archive directory, which both the task stream (`runDir`) and the tool
+ * envelope (`transcript_path`) carry.
+ */
+function collectAgentDelegations(block: ExecutionBlockModel): AgentDelegation[] {
+  const order: string[] = [];
+  const byKey = new Map<string, AgentDelegation>();
+  const claim = (key: string): AgentDelegation => {
+    let entry = byKey.get(key);
+    if (!entry) {
+      entry = { key, envelope: null };
+      byKey.set(key, entry);
+      order.push(key);
+    }
+    return entry;
+  };
+
+  for (const task of block.tasks) {
+    if (!task.agentId) continue;
+    // Later updates of the same run supersede earlier ones (launching → running
+    // → completed); the run identity is stable across all of them.
+    claim(task.runDir || task.task_id || `agent:${task.agentId}`).task = task;
+  }
+  for (const tool of block.tools) {
+    if (tool.tool !== "delegate_to_agent") continue;
+    const envelope = parseAgentEnvelope(tool);
+    const dir = runDirOfEnvelope(envelope);
+    // Attach to the run the envelope names; while a run is still in flight it
+    // has no envelope yet, so fall back to the first unclaimed run of the same
+    // agent. Only a call that matches neither becomes its own card.
+    const pending = !dir
+      ? order.map((key) => byKey.get(key)!).find((entry) => !entry.tool && entry.task?.agentId === agentNameFromIntent(tool.intent))
+      : undefined;
+    const entry = pending ?? claim(dir ?? `tool:${tool.id ?? tool.tool}:${order.length}`);
+    entry.tool = tool;
+    entry.envelope = envelope;
+  }
+  return order.map((key) => byKey.get(key)!).filter((entry) => entry.task || entry.tool);
+}
+
+function AgentDelegationExecution({
+  delegation,
+  block,
+  locale,
+  onOpenAgentRun,
+  suppressTechnicalDetails,
+}: {
+  delegation: AgentDelegation;
+  block: ExecutionBlockModel;
+  locale: Locale;
+  onOpenAgentRun?: (path: string) => void;
+  suppressTechnicalDetails: boolean;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { task, tool, envelope } = delegation;
+  const name = task?.agentId || agentNameFromIntent(tool?.intent) || "Agent";
+  const status = agentStatus(task, envelope);
+  const runDir = task?.runDir || runDirOfEnvelope(envelope);
+  const color = agentAvatarColor(task?.agentColor);
+  const terminal = status === "completed" || status === "failed" || status === "blocked";
+  const round = task?.heartbeat && task.detail?.match(/round\s+(\d+)/i)?.[1];
+
+  return (
+    <div data-testid="agent-execution-block" className="w-full max-w-[640px] py-1">
+      <button
+        type="button"
+        aria-expanded={terminal ? expanded : undefined}
+        onClick={() => terminal && setExpanded((value) => !value)}
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left",
+          terminal && "transition-colors hover:bg-ink/[0.03]",
+        )}
+      >
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold"
+          style={{ background: color, color: "var(--agent-fg)" }}
+        >
+          {agentInitial(name)}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="truncate text-[12.5px] font-medium text-ink/78">{name}</span>
+            <span
+              data-testid="agent-execution-status"
+              className={cn(
+                "shrink-0 text-[10.5px]",
+                status === "failed" || status === "blocked" ? "text-warning" : status === "running" || status === "launching" ? "text-activity" : "text-ink/38",
+              )}
+            >
+              {status}
+            </span>
+          </span>
+          <span className="block truncate text-[11.5px] text-ink/42">
+            {envelope?.summary || task?.detail || (status === "launching" ? "Starting agent" : "Agent is working")}
+            {round ? ` · round ${round}` : ""}
+          </span>
+        </span>
+        {!terminal && <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" />}
+        {terminal && <ChevronRight aria-hidden="true" className={cn("h-3 w-3 shrink-0 text-ink/25 transition-transform", expanded && "rotate-90")} />}
+      </button>
+
+      {terminal && expanded && (
+        <div data-testid="agent-execution-details" className="ml-10 mt-1.5 space-y-2 border-l border-ink/[0.07] pl-3 text-[11.5px] leading-5 text-ink/45">
+          {envelope?.blocker && <p className="text-warning">{envelope.blocker}</p>}
+          {envelope?.key_findings.map((finding, index) => (
+            <p key={`${index}:${finding}`}>{finding}</p>
+          ))}
+          {runDir && onOpenAgentRun && (
+            <button type="button" onClick={() => onOpenAgentRun(runDir)} className="inline-flex items-center gap-1 text-link hover:text-link-hover hover:underline">
+              <ExternalLink className="h-3 w-3" />
+              {envelope?.artifacts.length ? `Artifacts (${envelope.artifacts.length}) and transcript` : "Transcript and run directory"}
+            </button>
+          )}
+          {envelope?.artifacts.map((artifact) => (
+            <p key={artifact} className="truncate font-mono text-[10.5px] text-ink/32" title={artifact}>{artifact}</p>
+          ))}
+          {envelope?.transcript_path && (
+            <p className="truncate font-mono text-[10.5px] text-ink/32" title={envelope.transcript_path}>{envelope.transcript_path}</p>
+          )}
+          {!suppressTechnicalDetails && <TechnicalDetails block={block} locale={locale} />}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type RowState = "done" | "running" | "blocked" | "skipped" | "pending" | "interrupted" | "queued" | "cancelled";
 
@@ -1238,13 +1423,6 @@ function liveLabel(block: ExecutionBlockModel, locale: Locale): string {
     return status || title || translateMessage(locale, "execution.summary.runningCompact");
   }
 
-  const latestTool = [...getDisplayTools(block.tools)].reverse()[0];
-  if (latestTool) {
-    const summary = buildToolStepSummary(latestTool, locale);
-    if (summary.isSkillActivation) return toolRunningActionLabel(latestTool.tool, locale, summary.skillName);
-    return summary.label;
-  }
-
   return block.headline || translateMessage(locale, "execution.summary.runningCompact");
 }
 
@@ -1276,8 +1454,9 @@ function LiveExecutionLine({ block, locale }: { block: ExecutionBlockModel; loca
   );
 }
 
-export function ExecutionBlock({ block, interrupted = false, embedded = false, onOpenSources, suppressTechnicalDetails = false }: ExecutionBlockProps) {
-  const { locale } = useLocale();
+export function ExecutionBlock({ block, interrupted = false, embedded = false, onOpenSources, onOpenAgentRun, suppressTechnicalDetails = false }: ExecutionBlockProps) {
+  const { locale: uiLocale } = useLocale();
+  const locale = block.locale ?? uiLocale;
   const [expanded, setExpanded] = useState(false);
   // The turn envelope may have terminalized this block as crash-interrupted
   // (Issue #626); treat that exactly like a runtime-lost block so running rows
@@ -1287,6 +1466,42 @@ export function ExecutionBlock({ block, interrupted = false, embedded = false, o
   const rows = useMemo(() => getTimelineRows(block, locale, frozen), [block, locale, frozen]);
   const summary = compactSummary(block, frozen, locale);
   const shouldScrollTimeline = rows.length > EXECUTION_TIMELINE_SCROLL_THRESHOLD;
+  const delegations = useMemo(() => collectAgentDelegations(block), [block]);
+
+  if (delegations.length > 0) {
+    // Delegation cards are additive, never a replacement: the same turn may
+    // also have edited files, run a plan, or hit a failure, and none of that
+    // may be swallowed by an agent card.
+    const rest: ExecutionBlockModel = {
+      ...block,
+      tools: block.tools.filter((tool) => tool.tool !== "delegate_to_agent"),
+      tasks: block.tasks.filter((task) => !task.agentId),
+    };
+    const hasRest = rest.tools.length > 0 || rest.tasks.length > 0 || Boolean(rest.plan);
+    return (
+      <div className="w-full space-y-1">
+        {delegations.map((delegation) => (
+          <AgentDelegationExecution
+            key={delegation.key}
+            delegation={delegation}
+            block={block}
+            locale={locale}
+            onOpenAgentRun={onOpenAgentRun}
+            suppressTechnicalDetails={suppressTechnicalDetails}
+          />
+        ))}
+        {hasRest && (
+          <ExecutionBlock
+            block={rest}
+            interrupted={interrupted}
+            embedded={embedded}
+            onOpenSources={onOpenSources}
+            suppressTechnicalDetails={suppressTechnicalDetails}
+          />
+        )}
+      </div>
+    );
+  }
 
   if (isLive) {
     // EVERY working turn with process content shows the same collapsed
@@ -1454,6 +1669,7 @@ export function areExecutionBlockPropsEqual(prev: ExecutionBlockProps, next: Exe
   if ((prev.interrupted ?? false) !== (next.interrupted ?? false)) return false;
   // Callback identity matters: a new handler must re-render so rows bind it.
   if (prev.onOpenSources !== next.onOpenSources) return false;
+  if (prev.onOpenAgentRun !== next.onOpenAgentRun) return false;
   if ((prev.suppressTechnicalDetails ?? false) !== (next.suppressTechnicalDetails ?? false)) return false;
   const a = prev.block;
   const b = next.block;

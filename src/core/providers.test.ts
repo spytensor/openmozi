@@ -5,8 +5,10 @@ import {
   getWizardProviders,
   resolveApiKey,
   resolveApiKeys,
+  resolveApiVersion,
   resolveBaseUrl,
   resolveApiMode,
+  resolveSystemMessagePolicy,
   getModel,
   isChatRoleEligibleProvider,
   detectConfiguredProviders,
@@ -64,6 +66,9 @@ describe('core/providers', () => {
     'BEDROCK_API_KEY',
     'AWS_BEARER_TOKEN_BEDROCK',
     'OPENAI_BASE_URL',
+    'AZURE_OPENAI_API_KEY',
+    'AZURE_OPENAI_BASE_URL',
+    'AZURE_OPENAI_API_VERSION',
     'GOOGLE_BASE_URL',
     'GEMINI_BASE_URL',
   ];
@@ -104,6 +109,10 @@ describe('core/providers', () => {
     expect(resolveApiMode('nonexistent')).toBeUndefined();
   });
 
+  it('keeps Azure on the conservative system-message policy', () => {
+    expect(resolveSystemMessagePolicy('azure')).toBe('consolidate-leading');
+  });
+
   it('each model has required metadata fields', () => {
     const providers = getAllProviders();
     for (const provider of providers) {
@@ -139,6 +148,27 @@ describe('core/providers', () => {
     expect(deepseekModel).toBeDefined();
     expect(deepseekModel!.id).toBe('deepseek-v4-pro-202604');
     expect(deepseekModel!.contextWindow).toBe(1_048_576);
+  });
+
+  it('maps Azure deployments named after a model family to that family\'s capabilities', () => {
+    // Azure Studio defaults the deployment name to the model name, so this is
+    // the common case — and it must be tool-capable, or a GPT-4o deployment is
+    // unusable as a brain model under the conservative fallback.
+    expect(getModel('azure', 'prod-gpt-4o-eu')).toMatchObject({
+      id: 'prod-gpt-4o-eu',
+      supportsTools: true,
+      supportsVision: true,
+      contextWindow: 128_000,
+    });
+    expect(getModel('azure', 'my-o3-mini')).toMatchObject({ id: 'my-o3-mini', reasoning: true });
+  });
+
+  it('does not claim a catalog profile for deployment names with no model family in them', () => {
+    // A catch-all here would be a double lie: it advertises gpt-4o's context,
+    // vision and pricing for a deployment that may be gpt-3.5, and it makes
+    // azure match every model id, which breaks provider inference for pricing.
+    expect(getModel('azure', 'production-brain-west')).toBeUndefined();
+    expect(getModel('azure', 'kimi-k2.6')).toBeUndefined();
   });
 
   it('registers DeepSeek V4 models as the canonical DeepSeek catalog entries', () => {
@@ -252,6 +282,20 @@ describe('core/providers', () => {
 
     process.env.GEMINI_BASE_URL = 'https://gemini-base-url';
     expect(resolveBaseUrl('google')).toBe('https://gemini-base-url');
+  });
+
+  it('resolves Azure resource URL and API version from config, env, then catalog', () => {
+    expect(resolveBaseUrl('azure')).toBe('');
+    expect(resolveApiVersion('azure')).toBe('2024-10-21');
+
+    process.env.AZURE_OPENAI_BASE_URL = 'https://env-resource.openai.azure.com';
+    process.env.AZURE_OPENAI_API_VERSION = '2025-01-01-preview';
+    expect(resolveBaseUrl('azure')).toBe('https://env-resource.openai.azure.com');
+    expect(resolveApiVersion('azure')).toBe('2025-01-01-preview');
+
+    const config = { azure: { baseurl: 'https://config-resource.openai.azure.com', apiversion: '2024-12-01-preview' } };
+    expect(resolveBaseUrl('azure', process.env, config)).toBe('https://config-resource.openai.azure.com');
+    expect(resolveApiVersion('azure', process.env, config)).toBe('2024-12-01-preview');
   });
 
   it('detectConfiguredProviders detects providers from normalized env schemes', () => {

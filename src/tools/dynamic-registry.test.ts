@@ -315,5 +315,8 @@ describe('built-in tool gating (capability truthfulness)', () => {
     expect(names).toContain('shell_exec');
     expect(names).toContain('read_file');
     expect(names).toContain('use_skill');
+    // Bundled researcher is enabled and ready, so the production predicate
+    // makes the file-defined agent execution path reachable by the Brain.
+    expect(names).toContain('delegate_to_agent');
   });
 });

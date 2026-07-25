@@ -40,10 +40,12 @@ import {
 } from "@/lib/runtime-display";
 import { cn } from "@/lib/utils";
 import { useLocale, type MessageKey } from "@/i18n";
+import { agentAvatarColor, agentInitial } from "@/lib/agent-colors";
+import { useApi } from "@/hooks/useApi";
 
 interface InputBarProps {
   variant?: "empty" | "active";
-  onSend: (content: string, attachments?: UploadedAttachment[]) => void;
+  onSend: (content: string, attachments?: UploadedAttachment[], mentions?: string[]) => void;
   onCancel?: () => void;
   connectionStatus: ConnectionStatus;
   queueCount: number;
@@ -81,6 +83,14 @@ interface CommandMeta {
   descriptionKey?: MessageKey;
   category: string;
   args: string | null;
+}
+
+interface MentionAgent {
+  name: string;
+  description: string;
+  color: string | null;
+  status: string;
+  enabled: boolean;
 }
 
 const CATEGORY_META: Record<string, { labelKey: MessageKey; icon: typeof Search }> = {
@@ -252,6 +262,11 @@ export default function InputBar({
   const [commands, setCommands] = useState<CommandMeta[]>(FALLBACK_COMMANDS);
   const [cmdSearch, setCmdSearch] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
+  const [readyAgents, setReadyAgents] = useState<MentionAgent[]>([]);
+  const [confirmedMentions, setConfirmedMentions] = useState<string[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState<number | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -261,9 +276,32 @@ export default function InputBar({
 
   const disabled = connectionStatus === "disconnected";
   const isEmptyVariant = variant === "empty";
+  const { get } = useApi();
   const textMinHeight = isEmptyVariant ? 52 : 34;
   const textMaxHeight = isEmptyVariant ? 140 : 112;
   const showWorkspaceContext = workspaceContextEnabled && !!onSelectRoot;
+  const filteredAgents = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const query = mentionQuery.toLowerCase();
+    return readyAgents.filter((agent) => agent.name.toLowerCase().includes(query));
+  }, [mentionQuery, readyAgents]);
+
+  // Load on mount (typing `@` is gated on a non-empty roster) and refresh
+  // whenever a mention starts, so agents created in MY AGENTS show up without
+  // a reload. Routed through useApi so an expired token is refreshed and
+  // retried instead of silently emptying the roster.
+  const mentionOpen = mentionQuery !== null;
+  useEffect(() => {
+    if (!mentionControlsEnabled) return;
+    let cancelled = false;
+    void get<{ agents?: MentionAgent[] }>("/api/agents").then(({ data }) => {
+      if (cancelled || !data?.agents) return;
+      setReadyAgents(data.agents.filter((agent) => agent.enabled && agent.status === "ready"));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionControlsEnabled, mentionOpen, get]);
 
   useEffect(() => {
     if (!COMMANDS_ENABLED) return;
@@ -335,9 +373,20 @@ export default function InputBar({
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed || disabled || isWorking || uploading) return;
-    onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+    // A confirmed mention only counts while its exact token is still in the
+    // text: `@code` must not survive the user typing the `r` of `@coder`.
+    const typedMentions = new Set((trimmed.match(/@[a-z0-9][a-z0-9_-]*/gi) ?? []).map((token) => token.slice(1)));
+    const mentions = confirmedMentions.filter((name) => typedMentions.has(name));
+    if (mentions.length > 0) {
+      onSend(trimmed, attachments.length > 0 ? attachments : undefined, mentions);
+    } else {
+      onSend(trimmed, attachments.length > 0 ? attachments : undefined);
+    }
     setText("");
     setAttachments([]);
+    setConfirmedMentions([]);
+    setMentionQuery(null);
+    setMentionStart(null);
     setUploadError(null);
     setShowCommands(false);
     inputRef.current?.focus();
@@ -497,7 +546,78 @@ export default function InputBar({
     if (!isWorking) setCancelling(false);
   }, [isWorking]);
 
+  const updateMentionQuery = (value: string, caret: number) => {
+    if (readyAgents.length === 0) {
+      setMentionQuery(null);
+      setMentionStart(null);
+      return;
+    }
+    const beforeCaret = value.slice(0, caret);
+    const match = beforeCaret.match(/(?:^|\s)@([^\s@]*)$/);
+    if (!match) {
+      setMentionQuery(null);
+      setMentionStart(null);
+      return;
+    }
+    setMentionQuery(match[1]);
+    setMentionStart(caret - match[1].length - 1);
+    setMentionIndex(0);
+  };
+
+  const selectMention = (agent: MentionAgent) => {
+    if (mentionStart === null) return;
+    const textarea = inputRef.current;
+    const caret = textarea?.selectionStart ?? text.length;
+    const inserted = `@${agent.name} `;
+    const next = text.slice(0, mentionStart) + inserted + text.slice(caret);
+    setText(next);
+    setConfirmedMentions((current) => current.includes(agent.name) ? current : [...current, agent.name]);
+    setMentionQuery(null);
+    setMentionStart(null);
+    requestAnimationFrame(() => {
+      const nextCaret = mentionStart + inserted.length;
+      textarea?.focus();
+      textarea?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const insertMentionTrigger = () => {
+    if (disabled || readyAgents.length === 0) return;
+    const textarea = inputRef.current;
+    const start = textarea?.selectionStart ?? text.length;
+    const end = textarea?.selectionEnd ?? start;
+    const prefix = start > 0 && !/\s/.test(text[start - 1] ?? "") ? " " : "";
+    const inserted = `${prefix}@`;
+    const next = text.slice(0, start) + inserted + text.slice(end);
+    const caret = start + inserted.length;
+    setText(next);
+    updateMentionQuery(next, caret);
+    requestAnimationFrame(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(caret, caret);
+    });
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && filteredAgents.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const delta = e.key === "ArrowDown" ? 1 : -1;
+        setMentionIndex((current) => (current + delta + filteredAgents.length) % filteredAgents.length);
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        selectMention(filteredAgents[mentionIndex] ?? filteredAgents[0]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setMentionQuery(null);
+        setMentionStart(null);
+        return;
+      }
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!isWorking) handleSend();
@@ -599,6 +719,40 @@ export default function InputBar({
           </Command>
         </div>
       )}
+      {mentionQuery !== null && filteredAgents.length > 0 && (
+        <div
+          data-testid="agent-mention-menu"
+          role="listbox"
+          className="absolute bottom-[calc(100%+8px)] left-0 z-50 max-h-[260px] w-full max-w-[420px] overflow-y-auto rounded-lg border border-ink/[0.08] p-1"
+          style={{ background: "var(--surface-overlay)" }}
+        >
+          {filteredAgents.map((agent, index) => (
+            <button
+              key={agent.name}
+              type="button"
+              role="option"
+              aria-selected={index === mentionIndex}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectMention(agent)}
+              className={cn(
+                "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left",
+                index === mentionIndex ? "bg-ink/[0.06]" : "hover:bg-ink/[0.04]",
+              )}
+            >
+              <span
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold"
+                style={{ background: agentAvatarColor(agent.color), color: "var(--agent-fg)" }}
+              >
+                {agentInitial(agent.name)}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[12.5px] font-medium text-ink/82">{agent.name}</span>
+                <span className="block truncate text-[11px] text-ink/42">{agent.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div
         data-drag-active={dragActive || undefined}
@@ -635,7 +789,11 @@ export default function InputBar({
           <textarea
             ref={inputRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
+            }}
+            onClick={(e) => updateMentionQuery(e.currentTarget.value, e.currentTarget.selectionStart)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={disabled ? t("composer.disconnected") : t("composer.placeholder")}
@@ -763,7 +921,7 @@ export default function InputBar({
               </>
             )}
             {mentionControlsEnabled && (
-              <IconButton title={t("composer.mention")}>
+              <IconButton title={t("composer.mention")} onClick={insertMentionTrigger}>
                 <AtSign className="h-3.5 w-3.5" />
               </IconButton>
             )}

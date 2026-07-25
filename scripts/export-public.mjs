@@ -56,6 +56,16 @@ export function withTargetVersion(sourceText, targetVersion) {
   return sourceText.replace(/"version"\s*:\s*"[^"]*"/, `"version": "${targetVersion}"`);
 }
 
+/** The public tree's own version, used for the public-facing commit message. */
+function readTargetVersion(target) {
+  try {
+    const manifest = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'));
+    return typeof manifest.version === 'string' ? manifest.version : null;
+  } catch {
+    return null;
+  }
+}
+
 function git(cwd, args, opts = {}) {
   return execFileSync('git', args, { cwd, encoding: 'utf8', ...opts });
 }
@@ -209,7 +219,14 @@ function main() {
         console.log('[export-public] nothing to commit — target already up to date');
         return;
       }
-      git(target, ['commit', '-m', `sync: update public tree`]);
+      // The message lands in a PUBLIC repository: it must never carry the
+      // internal project name, internal version, or an internal commit sha.
+      // The public tree owns its own version line; that is the only version
+      // that means anything to a reader of that repository.
+      const targetVersion = readTargetVersion(target);
+      git(target, ['commit', '-m', targetVersion
+        ? `sync: update public tree for v${targetVersion}`
+        : 'sync: update public tree']);
       console.log(`[export-public] committed in ${target}`);
     } else if (staged.length > 0) {
       console.log('[export-public] changes staged in target — review with `git -C <target> status`, then commit');

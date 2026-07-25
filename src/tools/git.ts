@@ -234,6 +234,17 @@ export function isValidBranchName(name: string): boolean {
   return name.split('/').every((part) => part.length > 0 && !part.startsWith('.') && !part.endsWith('.lock'));
 }
 
+/** Resolve the repository toplevel for a directory, or null when not inside a repo. */
+export async function gitToplevel(cwd?: string): Promise<string | null> {
+  try {
+    const result = await execFile('git', ['rev-parse', '--show-toplevel'], gitOpts(cwd));
+    const toplevel = result.stdout.trim();
+    return toplevel || null;
+  } catch {
+    return null;
+  }
+}
+
 /** List local branches plus current-HEAD state and working-tree dirtiness. */
 export async function gitListBranches(cwd: string): Promise<GitBranchListResult> {
   const forEachRef = await execFile('git', [

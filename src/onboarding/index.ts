@@ -34,7 +34,7 @@ import {
 
 const logger = pino({ name: 'mozi:onboarding' });
 
-const NO_PROVIDER_GUIDE_IDS = ['anthropic', 'openai', 'google', 'deepseek', 'minimax', 'moonshot', 'groq', 'xai', 'mistral', 'zai', 'openrouter', 'claude-cli', 'codex-cli', 'gemini-cli'];
+const NO_PROVIDER_GUIDE_IDS = ['anthropic', 'openai', 'azure', 'google', 'deepseek', 'minimax', 'moonshot', 'groq', 'xai', 'mistral', 'zai', 'openrouter', 'claude-cli', 'codex-cli', 'gemini-cli'];
 
 // ---------------------------------------------------------------------------
 // Types

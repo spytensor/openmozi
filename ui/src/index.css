@@ -59,6 +59,17 @@
     --activity-glow: rgba(255, 255, 255, 0.15);
     --code-bg: rgba(255, 255, 255, 0.05);
 
+    /* Agent identity avatars. Solid, muted backgrounds that carry the same
+       foreground in both themes — an identity chip must not restate a status
+       colour (amber = warning) or sit on a translucent surface token. */
+    --agent-ochre: #a16207;
+    --agent-jade: #047857;
+    --agent-slate: #475569;
+    --agent-bronze: #9a3412;
+    --agent-violet: #6d28d9;
+    --agent-neutral: #52525b;
+    --agent-fg: #ffffff;
+
     /* Top-inner highlight shadow & multi-stage depth */
     --composer-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 8px 40px -12px rgba(0,0,0,0.8);
     --composer-shadow-empty: 0 0 0 1px rgba(255,255,255,0.1), 0 16px 50px -16px rgba(0,0,0,0.9);

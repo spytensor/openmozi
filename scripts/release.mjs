@@ -10,7 +10,6 @@ const ROOT = process.cwd();
 const ROOT_PACKAGE = resolve(ROOT, 'package.json');
 const UI_PACKAGE = resolve(ROOT, 'ui', 'package.json');
 const DESKTOP_PACKAGE = resolve(ROOT, 'desktop', 'package.json');
-const README = resolve(ROOT, 'README.md');
 const CHANGELOG = resolve(ROOT, 'CHANGELOG.md');
 
 function fail(message) {
@@ -220,19 +219,6 @@ function compareSemver(left, right) {
   if (!a.prerelease) return 1;
   if (!b.prerelease) return -1;
   return a.prerelease.localeCompare(b.prerelease, undefined, { numeric: true });
-}
-
-function updateReadmeVersionBadge(version) {
-  if (!existsSync(README)) return false;
-  const before = readFileSync(README, 'utf-8');
-  const after = before
-    .replace(/version-v[0-9A-Za-z._-]+-purple\.svg/g, `version-v${version}-purple.svg`)
-    .replace(/Version:\s*v[0-9A-Za-z._-]+/g, `Version: v${version}`);
-  if (after !== before) {
-    writeFileSync(README, after, 'utf-8');
-    return true;
-  }
-  return false;
 }
 
 function trimBlankEdges(lines) {
@@ -523,10 +509,6 @@ function main() {
       writeJson(DESKTOP_PACKAGE, desktopPkg);
       changedFiles.push('desktop/package.json');
     }
-  }
-
-  if (updateReadmeVersionBadge(version)) {
-    changedFiles.push('README.md');
   }
 
   if (upsertChangelog(version)) {

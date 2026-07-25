@@ -18,7 +18,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img src="https://img.shields.io/badge/TypeScript-100%25-3178c6.svg?logo=typescript&logoColor=white" />
-  <img src="https://img.shields.io/badge/Node.js-≥22-339933.svg?logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/Node.js-≥22.12_%3C26-339933.svg?logo=node.js&logoColor=white" />
 </p>
 
 ---
@@ -47,8 +47,9 @@ The composer is the cockpit: pick a **project** (any folder or git repo), the **
 The desktop app is the primary way to use MOZI. Build it from source (macOS, Apple Silicon):
 
 ```bash
-git clone https://github.com/spytensor/OpenMozi.git
-cd OpenMozi
+git clone https://github.com/spytensor/openmozi.git
+cd openmozi
+corepack enable
 pnpm install
 pnpm desktop:pack:mac
 # → desktop/dist/mac-arm64/MOZI.app  (drag into /Applications)
@@ -56,11 +57,13 @@ pnpm desktop:pack:mac
 
 On first launch, create your local account and add an LLM API key. The app manages its own backend and data — no separate server to run. See [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) for details.
 
-**Requirements:** Node.js ≥ 22 and pnpm to build. Optional extras: LibreOffice (slide/PDF conversion for previews), Docker (ONLYOFFICE editor-grade office viewing).
+**Requirements:** Node.js >= 22.12 and < 26. Native dependencies cap support below Node.js 26, and the build toolchain needs 22.12 or newer. Run `corepack enable` to use the repository-pinned pnpm version (or install that exact pnpm version another way). Optional extras: LibreOffice (slide/PDF conversion for previews), Docker (ONLYOFFICE editor-grade office viewing).
 
 ## Run as a server (optional)
 
 MOZI also runs headless with a Web UI — same runtime, same features:
+
+Supported server architectures are Linux x64/arm64 and macOS Apple Silicon. Intel Macs are not supported because the vector database dependency does not publish a macOS x64 binary.
 
 ```bash
 pnpm mozi onboard   # interactive setup: provider, API key
@@ -135,7 +138,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
 
 ## Releases
 
-GitHub Actions are intentionally disabled. Releases are built and verified locally, then uploaded to [GitHub Releases](https://github.com/spytensor/OpenMozi/releases) with DMG, ZIP, SHA-256 checksums, and a release manifest. See [docs/RELEASE.md](docs/RELEASE.md).
+GitHub Actions are intentionally disabled. Releases are built and verified locally, then uploaded to [GitHub Releases](https://github.com/spytensor/openmozi/releases) with DMG, ZIP, SHA-256 checksums, and a release manifest. See [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Acknowledgments
 

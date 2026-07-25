@@ -65,6 +65,7 @@ export interface WsIncomingMessage {
   userId: string;
   username: string;
   text: string;
+  mentions?: string[];
   isCommand: boolean;
   command?: string;
   commandArgs?: string;
@@ -166,6 +167,9 @@ export type WsOutgoingMessage =
       jobId?: string;
       adapterId?: string;
       runtimeLabel?: string;
+      agentId?: string;
+      agentColor?: string;
+      runDir?: string;
       rawStatus?: string;
       status: 'pending' | 'running' | 'completed' | 'failed';
       userStatus:
@@ -260,6 +264,7 @@ interface ClientWsMessage {
   sessionId?: string;
   turnId?: string;
   regenerate?: boolean;
+  mentions?: string[];
   attachments?: WsUploadedAttachment[];
   workspaceContext?: WorkspaceMessageContext;
   capabilities?: string[];
@@ -652,6 +657,22 @@ function sanitizeCapabilities(input: unknown): string[] {
   return [...seen];
 }
 
+/** Agent names are directory-safe slugs (definition-loader SAFE_NAME); anything
+ *  else is a crafted payload, not a mention, and must never reach the turn
+ *  context verbatim. The count is capped so a client cannot inflate the turn. */
+const MENTION_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const MAX_MENTIONS = 8;
+
+function sanitizeMentions(input: unknown): string[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const mentions = [...new Set(input
+    .filter((value): value is string => typeof value === 'string')
+    .map(value => value.trim().toLowerCase())
+    .filter(value => MENTION_NAME_RE.test(value)))]
+    .slice(0, MAX_MENTIONS);
+  return mentions.length > 0 ? mentions : undefined;
+}
+
 function sanitizeWorkspaceContext(input: unknown): WorkspaceMessageContext | undefined {
   if (!input || typeof input !== 'object') return undefined;
   const raw = input as Record<string, unknown>;
@@ -711,6 +732,7 @@ export function textToIncoming(
   attachments?: Attachment[],
   sessionId?: string,
   suppressUserMessagePersistence = false,
+  mentions?: string[],
 ): WsIncomingMessage {
   const isCommand = text.startsWith('/');
   let command: string | undefined;
@@ -734,6 +756,7 @@ export function textToIncoming(
     userId: client.userId,
     username: client.username,
     text,
+    ...(mentions?.length ? { mentions } : {}),
     isCommand,
     command,
     commandArgs,
@@ -958,6 +981,7 @@ export function registerWebSocketRoute(
           // and its transcript disappeared after reload.
           clientMsg.sessionId ?? tracked.activeSessionId,
           clientMsg.regenerate === true,
+          sanitizeMentions(clientMsg.mentions),
         );
         if (incoming.sessionId) {
           const selected = getSession(incoming.sessionId, client.tenantId);
@@ -1171,7 +1195,8 @@ export function buildWorkerTaskProgressMessage(
   event: ProgressEvent,
 ): Extract<WsOutgoingMessage, { type: 'task_progress' }> | null {
   if (event.type !== 'worker_status') return null;
-  const taskId = event.taskId || event.jobId;
+  const taskId = event.taskId || event.jobId
+    || (event.agentId && event.runDir ? `agent:${event.agentId}:${event.runDir}` : undefined);
   if (!taskId) return null;
 
   const mapped = mapWorkerStatus(event.workerStatus, event.heartbeat);
@@ -1184,6 +1209,9 @@ export function buildWorkerTaskProgressMessage(
     jobId: event.jobId,
     adapterId: event.adapterId,
     runtimeLabel: event.runtimeLabel,
+    agentId: event.agentId,
+    agentColor: event.agentColor,
+    runDir: event.runDir,
     rawStatus: event.workerStatus,
     status: mapped.status,
     userStatus: mapped.userStatus,
@@ -1316,6 +1344,9 @@ function persistTaskProgressTimeline(
       ...(msg.detail ? { detail: msg.detail } : {}),
       rawStatus: msg.rawStatus,
       runtimeLabel: msg.runtimeLabel,
+      agentId: msg.agentId,
+      agentColor: msg.agentColor,
+      runDir: msg.runDir,
       adapterId: msg.adapterId,
       lane: msg.lane,
       sandboxProfile: msg.sandboxProfile,

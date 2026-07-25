@@ -29,7 +29,7 @@ export {
   improveCodeTool, readContextTool, writeContextTool,
   createTaskTool, listTasksTool, getTaskTool, updateTaskTool, runTaskTool, repairTaskTool,
   useSkillTool, listRuntimeSkillsTool, installSkillTool, setSkillStateTool, validateSkillTool,
-  decomposeTaskTool, delegateCodingTaskTool, reloadSkillsTool, restartSelfTool, proactiveControlTool,
+  decomposeTaskTool, delegateCodingTaskTool, delegateToAgentTool, reloadSkillsTool, restartSelfTool, proactiveControlTool,
   findDeliverableTool,
 } from './system-tools.js';
 

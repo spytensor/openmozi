@@ -14,6 +14,7 @@ import {
   Sparkles,
   Trash2,
   UserRound,
+  UsersRound,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType, CSSProperties, ReactNode } from "react";
@@ -31,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-export type WorkspaceNavKey = "chats" | "projects" | "scheduled" | "skills" | "memory" | "files" | "settings" | "admin";
+export type WorkspaceNavKey = "chats" | "projects" | "scheduled" | "skills" | "agents" | "memory" | "files" | "settings" | "admin";
 
 interface WorkspaceSidebarProps {
   active: WorkspaceNavKey;
@@ -295,6 +296,11 @@ export default function WorkspaceSidebar({
     onViewChange("skills");
   };
 
+  const handleAgents = () => {
+    onNavChange("agents");
+    onViewChange("agents");
+  };
+
   const handleFiles = () => {
     onNavChange("files");
     onViewChange("files");
@@ -367,6 +373,12 @@ export default function WorkspaceSidebar({
             label={t("sidebar.skills")}
             active={active === "skills"}
             onClick={handleSkills}
+          />
+          <TopNavItem
+            icon={UsersRound}
+            label={t("sidebar.agents")}
+            active={active === "agents"}
+            onClick={handleAgents}
           />
           <TopNavItem
             icon={FolderOpen}

@@ -151,6 +151,35 @@ describe('gateway/handler', () => {
     expect(result).toBe('Hello from LLM');
   });
 
+  it('injects structured Web agent mentions immediately before the current user message', async () => {
+    const seen: ChatMessage[][] = [];
+    const client = makeMockClient('Mention received');
+    client.chat = vi.fn(async (messages: ChatMessage[]) => {
+      seen.push(messages);
+      return { content: 'Mention received', usage: { input_tokens: 1, output_tokens: 1 }, model: 'mock', stop_reason: 'end' };
+    });
+    client.chatStream = async function* (messages: ChatMessage[]): AsyncGenerator<StreamChunk> {
+      seen.push(messages);
+      yield { type: 'done', response: { content: 'Mention received', model: 'mock', stop_reason: 'end' } };
+    };
+    const message = makeMsg('@reviewer inspect this', 'structured_mentions_test');
+    message.channelType = 'websocket';
+    message.mentions = ['reviewer', 'not-ready'];
+
+    await handleMessage(message, 'You are helpful.', client);
+
+    const request = seen.find(messages => messages.some(item => item.content === '@reviewer inspect this'));
+    expect(request).toBeDefined();
+    const mentionIndex = request!.findIndex(item => (
+      item.role === 'system'
+      && typeof item.content === 'string'
+      && item.content.includes('reviewer, not-ready')
+    ));
+    const userIndex = request!.findIndex(item => item.role === 'user' && item.content === '@reviewer inspect this');
+    expect(mentionIndex).toBeGreaterThanOrEqual(0);
+    expect(mentionIndex).toBe(userIndex - 1);
+  });
+
   it('passes the real SOUL identity to DAG step system roles on a real gateway turn', async () => {
     const previousInlineMode = process.env.MOZI_TEST_INLINE_DAG;
     process.env.MOZI_TEST_INLINE_DAG = '1';

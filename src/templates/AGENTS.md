@@ -25,6 +25,8 @@ Failure replay harness can export trace-scoped fixtures and generate regression 
 ## Runtime Capability Use
 
 - The runtime capability contract is authoritative for tools, skills, agents, workers, and permission gates.
+- An explicit `@agent-name` is a delegation instruction. MOZI writes a self-contained brief and calls `delegate_to_agent`; it does not reopen the user's decision to collaborate.
+- Delegated briefs must stand alone: include the requested outcome, constraints, admitted context references, and completion criteria.
 - Describe only registered and currently enabled capabilities.
 - Treat channel capability metadata as authoritative: outgoing-only channels cannot receive requests, text-only channels do not process media, and channels with `proactive: false` cannot deliver reminders or unsolicited updates.
 - Treat runtime model capability metadata as authoritative. A newly discovered or manually entered model may be routed with conservative defaults; do not infer tools, vision, reasoning, context, or pricing from its name.

@@ -719,6 +719,58 @@ describe('api routes local auth', () => {
     });
   });
 
+  it('exposes Azure configuration/discovery shape and keeps manual deployments tool-capable', async () => {
+    process.env.AZURE_OPENAI_API_KEY = 'azure-test-key';
+    process.env.AZURE_OPENAI_BASE_URL = 'https://resource.openai.azure.com';
+    process.env.AZURE_OPENAI_API_VERSION = '2024-10-21';
+    try {
+      app = await createApp('invite');
+      const admin = await registerUser(app, { email: 'admin@example.com', password: 'AdminPass1' });
+      const headers = { cookie: cookieHeader(admin) };
+
+      const manual = await app.inject({
+        method: 'POST',
+        url: '/api/providers/azure/models/manual',
+        headers,
+        payload: { model: 'prod-gpt-4o-west' },
+      });
+      expect(manual.statusCode).toBe(200);
+      expect(manual.json().model).toMatchObject({
+        id: 'prod-gpt-4o-west',
+        source: 'manual',
+        supportsTools: true,
+        supportsVision: true,
+      });
+
+      const providers = await app.inject({ method: 'GET', url: '/api/providers', headers });
+      expect(providers.statusCode).toBe(200);
+      const azure = providers.json().providers.find((provider: { id: string }) => provider.id === 'azure');
+      expect(azure).toMatchObject({
+        apiMode: 'azure-openai',
+        hasKey: true,
+        discovery: {
+          supported: false,
+          fallback_reason: 'provider_does_not_list_models',
+        },
+      });
+      expect(azure.models.find((model: { id: string }) => model.id === 'prod-gpt-4o-west')).toMatchObject({
+        supportsTools: true,
+        source: 'manual',
+      });
+
+      const live = await app.inject({ method: 'GET', url: '/api/providers/azure/models/live', headers });
+      expect(live.statusCode).toBe(404);
+      expect(live.json()).toMatchObject({
+        success: false,
+        reason: 'provider_does_not_list_models',
+      });
+    } finally {
+      delete process.env.AZURE_OPENAI_API_KEY;
+      delete process.env.AZURE_OPENAI_BASE_URL;
+      delete process.env.AZURE_OPENAI_API_VERSION;
+    }
+  });
+
   it('keeps auth_mode none auto-authenticated as local-user', async () => {
     app = Fastify();
     await registerApiRoutes(app, {

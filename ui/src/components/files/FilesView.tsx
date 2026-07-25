@@ -68,6 +68,8 @@ interface FilesViewProps {
   onOpenSession?: (sessionId: string) => void;
   /** Runtime workspace roots — the SAME projects the composer and sidebar use. */
   roots?: RuntimeWorkspaceRoot[];
+  /** Directory selected from a persisted agent execution block. */
+  initialPath?: string | null;
 }
 
 interface FileSource {
@@ -143,6 +145,7 @@ export default function FilesView({
   onAttachToChat,
   onOpenSession,
   roots = [],
+  initialPath,
 }: FilesViewProps) {
   const { get, post, del } = useApi();
   const { t, locale } = useLocale();
@@ -197,7 +200,10 @@ export default function FilesView({
     workspaceRootRef.current ??= data.root;
   }, [get, t]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (initialPath) setPage("browse");
+    void load(initialPath);
+  }, [initialPath, load]);
 
   // Any click outside the open menu — search box, breadcrumbs, header — and
   // Escape both dismiss it (review finding 2026-07-19: the menu floated over

@@ -28,6 +28,7 @@ export type { MigrationResult } from './legacy-migration.js';
 
 export type ProviderApiMode =
   | 'openai-compat'
+  | 'azure-openai'
   | 'anthropic'
   | 'openai-responses'
   | 'openai-codex-responses'
@@ -151,6 +152,8 @@ export interface ProviderDef {
   /** Backward-compatible alias for existing callers/tests */
   envKey: string;
   baseUrl: string;
+  /** Provider API version used as the final fallback after config/env overrides. */
+  apiVersion?: string;
   /** Backward-compatible alias for existing callers/tests */
   apiType: ProviderApiMode;
   apiMode: ProviderApiMode;
@@ -299,7 +302,7 @@ export function resolveApiKey(
 export function resolveBaseUrl(
   providerId: string,
   env: NodeJS.ProcessEnv = process.env,
-  configProviders?: Record<string, { baseurl?: string }>,
+  configProviders?: Record<string, { baseurl?: string; apiversion?: string }>,
 ): string {
   // Config override (highest priority)
   const configEntry = configProviders?.[providerId];
@@ -316,6 +319,22 @@ export function resolveBaseUrl(
   }
 
   return def.baseUrl;
+}
+
+/** Resolve provider API version — config override > env var > registry default. */
+export function resolveApiVersion(
+  providerId: string,
+  env: NodeJS.ProcessEnv = process.env,
+  configProviders?: Record<string, { apiversion?: string }>,
+): string | undefined {
+  const configEntry = configProviders?.[providerId];
+  if (configEntry?.apiversion?.trim()) return configEntry.apiversion.trim();
+
+  const def = PROVIDERS[providerId];
+  if (!def) return undefined;
+  const envPrefix = def.env.primaryKey.replace(/_API_KEY$/, '');
+  const value = (env[`${envPrefix}_API_VERSION`] || '').trim();
+  return value || def.apiVersion;
 }
 
 /** Resolve API mode for adapter routing. */
@@ -366,7 +385,9 @@ export function detectConfiguredProviders(env: NodeJS.ProcessEnv = process.env):
  * Returns entries ordered: openai-compat first (broadest raw-fetch support),
  * then anthropic-format providers.
  */
-export function getVisionCapableProviders(): Array<{
+export function getVisionCapableProviders(
+  configProviders?: Record<string, { apikey?: string; baseurl?: string; apiversion?: string }>,
+): Array<{
   provider: string;
   model: string;
   apiMode: ProviderApiMode;
@@ -374,14 +395,14 @@ export function getVisionCapableProviders(): Array<{
 }> {
   const result: Array<{ provider: string; model: string; apiMode: ProviderApiMode; baseUrl: string }> = [];
   for (const [id, def] of Object.entries(PROVIDERS)) {
-    if (!resolveApiKey(id)) continue;
+    if (!resolveApiKey(id, configProviders)) continue;
     const visionModel = def.models.find(m => m.supportsVision);
     if (!visionModel) continue;
     result.push({
       provider: id,
       model: visionModel.id,
       apiMode: def.apiMode,
-      baseUrl: resolveBaseUrl(id),
+      baseUrl: resolveBaseUrl(id, process.env, configProviders),
     });
   }
   // Prefer openai-compat / openai-responses (raw-fetch friendly) over anthropic

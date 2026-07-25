@@ -210,6 +210,13 @@ export function extractToolIntent(toolName: string, argsJson: string): string {
         return (args.goal as string)?.slice(0, 80) || toolName;
       case 'delegate_coding_task':
         return (args.objective as string)?.slice(0, 80) || toolName;
+      case 'delegate_to_agent': {
+        // The approval card shows this string — the agent name alone does not
+        // tell the operator what the agent was asked to do.
+        const agent = (args.agent as string) || 'agent';
+        const brief = (args.brief as string)?.trim();
+        return brief ? `${agent}: ${brief.slice(0, 80)}` : agent;
+      }
       default:
         return toolName;
     }

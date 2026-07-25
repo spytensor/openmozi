@@ -31,7 +31,7 @@ on the host (the supplied `docker-compose.yml` already does this with
 
 ```bash
 # 1. Clone and enter the repo
-git clone <this-repo> mozi && cd mozi
+git clone https://github.com/spytensor/openmozi.git && cd openmozi
 
 # 2. Create the runtime data directory that the container will mount
 mkdir -p ./data

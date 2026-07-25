@@ -72,6 +72,7 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermission> = {
 
   // --- managed workers ---
   delegate_coding_task: { category: 'shell', action: 'execute' },
+  delegate_to_agent: { category: 'shell', action: 'execute' },
 
   // --- blackboard / integrations ---
   connector_execute: { category: 'network', action: 'request' },

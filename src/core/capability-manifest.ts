@@ -3,13 +3,14 @@ import { join } from 'node:path';
 import type { MoziConfig } from '../config/index.js';
 import { getMCPBridge } from '../mcp/index.js';
 import { parseSkillFile } from '../skills/loader.js';
+import { parseAgentDefinition } from '../agents/definition-loader.js';
 import { getWorkspaceDir } from '../tools/tool-utils.js';
 import { getRuntimeProjectRoot } from '../runtime/project-root.js';
 import { listToolHooks } from '../tools/plugin-registry.js';
 import { getLiveCapabilities } from '../agents/process-manager.js';
 import { buildModelCapabilitySnapshot, formatModelCapabilityOutput, type ModelCapabilitySnapshot } from './model-capability-map.js';
 import { resolveRouting, type RoutingPreferences, type RoutingReason, type RoleOverride } from './routing-policy.js';
-import { getProvider } from './providers.js';
+import { getAllProviders, getProvider } from './providers.js';
 import { isSubAgentAvailable } from './subagent-dispatch.js';
 import { getTaskHintsForRole, type RoutingContext, type TaskRole } from './model-router.js';
 import { getUserRoutingPreferences, mergeRoutingPreferences } from '../memory/user-profile.js';
@@ -36,9 +37,18 @@ export interface SkillExtensionCapability {
   summary: string;
 }
 
+export interface AgentExtensionCapability {
+  id: string;
+  agent_id: string;
+  name: string;
+  status: 'execution-ready' | 'definition-ready' | 'needs-setup';
+  summary: string;
+}
+
 export interface RuntimeCapabilityManifest {
   built_in: BuiltInCapability[];
   skill_extensions: SkillExtensionCapability[];
+  agent_extensions: AgentExtensionCapability[];
   metadata: {
     primary_brain_provider: string;
     primary_brain_model: string;
@@ -148,6 +158,63 @@ function readActiveSkillExtensions(_tenantId = 'default'): SkillExtensionCapabil
   }
 }
 
+function scanAgentDirSync(baseDir: string): Array<{ name: string; description: string; ready: boolean }> {
+  const results: Array<{ name: string; description: string; ready: boolean }> = [];
+  if (!existsSync(baseDir)) return results;
+  const availableSkills = new Set([
+    ...scanSkillDirSync(join(getRuntimeProjectRoot(), 'skills')),
+    ...scanSkillDirSync(join(getWorkspaceDir(), 'skills')),
+  ].map(skill => skill.name));
+  const knownModels = new Set(getAllProviders().flatMap(provider => provider.models.flatMap(model => [
+    model.id,
+    `${provider.id}/${model.id}`,
+  ])));
+  try {
+    for (const entry of readdirSync(baseDir)) {
+      const agentPath = join(baseDir, entry, 'AGENT.md');
+      try {
+        if (existsSync(join(baseDir, entry, '.disabled'))) continue;
+        const { frontmatter } = parseAgentDefinition(readFileSync(agentPath, 'utf-8'));
+        const ready = frontmatter.skills.every(skill => availableSkills.has(skill))
+          && (!frontmatter.model || knownModels.has(frontmatter.model));
+        results.push({
+          name: frontmatter.name,
+          description: frontmatter.description,
+          ready,
+        });
+      } catch {
+        // Invalid or absent AGENT.md files are not advertised.
+      }
+    }
+  } catch {
+    // Directory read error — no extensions.
+  }
+  return results;
+}
+
+function readAgentExtensions(executionRegistered: boolean): AgentExtensionCapability[] {
+  const byName = new Map<string, AgentExtensionCapability>();
+  for (const dir of [
+    join(getRuntimeProjectRoot(), 'bootstrap', 'agents'),
+    join(getWorkspaceDir(), 'agents'),
+  ]) {
+    for (const agent of scanAgentDirSync(dir)) {
+      byName.set(agent.name, {
+        id: `agent:${agent.name}`,
+        agent_id: agent.name,
+        name: agent.name,
+        status: agent.ready
+          ? executionRegistered ? 'execution-ready' : 'definition-ready'
+          : 'needs-setup',
+        summary: agent.ready && executionRegistered
+          ? summarize(`${agent.description} Executable through delegate_to_agent.`)
+          : summarize(agent.description),
+      });
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function buildRuntimeCapabilityManifest(
   config: MoziConfig,
   registeredTools: string[],
@@ -163,8 +230,9 @@ export function buildRuntimeCapabilityManifest(
   const subagentExecutionEnabled = subagentConfig.enabled
     || subagentConfig.enabled_tenants.includes(tenantId)
     || subagentConfig.enabled_sessions.length > 0;
-  const skillExtensions = readActiveSkillExtensions(tenantId);
   const toolSet = new Set(tools);
+  const skillExtensions = readActiveSkillExtensions(tenantId);
+  const agentExtensions = readAgentExtensions(toolSet.has('delegate_to_agent'));
   const hasAnyTool = (...names: string[]) => names.some((name) => toolSet.has(name));
   const hasAllTools = (...names: string[]) => names.every((name) => toolSet.has(name));
   const primaryBrainReady = isProviderModelReady(modelSnapshot, primaryProvider, config.brain.model || undefined);
@@ -211,6 +279,8 @@ export function buildRuntimeCapabilityManifest(
     peerCollaboration: peerCapabilitiesReady,
     acpChannel: process.env.MOZI_MODE === 'acp',
     cliProviders: modelSnapshot.usable.some((entry) => entry.apiMode === 'cli-pipe'),
+    agentDelegation: toolSet.has('delegate_to_agent')
+      && agentExtensions.some(agent => agent.status === 'execution-ready'),
   };
 
   return {
@@ -258,6 +328,13 @@ export function buildRuntimeCapabilityManifest(
         summary: runtimeTruth.brainProposedSkills
           ? 'The propose_skill tool is registered for persisting autogen SKILL.md drafts.'
           : 'The propose_skill tool is not registered in this runtime.',
+      },
+      {
+        id: 'agent_delegation',
+        status: runtimeTruth.agentDelegation ? 'enabled' : 'disabled',
+        summary: runtimeTruth.agentDelegation
+          ? 'Ready AGENT.md extensions execute through the isolated delegate_to_agent loop with bounded rounds, timeout, transcript archive, and result envelope.'
+          : 'No ready AGENT.md extension is reachable through delegate_to_agent.',
       },
       {
         id: 'computer_control',
@@ -399,6 +476,7 @@ export function buildRuntimeCapabilityManifest(
       },
     ],
     skill_extensions: skillExtensions,
+    agent_extensions: agentExtensions,
     metadata: {
       primary_brain_provider: primaryProvider,
       primary_brain_model: config.brain.model || '(not configured)',
@@ -439,8 +517,9 @@ export function formatCapabilitySummarySection(
     '## Runtime Capability Contract (Authoritative)',
     `- brain: ${manifest.metadata.primary_brain_provider}/${manifest.metadata.primary_brain_model} (fallback: ${manifest.metadata.fallback_brain_provider}/${manifest.metadata.fallback_brain_model})`,
     `- built_in_capabilities: ${enabledCount}/${manifest.built_in.length} enabled`,
-    `- execution_paths: direct_brain_execution=${stateOf('direct_brain_execution')}; task_decomposition=${stateOf('task_decomposition')}; subagent_execution=${stateOf('subagent_execution')} (in-process fallback remains available)`,
+    `- execution_paths: direct_brain_execution=${stateOf('direct_brain_execution')}; task_decomposition=${stateOf('task_decomposition')}; subagent_execution=${stateOf('subagent_execution')} (in-process fallback remains available); agent_delegation=${stateOf('agent_delegation')}`,
     `- skill_extensions: ${manifest.skill_extensions.length} active`,
+    `- agent_extensions: ${manifest.agent_extensions.filter(agent => agent.status === 'execution-ready').length}/${manifest.agent_extensions.length} execution-ready through delegate_to_agent`,
     `- max_parallel_agents: ${manifest.metadata.max_parallel_agents}`,
     '- This summary is the runtime source of truth. Never claim disabled capabilities as available, and do not describe DAG as "fully dormant" when task_decomposition is enabled.',
     '- For the full contract (per-capability status, skill extensions, model snapshot), call the get_capabilities tool.',
@@ -471,7 +550,7 @@ export function formatCapabilityPromptSection(
   lines.push(`- registered_tools: ${manifest.metadata.registered_tools.length > 0 ? manifest.metadata.registered_tools.join(', ') : 'none'}`);
 
   lines.push('');
-  lines.push('### Extensions (Skills / Upgrades)');
+  lines.push('### Extensions (Skills / Agents / Upgrades)');
 
   if (manifest.skill_extensions.length === 0) {
     lines.push('- none (no active runtime skill extensions)');
@@ -483,6 +562,14 @@ export function formatCapabilityPromptSection(
     if (manifest.skill_extensions.length > maxSkillExtensions) {
       const hidden = manifest.skill_extensions.length - maxSkillExtensions;
       lines.push(`- ... and ${hidden} more active skill extensions`);
+    }
+  }
+
+  if (manifest.agent_extensions.length === 0) {
+    lines.push('- agents: none');
+  } else {
+    for (const agent of manifest.agent_extensions.slice(0, maxSkillExtensions)) {
+      lines.push(`- agent:${agent.agent_id} (${agent.status})`);
     }
   }
 
@@ -501,7 +588,7 @@ export function formatCapabilityPromptSection(
   lines.push('### Capability Truth Rules');
   lines.push('- Treat this contract as the source of truth for runtime capabilities.');
   lines.push('- Built-in capabilities may evolve; rely on enabled/disabled status in this snapshot.');
-  lines.push('- Skill extensions are runtime add-ons and may vary by tenant or upgrade.');
+  lines.push('- Skill and agent extensions may vary by workspace or upgrade; only execution-ready agents may be delegated to.');
   lines.push('- Never claim disabled capabilities as available.');
   lines.push('- For demos, execute the real runtime path and avoid hypothetical claims.');
 
@@ -537,7 +624,7 @@ export function formatCapabilityCommandOutput(
   }
 
   lines.push('');
-  lines.push('Extensions (Skills / Upgrades):');
+  lines.push('Extensions (Skills / Agents / Upgrades):');
 
   if (manifest.skill_extensions.length === 0) {
     lines.push('- none');
@@ -545,6 +632,9 @@ export function formatCapabilityCommandOutput(
     for (const skill of manifest.skill_extensions) {
       lines.push(`- ${skill.skill_id}@${skill.version} (${skill.name}) — ${skill.summary}`);
     }
+  }
+  for (const agent of manifest.agent_extensions) {
+    lines.push(`- agent:${agent.agent_id} (${agent.status}) — ${agent.summary}`);
   }
 
   return lines.join('\n');

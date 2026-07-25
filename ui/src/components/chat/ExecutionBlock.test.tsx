@@ -1,5 +1,5 @@
 import { fireEvent, screen, renderWithLocale } from "@/test/render";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { memo } from "react";
 import type { ExecutionBlockModel } from "./execution";
 import ExecutionBlock, { areExecutionBlockPropsEqual } from "./ExecutionBlock";
@@ -89,6 +89,60 @@ function partialSourceBlock(): ExecutionBlockModel {
         timestamp: 2,
       },
     ],
+  };
+}
+
+function agentBlock(
+  rawStatus: "launching" | "running" | "completed" | "failed" | "blocked",
+  envelopeStatus: "succeeded" | "failed" | "blocked" = "succeeded",
+): ExecutionBlockModel {
+  const terminal = rawStatus === "completed" || rawStatus === "failed" || rawStatus === "blocked";
+  const envelope = {
+    status: envelopeStatus,
+    summary: envelopeStatus === "succeeded" ? "Review complete" : "Review could not complete",
+    key_findings: ["One focused finding"],
+    artifacts: ["/workspace/output/agents/reviewer/run-4/report.md"],
+    ...(envelopeStatus === "blocked" ? { blocker: "Missing required input" } : {}),
+    transcript_path: "/workspace/output/agents/reviewer/run-4/transcript.md",
+  };
+  return {
+    key: `agent-${rawStatus}`,
+    turnId: "turn-agent",
+    headline: "reviewer",
+    status: terminal ? (envelopeStatus === "succeeded" ? "success" : "error") : "running",
+    toolCount: 1,
+    taskCount: 1,
+    issueCount: envelopeStatus === "succeeded" ? 0 : 1,
+    totalElapsedMs: 100,
+    issueSummaries: [],
+    tasks: [{
+      id: "task-agent",
+      task_id: "agent:reviewer:/workspace/output/agents/reviewer/run-4",
+      title: terminal ? envelope.summary : "round 2",
+      status: terminal ? (envelopeStatus === "succeeded" ? "completed" : "failed") : "running",
+      rawStatus,
+      userStatus: terminal ? (envelopeStatus === "succeeded" ? "done" : "blocked") : "working",
+      agentId: "reviewer",
+      agentColor: "jade",
+      runDir: "/workspace/output/agents/reviewer/run-4",
+      heartbeat: rawStatus === "running",
+      detail: rawStatus === "running" ? "round 2" : envelope.summary,
+      timestamp: 1,
+    }],
+    tools: [{
+      id: "tool-agent",
+      callId: "delegate-1",
+      tool: "delegate_to_agent",
+      phase: terminal ? "end" : "start",
+      status: terminal ? (envelopeStatus === "succeeded" ? "success" : "error") : undefined,
+      intent: "reviewer",
+      ...(terminal && envelopeStatus === "succeeded"
+        ? { result: JSON.stringify(envelope) }
+        : terminal
+          ? { error: JSON.stringify(envelope) }
+          : {}),
+      timestamp: 1,
+    }],
   };
 }
 
@@ -329,6 +383,57 @@ function activeWorkLifecycleBlock(): ExecutionBlockModel {
 }
 
 describe("ExecutionBlock", () => {
+  it.each(["launching", "running"] as const)("renders the agent identity and live %s status", (status) => {
+    renderWithLocale(<ExecutionBlock block={agentBlock(status)} />);
+    expect(screen.getByTestId("agent-execution-block")).toHaveTextContent("reviewer");
+    expect(screen.getByTestId("agent-execution-status")).toHaveTextContent(status);
+    if (status === "running") expect(screen.getByTestId("agent-execution-block")).toHaveTextContent("round 2");
+  });
+
+  it("keeps every delegation and the rest of the turn visible alongside agent cards", () => {
+    const base = agentBlock("completed");
+    const secondRun = "/workspace/output/agents/coder/run-1";
+    const block: ExecutionBlockModel = {
+      ...base,
+      tasks: [
+        ...base.tasks,
+        { ...base.tasks[0], id: "task-agent-2", task_id: `agent:coder:${secondRun}`, agentId: "coder", runDir: secondRun, detail: "Wrote the module", timestamp: 2 },
+      ],
+      tools: [
+        ...base.tools,
+        { id: "tool-read", callId: "read-1", tool: "read_file", phase: "end", status: "success", intent: "src/index.ts", timestamp: 2 },
+        { id: "tool-shell", callId: "shell-1", tool: "shell_exec", phase: "end", status: "error", intent: "pnpm test", error: "exit 1", timestamp: 3 },
+      ],
+    };
+    renderWithLocale(<ExecutionBlock block={block} />);
+    // Both agents keep their own card — a turn that summons two experts must
+    // not lose one of them.
+    const cards = screen.getAllByTestId("agent-execution-block");
+    expect(cards).toHaveLength(2);
+    expect(cards.map((card) => card.textContent).join(" ")).toContain("reviewer");
+    expect(cards.map((card) => card.textContent).join(" ")).toContain("coder");
+    // And the non-delegation work of the same turn is still reachable, so a
+    // failed shell step cannot hide behind a green agent card.
+    expect(screen.getByTestId("execution-block")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["completed", "succeeded"],
+    ["failed", "failed"],
+    ["blocked", "blocked"],
+  ] as const)("folds a terminal agent %s envelope into summary and expandable details", (status, envelopeStatus) => {
+    const onOpenAgentRun = vi.fn();
+    renderWithLocale(<ExecutionBlock block={agentBlock(status, envelopeStatus)} onOpenAgentRun={onOpenAgentRun} />);
+    expect(screen.getByTestId("agent-execution-status")).toHaveTextContent(status);
+    expect(screen.getByTestId("agent-execution-block")).toHaveTextContent(
+      envelopeStatus === "succeeded" ? "Review complete" : "Review could not complete",
+    );
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    expect(screen.getByTestId("agent-execution-details")).toHaveTextContent("One focused finding");
+    fireEvent.click(screen.getByRole("button", { name: /Artifacts \(1\) and transcript/ }));
+    expect(onOpenAgentRun).toHaveBeenCalledWith("/workspace/output/agents/reviewer/run-4");
+  });
+
   it("keeps collapsed success free of step counts and exact durations", () => {
     renderWithLocale(<ExecutionBlock block={complexLifecycleBlock()} />);
     const summary = screen.getByTestId("execution-summary");
@@ -383,16 +488,16 @@ describe("ExecutionBlock", () => {
     expect(screen.getByText("×3")).toBeInTheDocument();
   });
 
-  it("uses the selected UI locale over the transcript locale for product chrome", () => {
+  it("uses the transcript locale over the global UI locale for chat progress", () => {
     renderWithLocale(<ExecutionBlock block={{ ...partialSourceBlock(), locale: "zh-CN" }} />, { locale: "en" });
 
-    expect(screen.getByTestId("execution-summary")).toHaveTextContent("View work");
-    expect(screen.queryByText("查看处理过程")).not.toBeInTheDocument();
+    expect(screen.getByTestId("execution-summary")).toHaveTextContent("查看处理过程");
+    expect(screen.queryByText("View work")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("execution-summary"));
 
-    expect(screen.getAllByTestId("execution-step-label").some((node) => node.textContent?.includes("Read example.com"))).toBe(true);
-    expect(screen.getByText("One source was unreachable; used another")).toBeInTheDocument();
+    expect(screen.getAllByTestId("execution-step-label").some((node) => node.textContent?.includes("读取 example.com"))).toBe(true);
+    expect(screen.getByText("一个来源无法访问，已换用其他来源")).toBeInTheDocument();
   });
 
   it("frames partial source failures as skipped sources without leaking crawl internals", () => {
@@ -705,40 +810,6 @@ describe("ExecutionBlock", () => {
     // 2026-07-18) — it shows in the capsule's one-line status too.
     expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Loading skill imagegen");
     expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
-  });
-
-  it("localizes the latest completed tool instead of falling back to raw runtime intent", () => {
-    const block: ExecutionBlockModel = {
-      key: "turn-skill-fallback",
-      turnId: "turn-skill-fallback",
-      locale: "zh-CN",
-      headline: "Load skill imagegen",
-      status: "running",
-      toolCount: 1,
-      taskCount: 0,
-      issueCount: 0,
-      totalElapsedMs: 0,
-      issueSummaries: [],
-      tasks: [],
-      tools: [
-        {
-          id: "tool-skill-fallback",
-          callId: "skill-fallback",
-          turnId: "turn-skill-fallback",
-          tool: "use_skill",
-          phase: "end",
-          status: "success",
-          skillName: "imagegen",
-          intent: "Load skill imagegen",
-          timestamp: 1,
-        },
-      ],
-    };
-
-    renderWithLocale(<ExecutionBlock block={block} />, { locale: "en" });
-
-    expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Loading skill imagegen");
-    expect(screen.getByTestId("execution-live-work")).not.toHaveTextContent("正在处理");
   });
 
   it("shows an active working stage before any tool output exists", () => {

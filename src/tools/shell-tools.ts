@@ -229,7 +229,7 @@ export async function executeShellTool(
       return { tool_call_id: id, content: 'Error: "checkpoint_paths" must be an array of strings', is_error: true };
     }
     const userId = context?.userId;
-    const cwd = await ensureToolWorkspaceDir(userId);
+    const cwd = context?.workingDirectory ?? await ensureToolWorkspaceDir(userId);
     const checkpointPaths = (checkpointPathsRaw as string[] | undefined)?.map(path => resolveWritePath(path, userId)) ?? [];
     const checkpoint = createFileCheckpointHandle(checkpointPaths, name, id, context);
 
@@ -325,7 +325,7 @@ export async function executeShellTool(
       return { tool_call_id: id, content: 'Error: "checkpoint_paths" must be an array of strings', is_error: true };
     }
     const userId = context?.userId;
-    const cwd = await ensureToolWorkspaceDir(userId);
+    const cwd = context?.workingDirectory ?? await ensureToolWorkspaceDir(userId);
     const checkpointPaths = (checkpointPathsRaw as string[] | undefined)?.map(path => resolveWritePath(path, userId)) ?? [];
     const checkpoint = createFileCheckpointHandle(checkpointPaths, name, id, context);
 

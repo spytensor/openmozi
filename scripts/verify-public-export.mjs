@@ -16,6 +16,10 @@ const legacyOwnerAccount = ['chaojie', 'zhu'].join('');
 const formerAccount = ['char', 'lie'].join('');
 const privateProject = ['Core', 'Room'].join('');
 const privateRepository = ['github\\.com', 'spytensor', 'Mozi'].join('/');
+// Assembled from fragments for the same reason as the names above: this file
+// enumerates the words it forbids, so it must not contain them literally.
+const privateWord = ['inter', 'nal'].join('');
+const privateProduct = ['MO', 'ZI'].join('');
 
 const forbiddenTextPatterns = [
   { label: 'owner-local path', pattern: new RegExp(`/Users/(?:${ownerAccount}|${formerAccount})(?:/|\\b)`, 'i') },
@@ -23,7 +27,27 @@ const forbiddenTextPatterns = [
   { label: 'owner machine name', pattern: /MacBook-Pro-[0-9]+\.local/i },
   { label: 'private project name', pattern: new RegExp(privateProject, 'i') },
   { label: 'private repository URL', pattern: new RegExp(`${privateRepository}(?:\\.git|/|\\b)`, 'i') },
+  // The HTTPS form above misses the two ways the same private repo is usually
+  // written: an SSH remote and an api.github.com path.
+  { label: 'private repository SSH remote', pattern: new RegExp(`git@github\\.com:spytensor/Mozi(?:\\.git|\\b)`, 'i') },
+  { label: 'private repository API URL', pattern: new RegExp(`api\\.github\\.com/repos/spytensor/Mozi(?:/|\\b)`, 'i') },
   { label: 'exposed Telegram bot token', pattern: /\b\d{8,12}:[A-Za-z0-9_-]{30,}\b/ },
+  // The published tree must not describe itself in terms of the upstream one:
+  // that project's version numbers and commit shas expose its release cadence
+  // and mean nothing to a reader here, who owns a separate version line.
+  // Patterns are assembled from fragments so this file does not trip itself.
+  {
+    label: 'upstream tree reference',
+    pattern: new RegExp(`\\b${privateWord}\\s+(?:${privateProduct}|tree|snapshot|repo(?:sitory)?)\\b`, 'i'),
+  },
+  {
+    label: 'upstream mirror wording',
+    pattern: new RegExp(`\\bmirrors?\\s+(?:the\\s+)?${privateWord}\\b`, 'i'),
+  },
+  {
+    label: 'upstream version reference',
+    pattern: new RegExp(`\\b${privateProduct}\\s+v?2\\.\\d+\\.\\d+`, 'i'),
+  },
 ];
 
 const binaryExtensions = new Set([
@@ -53,6 +77,17 @@ export function findPublicExportViolations(files, readFile = (path) => readFileS
     }
     for (const { label, pattern } of forbiddenTextPatterns) {
       if (pattern.test(content)) violations.push(`${path}: ${label}`);
+    }
+    for (const [index, line] of content.split('\n').entries()) {
+      // Terminators cover markdown too (backtick/asterisk/underscore/pipe/bang):
+      // the canonical URL written in inline code or bold must not be misread as
+      // a slug ending in those characters.
+      for (const match of line.matchAll(/github\.com\/spytensor\/([^/\\\s?#)"'<>\]`*_|!]+)/g)) {
+        const slug = match[1].replace(/[.,;:]+$/, '').replace(/\.git$/, '');
+        if (slug !== 'openmozi') {
+          violations.push(`${path}:${index + 1}: non-canonical public repository slug "${slug}" (expected "openmozi")`);
+        }
+      }
     }
   }
 

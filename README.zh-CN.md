@@ -18,7 +18,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <img src="https://img.shields.io/badge/TypeScript-100%25-3178c6.svg?logo=typescript&logoColor=white" />
-  <img src="https://img.shields.io/badge/Node.js-≥22-339933.svg?logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/Node.js-≥22.12_%3C26-339933.svg?logo=node.js&logoColor=white" />
 </p>
 
 ---
@@ -47,8 +47,9 @@ Composer 就是驾驶舱：选**项目**（任意文件夹或 git 仓库）、�
 桌面应用是使用 MOZI 的主要方式。从源码构建（macOS，Apple Silicon）：
 
 ```bash
-git clone https://github.com/spytensor/OpenMozi.git
-cd OpenMozi
+git clone https://github.com/spytensor/openmozi.git
+cd openmozi
+corepack enable
 pnpm install
 pnpm desktop:pack:mac
 # → desktop/dist/mac-arm64/MOZI.app（拖进 /Applications）
@@ -56,11 +57,13 @@ pnpm desktop:pack:mac
 
 首次启动时创建本地账号、填入 LLM API key 即可。应用自带后端和数据管理——不需要单独跑服务。详见 [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md)。
 
-**要求：** 构建需要 Node.js ≥ 22 和 pnpm。可选增强：LibreOffice（幻灯片/PDF 预览转换）、Docker（ONLYOFFICE 编辑器级 Office 查看）。
+**要求：** 构建需要 Node.js >= 22.12 且 < 26。原生依赖将上限限制在 Node.js 26 以下，构建工具链则要求 22.12 及以上。运行 `corepack enable` 以使用仓库固定的 pnpm 版本（也可通过其他方式安装完全相同的 pnpm 版本）。可选增强：LibreOffice（幻灯片/PDF 预览转换）、Docker（ONLYOFFICE 编辑器级 Office 查看）。
 
 ## 以服务方式运行（可选）
 
 MOZI 也可以无界面运行，配 Web UI——同一套运行时、同样的功能：
+
+服务模式支持 Linux x64/arm64 和 macOS Apple Silicon。由于向量数据库依赖未发布 macOS x64 二进制，Intel Mac 不受支持。
 
 ```bash
 pnpm mozi onboard   # 交互式配置：选 provider、填 API key
@@ -135,7 +138,7 @@ desktop/         # Electron 壳 + 打包
 
 ## Release
 
-GitHub Actions 有意保持关闭。Release 在本地完成构建和验证，再将 DMG、ZIP、SHA-256 校验文件及发布清单上传到 [GitHub Releases](https://github.com/spytensor/OpenMozi/releases)。详见 [docs/RELEASE.md](docs/RELEASE.md)。
+GitHub Actions 有意保持关闭。Release 在本地完成构建和验证，再将 DMG、ZIP、SHA-256 校验文件及发布清单上传到 [GitHub Releases](https://github.com/spytensor/openmozi/releases)。详见 [docs/RELEASE.md](docs/RELEASE.md)。
 
 ## 致谢
 

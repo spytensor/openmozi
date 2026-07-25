@@ -29,9 +29,14 @@ export function calculateCatalogCost(
 }
 
 export function resolveModelPricing(providerName: string | undefined, modelId: string): ModelPricingSnapshot {
+  // Azure ids are user-chosen deployment names, not a catalog fingerprint, so
+  // they cannot identify a provider the way a real model id can — a deployment
+  // called "gpt-4o" says nothing about where an unlabelled historical row ran.
+  // Excluded for the same reason cli-pipe is.
+  const INFERENCE_BLIND_MODES = new Set(['cli-pipe', 'azure-openai']);
   const builtinMatches = providerName
     ? [providerName]
-    : getAllProviders().filter(provider => provider.apiMode !== 'cli-pipe' && getRegisteredModel(provider.id, modelId)).map(provider => provider.id);
+    : getAllProviders().filter(provider => !INFERENCE_BLIND_MODES.has(provider.apiMode) && getRegisteredModel(provider.id, modelId)).map(provider => provider.id);
   const inferredProvider = providerName ?? (builtinMatches.length === 1 ? builtinMatches[0] : undefined);
   const live = getCachedModelMetadata(inferredProvider, modelId) ?? getCachedModelMetadata(undefined, modelId);
   const resolvedProvider = inferredProvider ?? live?.provider;

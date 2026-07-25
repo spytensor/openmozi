@@ -47,6 +47,99 @@
       ]
     },
     {
+      "id": "azure",
+      "name": "Azure OpenAI",
+      "hint": "Azure resource URL, deployment name, and API version required",
+      "defaultModel": "gpt-4o",
+      "apiMode": "azure-openai",
+      "models": [
+        {
+          "id": "gpt-4o",
+          "name": "GPT-4o deployment",
+          "tier": "high",
+          "contextWindow": 128000,
+          "maxOutputTokens": 16384,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 2.5,
+          "outputCostPer1M": 10
+        },
+        {
+          "id": "gpt-4o-mini",
+          "name": "GPT-4o Mini deployment",
+          "tier": "low",
+          "contextWindow": 128000,
+          "maxOutputTokens": 16384,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 0.15,
+          "outputCostPer1M": 0.6
+        },
+        {
+          "id": "gpt-4.1",
+          "name": "GPT-4.1 deployment",
+          "tier": "high",
+          "contextWindow": 1047576,
+          "maxOutputTokens": 32768,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 2,
+          "outputCostPer1M": 8
+        },
+        {
+          "id": "gpt-4.1-mini",
+          "name": "GPT-4.1 Mini deployment",
+          "tier": "low",
+          "contextWindow": 1047576,
+          "maxOutputTokens": 32768,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": false,
+          "inputCostPer1M": 0.4,
+          "outputCostPer1M": 1.6
+        },
+        {
+          "id": "o1",
+          "name": "o1 deployment",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 100000,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": 15,
+          "outputCostPer1M": 60
+        },
+        {
+          "id": "o3",
+          "name": "o3 deployment",
+          "tier": "high",
+          "contextWindow": 200000,
+          "maxOutputTokens": 100000,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": 2,
+          "outputCostPer1M": 8
+        },
+        {
+          "id": "o3-mini",
+          "name": "o3-mini deployment",
+          "tier": "mid",
+          "contextWindow": 200000,
+          "maxOutputTokens": 100000,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": 1.1,
+          "outputCostPer1M": 4.4
+        }
+      ]
+    },
+    {
       "id": "anthropic",
       "name": "Anthropic",
       "hint": "Claude Fable 5, Opus 4, Sonnet 4",

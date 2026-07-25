@@ -42,6 +42,8 @@ export interface IncomingMessage {
   userId: string;
   username: string;
   text: string;
+  /** Explicit agent names selected by a structured Web composer mention. */
+  mentions?: string[];
   isCommand: boolean;
   command?: string;
   commandArgs?: string;

@@ -1,9 +1,17 @@
 {
   "name": "mozi",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MOZI — Autonomous Agent Operating System",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/spytensor/openmozi.git"
+  },
+  "homepage": "https://github.com/spytensor/openmozi#readme",
+  "bugs": {
+    "url": "https://github.com/spytensor/openmozi/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
@@ -60,10 +68,19 @@
   ],
   "author": "Chaojie + Mozi",
   "packageManager": "pnpm@10.29.2",
+  "engines": {
+    "node": ">=22.12 <26",
+    "pnpm": "10.29.2"
+  },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@swc/core",
       "better-sqlite3",
-      "esbuild"
+      "core-js",
+      "electron",
+      "es5-ext",
+      "esbuild",
+      "protobufjs"
     ]
   },
   "dependencies": {
@@ -105,7 +122,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^25.3.0",
+    "@types/node": "^22.16.5",
     "@types/tmi.js": "^1.8.6",
     "dotenv": "^17.3.1",
     "playwright": "^1.58.2",

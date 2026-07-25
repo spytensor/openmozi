@@ -9,7 +9,7 @@ ENV MOZI_RELEASE_CHANNEL=${MOZI_RELEASE_CHANNEL}
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
 # Copy entire workspace before install — pnpm needs pnpm-workspace.yaml +
 # ui/package.json visible to resolve the `mozi-ui` workspace package.
@@ -50,8 +50,12 @@ RUN apt-get update \
     --constraint requirements/document-runtime-constraints.txt \
   && python3 -c 'import defusedxml, docx, imageio, numpy, openpyxl, pandas, pdf2image, pdfplumber, PIL, pptx, pypdf, reportlab, markitdown'
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
+# Root manifest + lockfile only: pnpm resolves the root importer without the
+# workspace file, and pulling ui/ in here would install the UI's production
+# tree (~900 MB) that this stage never uses — it copies the built ui/dist from
+# the builder. desktop/ is unavailable anyway (.dockerignore).
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 

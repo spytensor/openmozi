@@ -767,6 +767,61 @@ async function promptForProvider(): Promise<ProviderInfo[]> {
     }];
   }
 
+  if (choice.apiMode === 'azure-openai') {
+    const resourceName = await p.text({
+      message: 'Azure OpenAI resource name:',
+      placeholder: 'my-azure-openai-resource',
+      validate: value => /^[a-zA-Z0-9][a-zA-Z0-9-]{1,62}$/.test(value || '')
+        ? undefined
+        : 'Enter the resource name only (letters, numbers, and hyphens)',
+    });
+    if (isCancel(resourceName)) { p.cancel('Onboarding cancelled.'); process.exit(0); }
+
+    const deployment = await p.text({
+      message: 'Azure OpenAI deployment name:',
+      placeholder: 'my-gpt-4o-deployment',
+      validate: value => (!value ? 'Deployment name is required' : undefined),
+    });
+    if (isCancel(deployment)) { p.cancel('Onboarding cancelled.'); process.exit(0); }
+
+    const apiVersion = await p.text({
+      message: 'Azure OpenAI API version:',
+      defaultValue: choice.apiVersion,
+      placeholder: choice.apiVersion,
+      validate: value => (!value ? 'API version is required' : undefined),
+    });
+    if (isCancel(apiVersion)) { p.cancel('Onboarding cancelled.'); process.exit(0); }
+
+    const apiKey = await p.text({
+      message: `Enter your ${choice.name} API key:`,
+      placeholder: choice.placeholder,
+      validate: value => (!value ? 'API key is required' : undefined),
+    });
+    if (isCancel(apiKey)) { p.cancel('Onboarding cancelled.'); process.exit(0); }
+
+    const baseUrl = `https://${resourceName}.openai.azure.com`;
+    persistEnvValue('AZURE_OPENAI_BASE_URL', baseUrl);
+    persistEnvValue('AZURE_OPENAI_API_VERSION', apiVersion);
+    persistEnvValue(choice.envKey, apiKey);
+
+    const existing = readConfigWithLegacyFallback(getConfigPath()).config;
+    const discovery = (existing.model_discovery ??= {}) as Record<string, unknown>;
+    const models = (discovery.models ??= {}) as Record<string, string[]>;
+    const manualModels = (discovery.manual_models ??= {}) as Record<string, string[]>;
+    models.azure = Array.from(new Set([...(models.azure ?? []), deployment]));
+    manualModels.azure = Array.from(new Set([...(manualModels.azure ?? []), deployment]));
+    writeConfigObject(getConfigPath(), existing);
+
+    return [{
+      id: choice.id,
+      name: choice.name,
+      apiKey,
+      baseUrl,
+      models: [{ id: deployment, name: deployment, provider: choice.id }],
+      healthy: false,
+    }];
+  }
+
   let selectedBaseUrl = choice.baseUrl;
 
   // Region selection (e.g. MiniMax global vs China vs proxy)

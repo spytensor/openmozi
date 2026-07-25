@@ -81,6 +81,32 @@ describe('channels/websocket', () => {
     });
   });
 
+  it('carries structured mentions from a real WebSocket message payload to the channel handler', async () => {
+    const app = Fastify({ logger: false });
+    await app.register(fastifyWebsocket);
+    let received: import('./websocket.js').WsIncomingMessage | undefined;
+    registerWebSocketRoute(app, async (message) => {
+      received = message;
+      return null;
+    }, 'unused', { authMode: 'none' });
+    await app.ready();
+    const socket = await app.injectWS('/ws');
+    try {
+      socket.send(JSON.stringify({
+        type: 'message',
+        content: '@reviewer inspect this',
+        mentions: ['reviewer', 'unknown-agent'],
+      }));
+      const deadline = Date.now() + 1000;
+      while (!received && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5));
+      expect(received?.mentions).toEqual(['reviewer', 'unknown-agent']);
+      expect(received?.text).toBe('@reviewer inspect this');
+    } finally {
+      socket.terminate();
+      await app.close();
+    }
+  });
+
   describe('resolveClientText', () => {
     it('returns plain content for message type', () => {
       const result = resolveClientText({ type: 'message', content: 'hello' });
@@ -285,6 +311,29 @@ describe('channels/websocket', () => {
   });
 
   describe('buildWorkerTaskProgressMessage', () => {
+    it('creates a stable persisted task identity for in-process agent status frames', () => {
+      const msg = buildWorkerTaskProgressMessage({
+        type: 'worker_status',
+        agentId: 'reviewer',
+        agentColor: 'jade',
+        runDir: '/workspace/output/agents/reviewer/run-3',
+        runtimeLabel: 'reviewer',
+        workerStatus: 'running',
+        heartbeat: true,
+        summary: 'round 2',
+        timestamp: 123,
+      });
+
+      expect(msg).toMatchObject({
+        task_id: 'agent:reviewer:/workspace/output/agents/reviewer/run-3',
+        agentId: 'reviewer',
+        agentColor: 'jade',
+        runDir: '/workspace/output/agents/reviewer/run-3',
+        rawStatus: 'running',
+        heartbeat: true,
+      });
+    });
+
     it('maps worker queued status to user-facing checking progress', () => {
       const msg = buildWorkerTaskProgressMessage({
         type: 'worker_status',

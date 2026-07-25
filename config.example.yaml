@@ -1,6 +1,13 @@
 # Provider credentials are resolved from environment variables (not stored here).
 # Priority: MOZI_LIVE_<PROVIDER>_KEY > <PROVIDER>_API_KEYS > <PROVIDER>_API_KEY/aliases > <PROVIDER>_API_KEY_<N>
 # Alias examples: GEMINI_API_KEY or GOOGLE_API_KEY, ZAI_API_KEY or Z_AI_API_KEY.
+#
+# Azure OpenAI requires a resource URL and API version in addition to its key.
+# The CLI onboarding wizard writes these to .env. They can also be set here:
+# providers:
+#   azure:
+#     baseurl: "https://your-resource.openai.azure.com"
+#     apiversion: "2024-10-21"
 
 system:
   max_parallel_agents: 5

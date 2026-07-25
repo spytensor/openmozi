@@ -13,6 +13,18 @@ beforeEach(() => {
         json: () => Promise.resolve({ commands: [] }),
       });
     }
+    if (url === "/api/agents") {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          agents: [
+            { name: "coder", description: "Writes focused code", color: "ochre", enabled: true, status: "ready" },
+            { name: "reviewer", description: "Reviews changes", color: "jade", enabled: true, status: "ready" },
+            { name: "setup", description: "Not ready", color: "slate", enabled: true, status: "needs-setup" },
+          ],
+        }),
+      });
+    }
     if (url === "/api/models/roles") {
       if (init?.method === "PATCH") {
         return Promise.resolve({
@@ -89,6 +101,55 @@ afterEach(async () => {
 });
 
 describe("InputBar", () => {
+  it("filters ready agents, supports keyboard selection, and sends confirmed mentions structurally", async () => {
+    const onSend = vi.fn();
+    renderWithLocale(
+      <InputBar variant="active" onSend={onSend} connectionStatus="connected" queueCount={0} />,
+    );
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/agents", expect.anything()));
+
+    fireEvent.change(textarea, { target: { value: "@rev", selectionStart: 4 } });
+    const menu = await screen.findByTestId("agent-mention-menu");
+    expect(within(menu).getByText("reviewer")).toBeInTheDocument();
+    expect(within(menu).queryByText("coder")).not.toBeInTheDocument();
+    expect(within(menu).queryByText("setup")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("@reviewer ");
+    fireEvent.change(textarea, { target: { value: "@reviewer inspect this", selectionStart: 22 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledWith("@reviewer inspect this", undefined, ["reviewer"]);
+  });
+
+  it("uses arrow keys to move through the agent mention menu", async () => {
+    renderWithLocale(<InputBar onSend={noop} connectionStatus="connected" queueCount={0} />);
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/agents", expect.anything()));
+    fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } });
+    await screen.findByTestId("agent-mention-menu");
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(textarea.value).toBe("@reviewer ");
+  });
+
+  it("stays quiet when no ready agent exists", async () => {
+    const baseFetch = vi.mocked(fetch);
+    baseFetch.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/agents") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ agents: [] }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+    renderWithLocale(<InputBar onSend={noop} connectionStatus="connected" queueCount={0} />);
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/agents", expect.anything()));
+    fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } });
+    expect(screen.queryByTestId("agent-mention-menu")).not.toBeInTheDocument();
+  });
+
   it("shows the branch chip only for git repo roots and opens the branch picker on click", async () => {
     const repoRoot = {
       id: "project_root:/Users/test/Repo",
@@ -366,7 +427,7 @@ describe("InputBar", () => {
     );
     expect(await screen.findByText("DeepSeek Chat")).toBeInTheDocument();
     const fetchMock = vi.mocked(fetch);
-    const callsAfterFirstLoad = fetchMock.mock.calls.length;
+    const modelCallsAfterFirstLoad = fetchMock.mock.calls.filter(([input]) => String(input) === "/api/models/roles").length;
 
     view.rerender(
       <InputBar key="second" variant="empty" onSend={noop} connectionStatus="connected" queueCount={0} />,
@@ -374,7 +435,7 @@ describe("InputBar", () => {
 
     expect(screen.getByTestId("model-chip")).toHaveTextContent("DeepSeek Chat");
     expect(screen.getByTestId("model-chip").querySelector(".animate-spin")).toBeNull();
-    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/models/roles").length).toBe(modelCallsAfterFirstLoad);
   });
 
   it("shows a model list load error and retries the provider fetch", async () => {
