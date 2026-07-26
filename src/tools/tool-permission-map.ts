@@ -10,6 +10,7 @@
  * session permission level.
  */
 import type { ToolDefinition } from '../core/llm.js';
+import { getMcpToolPermission } from '../mcp/tool-adapter.js';
 export interface ToolPermission {
   category: string;
   action: string;
@@ -134,7 +135,15 @@ export function assertToolPermissionCoverage(tools: ToolDefinition[]): void {
   }
 }
 
-/** Look up permission requirement. Unknown names are treated as executable scripts. */
+/**
+ * Look up permission requirement. Unknown names are treated as executable scripts.
+ *
+ * MCP tools resolve against their server's declared level rather than the
+ * dynamic-script default, and fail closed when the server can no longer be
+ * resolved — see `getMcpToolPermission`.
+ */
 export function getToolPermission(toolName: string): ToolPermission {
-  return TOOL_PERMISSION_MAP[toolName] ?? DYNAMIC_TOOL_PERMISSION;
+  const declared = TOOL_PERMISSION_MAP[toolName];
+  if (declared !== undefined) return declared;
+  return getMcpToolPermission(toolName) ?? DYNAMIC_TOOL_PERMISSION;
 }

@@ -157,6 +157,20 @@ the shipped set and `docs/channels/UNSUPPORTED.md` for deferred ones.
 | Google Chat / MS Teams | Raw HTTPS Incoming Webhook (outgoing only) |
 | UI | React + Vite + Tailwind CSS |
 
+## Before Changing This Runtime
+
+**Load `skills/mozi-development/SKILL.md` before adding or changing anything in
+this codebase.** It records how this runtime is actually built, which existing
+seams to reuse before building new machinery, and the wiring proof a change
+needs before it counts as done.
+
+This is not optional and it is not only for Claude Code — `AGENTS.md` carries
+the same rule for every other agent working here. The reason it exists: a code
+scan systematically misleads you in this repo (dead exports that grep finds,
+documentation describing intent rather than behaviour, a second implementation
+quietly winning), and unit tests do not catch any of it because they call the
+target directly.
+
 ## Implementation Tracking
 
 **Read `IMPLEMENTATION.md` before every task.** It is the single source of truth for what's done and what's next.
@@ -370,6 +384,19 @@ the batch.
    let a broken publish path excuse version drift.
 5. **CHANGELOG entries land in `[Unreleased]` with the PR** (existing rule);
    the release cut is when they get a version number and date.
+6. **Publishing to the open-source repository is not freehand work — load and
+   follow `skills/public-release/SKILL.md`, every time, without exception.**
+   This binds anyone working in this repo: Claude Code, Codex, or any other
+   agent. The script copies files; the skill carries the review gates that
+   catch what a script cannot judge.
+
+   Confirmed incident (2026-07-25): the export tooling's own generated commit
+   message published this project's name, version and commit sha into the
+   public repository on every sync, and the privacy gate never noticed because
+   it only read tracked files. Cleaning it up required rewriting published
+   history. **Nothing that only makes sense inside this tree may appear in the
+   public one** — not in files, not in a commit message, not in a tag
+   annotation, not in a release note.
 
 ## Do NOT
 

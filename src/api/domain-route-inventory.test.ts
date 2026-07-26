@@ -24,9 +24,24 @@ const domainRoutes = {
     'PATCH /api/scheduler/tasks/:id',
     'POST /api/scheduler/tasks/:id/run-now',
     'DELETE /api/scheduler/tasks/:id',
+    // The unified surface the UI drives. The per-store routes above stay for
+    // the Brain's own tools and for anything already calling them.
+    'GET /api/scheduler/items',
+    'POST /api/scheduler/items',
+    'PATCH /api/scheduler/items/:id',
+    'POST /api/scheduler/items/:id/run-now',
+    'DELETE /api/scheduler/items/:id',
     'GET /api/scheduler/reminders',
     'POST /api/scheduler/reminders',
     'DELETE /api/scheduler/reminders/:id',
+  ],
+  'mcp-routes.ts': [
+    'GET /api/mcp/servers',
+    'GET /api/mcp/tools',
+    'POST /api/mcp/servers',
+    'PATCH /api/mcp/servers/:id',
+    'DELETE /api/mcp/servers/:id',
+    'POST /api/mcp/servers/:id/test',
   ],
   'task-template-routes.ts': [
     'GET /api/task-templates',

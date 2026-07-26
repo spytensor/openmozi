@@ -14,6 +14,8 @@ The repo-level source of truth is [docs/CONSTITUTION.md](docs/CONSTITUTION.md). 
 6. Do not use generic shell execution as the transport for Claude Code, Codex, Gemini, or other external AI CLIs; those belong to managed-worker skills/adapters.
 7. Do not treat a feature change as complete until relevant local tests have been run and passed; if new behavior lacks coverage, add or update tests in the same change.
 8. Treat every bug report or feedback item as investigation-only until the user reviews the evidence and explicitly approves an implementation option. Follow the decision gate in `docs/CONSTITUTION.md` §6.
+9. Load `skills/mozi-development/SKILL.md` before adding or changing anything in this codebase. It carries the existing seams to reuse and the wiring proof a change needs; a raw code scan misleads you here (dead exports, docs describing intent rather than behaviour, a second implementation winning silently) and unit tests do not catch it.
+10. Never publish to the open-source repository freehand. Load and follow `skills/public-release/SKILL.md` every time — it carries the review gates the export script cannot enforce. Nothing that only makes sense inside this tree may appear in the public one: not in files, not in a commit message, not in a tag annotation, not in a release note. This has already gone wrong once (the tooling's own commit message published this project's name, version and commit sha on every sync) and cost a rewrite of published history.
 
 ## Mandatory Bug And Feedback Workflow
 

@@ -182,3 +182,96 @@ describe('scheduler routes', () => {
     await app.close();
   });
 });
+
+describe('unified scheduler items', () => {
+  it('lists prompts and reminders through one shape, due work first', async () => {
+    const session = createSession('user-a', 'Current chat', 'tenant-a');
+    updateSessionPermissionLevel(session.id, 'L2_SHELL_EXEC', 'tenant-a');
+    const app = appFor('tenant-a', 'user-a', ['operator']);
+
+    await app.inject({
+      method: 'POST',
+      url: '/api/scheduler/items',
+      payload: { kind: 'prompt', body: 'Summarise the week', scheduleKind: 'cron', scheduleValue: '0 9 * * 1' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/scheduler/items',
+      payload: { kind: 'reminder', body: 'Stand up', scheduleKind: 'at', scheduleValue: new Date(Date.now() + 300_000).toISOString() },
+    });
+
+    const items = (await app.inject({ method: 'GET', url: '/api/scheduler/items' })).json().items;
+    expect(items).toHaveLength(2);
+    // One shape covers both: same keys, only `kind` differs.
+    for (const item of items) {
+      expect(Object.keys(item)).toEqual(expect.arrayContaining(['id', 'kind', 'body', 'schedule', 'status', 'canPause', 'canRunNow']));
+    }
+    const reminder = items.find((i: { kind: string }) => i.kind === 'reminder');
+    const prompt = items.find((i: { kind: string }) => i.kind === 'prompt');
+    expect(reminder.body).toBe('Stand up');
+    expect(prompt.body).toBe('Summarise the week');
+    // A reminder cannot be paused or fired early, and carries no permission
+    // level — claiming one would imply a capability it does not have.
+    expect(reminder).toMatchObject({ canPause: false, canRunNow: false, permissionLevel: null });
+    expect(prompt).toMatchObject({ canPause: true, canRunNow: true, permissionLevel: 'L2_SHELL_EXEC' });
+    await app.close();
+  });
+
+  it('refuses to pause or early-fire a reminder rather than silently ignoring it', async () => {
+    createSession('user-a', 'Current chat', 'tenant-a');
+    const app = appFor('tenant-a', 'user-a', ['operator']);
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/scheduler/items',
+      payload: { kind: 'reminder', body: 'Ping', scheduleKind: 'at', scheduleValue: new Date(Date.now() + 60_000).toISOString() },
+    });
+    const id = created.json().item.id as string;
+    expect(id.startsWith('reminder:')).toBe(true);
+
+    expect((await app.inject({ method: 'PATCH', url: `/api/scheduler/items/${id}`, payload: { enabled: false } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: `/api/scheduler/items/${id}/run-now` })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'DELETE', url: `/api/scheduler/items/${id}` })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/api/scheduler/items' })).json().items).toEqual([]);
+    await app.close();
+  });
+
+  // NOTE: this exercises the handler's own gate only. In the real app
+  // `requiredRoleForApiRoute` runs first and already requires `operator` for any
+  // non-GET /api/scheduler route, so a true viewer never reaches either branch.
+  // The in-handler check is the second line of defence, and it is what keeps a
+  // prompt — which runs unattended with real privileges — stricter than a
+  // reminder, which only sends a message.
+  it('gates a prompt behind operator inside the handler, and lets a reminder through', async () => {
+    const session = createSession('user-a', 'Current chat', 'tenant-a');
+    updateSessionPermissionLevel(session.id, 'L2_SHELL_EXEC', 'tenant-a');
+    const app = appFor('tenant-a', 'user-a', ['viewer']);
+
+    const reminder = await app.inject({
+      method: 'POST',
+      url: '/api/scheduler/items',
+      payload: { kind: 'reminder', body: 'Ping', scheduleKind: 'at', scheduleValue: new Date(Date.now() + 60_000).toISOString() },
+    });
+    expect(reminder.statusCode).toBe(200);
+
+    // A prompt runs at the session permission level unattended, so it keeps the
+    // operator gate the dedicated task route already enforced.
+    const prompt = await app.inject({
+      method: 'POST',
+      url: '/api/scheduler/items',
+      payload: { kind: 'prompt', body: 'rm -rf something', scheduleKind: 'cron', scheduleValue: '0 9 * * 1' },
+    });
+    expect(prompt.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('rejects an unparseable item id instead of touching the wrong store', async () => {
+    createSession('user-a', 'Current chat', 'tenant-a');
+    const app = appFor('tenant-a', 'user-a', ['operator']);
+    for (const bad of ['nonsense', 'task:', ':123', 'reminder:not-a-number']) {
+      const res = await app.inject({ method: 'DELETE', url: `/api/scheduler/items/${encodeURIComponent(bad)}` });
+      expect(res.statusCode).toBe(404);
+    }
+    await app.close();
+  });
+});
+

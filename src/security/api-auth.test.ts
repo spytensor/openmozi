@@ -74,6 +74,15 @@ describe('security/api-auth', () => {
     expect(requiredRoleForApiRoute('POST', '/api/brain')).toBe('admin');
     expect(requiredRoleForApiRoute('POST', '/api/providers/openai/check')).toBe('admin');
     expect(requiredRoleForApiRoute('POST', '/api/providers/openai/models/manual')).toBe('admin');
+    // An MCP server definition is an arbitrary command MOZI spawns, and
+    // POST /test spawns it immediately. Writing one must not sit at the
+    // default `operator` the generic non-GET fallthrough would give it.
+    expect(requiredRoleForApiRoute('GET', '/api/mcp/servers')).toBe('viewer');
+    expect(requiredRoleForApiRoute('GET', '/api/mcp/tools')).toBe('viewer');
+    expect(requiredRoleForApiRoute('POST', '/api/mcp/servers')).toBe('admin');
+    expect(requiredRoleForApiRoute('PATCH', '/api/mcp/servers/:id')).toBe('admin');
+    expect(requiredRoleForApiRoute('DELETE', '/api/mcp/servers/:id')).toBe('admin');
+    expect(requiredRoleForApiRoute('POST', '/api/mcp/servers/:id/test')).toBe('admin');
   });
 
   it('checks role hierarchy correctly', () => {

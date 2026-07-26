@@ -22,6 +22,7 @@ import { runPreToolCallHooks, runTransformResultHooks } from './plugin-registry.
 import { classifyFailureCategory, safeRecordToolSpan } from '../observer/telemetry.js';
 import { parseToolArgumentsEnvelope, validateToolArguments } from './tool-input-validation.js';
 import { getAllRegisteredTools } from './dynamic-registry.js';
+import { executeMcpTool } from '../mcp/tool-adapter.js';
 
 // Re-export types for backward compatibility
 export type { ToolResult, ToolContext } from './types.js';
@@ -881,7 +882,8 @@ async function executeToolInner(toolCall: ToolCall, context?: ToolContext): Prom
       await executeDesktopTool(toolName, args, id, context) ??
       await executeGitTool(toolName, args, id, context) ??
       await executeMemoryTool(toolName, args, id, context) ??
-      await executeSystemTool(toolName, args, id, context);
+      await executeSystemTool(toolName, args, id, context) ??
+      await executeMcpTool(toolName, args, id, context);
 
     let dispatchResult: ToolResult | null;
     try {

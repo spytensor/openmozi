@@ -29,7 +29,7 @@ export interface AgentFrontmatter {
   skills: string[];
   tools?: string[];
   permission_level?: PermissionLevel;
-  metadata?: { color?: string };
+  metadata?: { color?: string; icon?: string };
 }
 
 export type AgentDefinitionStatus = 'ready' | 'needs-setup' | 'disabled';
@@ -43,6 +43,7 @@ export interface LoadedAgentDefinition {
   tools?: string[];
   permission_level?: PermissionLevel;
   color?: string;
+  icon?: string;
   persona: string;
   content: string;
   filePath: string;
@@ -72,6 +73,7 @@ export interface AgentDefinitionInput {
   tools?: string[];
   permission_level?: PermissionLevel;
   color?: string;
+  icon?: string;
 }
 
 export class AgentDefinitionError extends Error {
@@ -129,6 +131,7 @@ export function parseAgentDefinition(content: string): { frontmatter: AgentFront
     throw new AgentDefinitionError(`Invalid permission_level: ${String(permission)}`, 'invalid');
   }
   let color: string | undefined;
+  let icon: string | undefined;
   if (value.metadata !== undefined) {
     if (!value.metadata || typeof value.metadata !== 'object' || Array.isArray(value.metadata)) {
       throw new AgentDefinitionError('AGENT.md metadata must be an object', 'invalid');
@@ -138,6 +141,13 @@ export function parseAgentDefinition(content: string): { frontmatter: AgentFront
       throw new AgentDefinitionError('AGENT.md metadata.color must be a non-empty string', 'invalid');
     }
     color = typeof metadata.color === 'string' ? metadata.color.trim() : undefined;
+    if (metadata.icon !== undefined && (typeof metadata.icon !== 'string' || !metadata.icon.trim())) {
+      throw new AgentDefinitionError('AGENT.md metadata.icon must be a non-empty string', 'invalid');
+    }
+    // Deliberately not validated against the UI's icon set: the runtime must not
+    // fail to load an agent because a name it does not own went stale. The UI
+    // falls back to a deterministic icon for anything it cannot resolve.
+    icon = typeof metadata.icon === 'string' ? metadata.icon.trim() : undefined;
   }
   if (value.model !== undefined && (typeof value.model !== 'string' || !value.model.trim())) {
     throw new AgentDefinitionError('AGENT.md model must be a non-empty string', 'invalid');
@@ -150,7 +160,7 @@ export function parseAgentDefinition(content: string): { frontmatter: AgentFront
       skills,
       ...(tools ? { tools } : {}),
       ...(typeof permission === 'string' ? { permission_level: permission as PermissionLevel } : {}),
-      ...(color ? { metadata: { color } } : {}),
+      ...(color || icon ? { metadata: { ...(color ? { color } : {}), ...(icon ? { icon } : {}) } } : {}),
     },
     persona: (match[2] ?? '').trim(),
   };
@@ -166,7 +176,10 @@ export function serializeAgentDefinition(input: AgentDefinitionInput): string {
   normalized.skills = input.skills ?? [];
   if (input.tools) normalized.tools = input.tools;
   if (input.permission_level) normalized.permission_level = input.permission_level;
-  if (input.color?.trim()) normalized.metadata = { color: input.color.trim() };
+  const meta: Record<string, string> = {};
+  if (input.color?.trim()) meta.color = input.color.trim();
+  if (input.icon?.trim()) meta.icon = input.icon.trim();
+  if (Object.keys(meta).length > 0) normalized.metadata = meta;
   const yamlText = yaml.dump(normalized, { lineWidth: -1, noRefs: true }).trimEnd();
   const content = `---\n${yamlText}\n---\n\n${input.persona.trim()}\n`;
   parseAgentDefinition(content);
@@ -327,6 +340,7 @@ export async function discoverAgentDefinitions(options: AgentDefinitionPaths = {
           ...(frontmatter.tools ? { tools: frontmatter.tools } : {}),
           ...(frontmatter.permission_level ? { permission_level: frontmatter.permission_level } : {}),
           ...(frontmatter.metadata?.color ? { color: frontmatter.metadata.color } : {}),
+          ...(frontmatter.metadata?.icon ? { icon: frontmatter.metadata.icon } : {}),
           persona,
           content: file.content,
           filePath: file.filePath,
@@ -405,10 +419,18 @@ export async function createAgentDefinition(input: AgentDefinitionInput, options
   return findAgent(`workspace:${frontmatter.name}`, options);
 }
 
-/** Update an existing workspace definition, renaming its directory when needed. */
+/**
+ * Update a definition, renaming its directory when needed.
+ *
+ * Editing a bundled preset forks it into the workspace instead of failing:
+ * discovery already lets a workspace definition shadow a bundled one of the
+ * same name, so the fork simply becomes the effective agent. The bundled file
+ * itself is never written — it lives inside the install tree, which is
+ * read-only in a packaged app and would break the signature seal.
+ */
 export async function updateAgentDefinition(id: string, input: AgentDefinitionInput, options: AgentDefinitionPaths = {}): Promise<LoadedAgentDefinition> {
   const existing = await findAgent(id, options);
-  if (existing.source === 'bundled') throw new AgentDefinitionError('Bundled agents are read-only', 'read_only');
+  if (existing.source === 'bundled') return createAgentDefinition(input, options);
   const content = serializeAgentDefinition(input);
   const { frontmatter } = parseAgentDefinition(content);
   let filePath = existing.filePath;

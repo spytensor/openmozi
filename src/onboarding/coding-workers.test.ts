@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildCodingWorkerConfig,
   detectCodingWorkers,
+  resetCliAuthProbeCache,
   parseCodexCliModels,
   recommendRouting,
   type CodingWorkerProbe,
@@ -41,6 +42,33 @@ describe('onboarding/coding-workers', () => {
       models: [{ slug: '../unsafe', display_name: 'Unsafe', visibility: 'list' }],
     }))).toThrow('invalid visible model entry');
     expect(() => parseCodexCliModels('{"models":[]}')).toThrow('no visible models');
+  });
+
+  it('accepts an API key in the environment as authorization, not just the OAuth file', () => {
+    // The probe used to read only `~/.claude/.credentials.json`. A CLI logged in
+    // through a subscription (`authMethod: "claude.ai"`) or driven by an API key
+    // was therefore reported as unauthorized, which removed it from the model
+    // picker even though it ran fine in a terminal.
+    const saved = { ...process.env };
+    try {
+      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
+      resetCliAuthProbeCache();
+      const before = detectCodingWorkers().find(p => p.id === 'claude_code')!;
+
+      process.env.ANTHROPIC_API_KEY = 'sk-ant-probe';
+      resetCliAuthProbeCache();
+      const after = detectCodingWorkers().find(p => p.id === 'claude_code')!;
+
+      // With a key present the CLI must be authorized whenever it is installed;
+      // the key path must never make an installed CLI *less* usable.
+      if (after.installed) expect(after.authorized).toBe(true);
+      expect(after.authorized || !after.installed).toBe(true);
+      expect(before.installed).toBe(after.installed);
+    } finally {
+      process.env = saved;
+      resetCliAuthProbeCache();
+    }
   });
 
   it('detects coding workers from PATH (real system check)', () => {

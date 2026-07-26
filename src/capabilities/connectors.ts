@@ -216,6 +216,16 @@ async function requestJson(
   url: string,
   init: RequestInit,
 ): Promise<Record<string, unknown>> {
+  // Every connector call funnels through here, and `base_url` is caller-supplied
+  // (a tool argument, so ultimately model-controlled). Without this check a
+  // connector is a general-purpose request forwarder into the private network,
+  // with the connector's own credentials attached.
+  const { checkSSRF } = await import('../security/ssrf-guard.js');
+  const verdict = await checkSSRF(url);
+  if (!verdict.safe) {
+    throw new ConnectorHttpError(`Blocked by SSRF protection — ${verdict.reason}`, false);
+  }
+
   let response: Response;
   try {
     response = await fetch(url, init);

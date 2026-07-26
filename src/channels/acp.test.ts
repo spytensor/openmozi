@@ -130,6 +130,32 @@ describe('ACPServer', () => {
       }
     });
 
+    it('does not pass its own session key as a gateway sessionId', async () => {
+      // The gateway treats `sessionId` as a row in the sessions table and
+      // rejects anything it cannot find under the caller's user
+      // ("Session not found or access denied"). This channel used to send its
+      // own `acp:<uuid>` handle there, so every prompt was rejected before it
+      // reached the Brain. chatId is what carries the conversation identity.
+      const handler = createMockHandler('ok');
+      const server = new ACPServer(handler);
+      const output = captureStdout();
+
+      try {
+        await (server as any).handleRequest({ jsonrpc: '2.0', id: 1, method: 'sessions/create' });
+        await (server as any).handleRequest({
+          jsonrpc: '2.0', id: 2, method: 'prompt', params: { content: 'hi' },
+        });
+
+        expect(handler).toHaveBeenCalledTimes(1);
+        const sent = handler.mock.calls[0][0] as IncomingMessage;
+        expect(sent.sessionId).toBeUndefined();
+        expect(sent.chatId).toBeTruthy();
+        expect(sent.chatId).not.toMatch(/^acp:/);
+      } finally {
+        output.restore();
+      }
+    });
+
     it('handles prompt without active session (auto-creates)', async () => {
       const handler = createMockHandler('auto-session response');
       const server = new ACPServer(handler);

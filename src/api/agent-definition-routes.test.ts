@@ -103,15 +103,26 @@ describe('/api/agents', () => {
     await app.close();
   });
 
-  it('keeps bundled definitions read-only and rejects unsafe names', async () => {
+  it('forks a bundled definition on edit, still refuses to delete it, and rejects unsafe names', async () => {
     const app = makeApp();
-    const bundled = { name: 'reviewer', description: 'Changed', persona: 'No.', skills: [] };
-    expect((await app.inject({
-      method: 'PUT', url: '/api/agents/bundled:reviewer', payload: bundled,
-    })).statusCode).toBe(403);
+    // Editing a built-in agent produces the user's own copy; the shipped file
+    // is never written, so a packaged app's sealed install tree stays intact.
+    const edited = { name: 'reviewer', description: 'Changed', persona: 'Mine.', skills: [] };
+    const put = await app.inject({ method: 'PUT', url: '/api/agents/bundled:reviewer', payload: edited });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().agent).toMatchObject({ source: 'workspace', description: 'Changed' });
+    expect(existsSync(join(workspaceDir, 'reviewer', 'AGENT.md'))).toBe(true);
+
+    // Once the fork exists it shadows the original, so `bundled:reviewer` no
+    // longer resolves to anything visible — 404, not 403. Deleting the fork is
+    // the way back to the shipped behaviour.
     expect((await app.inject({
       method: 'DELETE', url: '/api/agents/bundled:reviewer',
-    })).statusCode).toBe(403);
+    })).statusCode).toBe(404);
+    expect((await app.inject({
+      method: 'DELETE', url: '/api/agents/workspace:reviewer',
+    })).statusCode).toBe(200);
+    expect(existsSync(join(workspaceDir, 'reviewer'))).toBe(false);
     expect((await app.inject({
       method: 'POST',
       url: '/api/agents',

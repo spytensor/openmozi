@@ -19,17 +19,28 @@ system never competes with it.
 
 Never hardcode colors/radii in components — consume these variables.
 
-**Dark theme — neutral charcoal, never pure black**
-- Grounds: `--app-bg #181818`, `--main-bg #181818`, `--sidebar-bg #151515`
-- Surfaces (elevation by background shift, not shadow): `--surface-base #181818` → `--surface-elevated #202020` → `--surface-input #20252c` → `--surface-hover #272d35` → `--surface-active #303741`
-- Real overlays only: `--surface-overlay #202020dd` (Dialog/Popover); the light theme resolves it to opaque white
-- Semantic color roles are independent: action = muted ochre, activity = jade,
-  link = slate, inline code = warm sand, focus = bronze, selection = muted
-  violet. Never route these roles through one global accent token.
-- Status: `--success #7acb8b` · `--warning #e3b65a` · `--danger #e06c75` (danger = errors only, sparingly)
-- Text (opacity layers on ink, not separate grays): primary .9 / secondary .7 / muted .46 / disabled .25
-- Borders (hairline-first): `--border-subtle` (rgba .06) default, `--border-medium` (.1) active
-- Radii (compact, sharply bounded): `--radius-card 8px` · `--radius-button 6px` · `--radius-badge 4px`
+These values describe what `ui/src/index.css` actually ships. They were
+realigned on 2026-07-25 after an audit found the previous text describing a
+warm-charcoal palette with independent muted hues that the product had not used
+for a long time. If you change a token, change this section in the same commit —
+a design doc that disagrees with the stylesheet is worse than none, because it
+sends reviewers looking for violations that are actually the house style.
+
+**Dark theme — true black ground, monochrome accents**
+- Grounds: `--app-bg #000000`, `--main-bg #000000`, `--sidebar-bg #0a0a0a`
+- Surfaces (elevation by background shift, not shadow): `--surface-base #000000` → `--surface-elevated #111111` → `--surface-card #161616` → `--surface-overlay #1a1a1a`; `--surface-input #111111`
+- Interaction surfaces are ink alphas, not fixed greys: `--surface-hover rgba(255,255,255,.08)`, `--surface-active rgba(255,255,255,.12)`
+- Light theme mirrors this structurally: `--app-bg #fafafa`, `--surface-elevated #ffffff`
+- **Interaction roles are deliberately monochrome**: `--action`, `--activity`,
+  `--focus` are `#ffffff` in dark and `#000000` in light; `--link #a1a1aa`,
+  `--selection rgba(255,255,255,.2)`. Colour is not how this product signals
+  interactivity — contrast and weight are. Do not introduce a coloured accent
+  for a role that is currently monochrome.
+- Status colours are the only saturated hues and are reserved for state, never decoration: `--success #10b981` · `--warning #f59e0b` · `--danger #ef4444` (danger = errors only, sparingly)
+- **Identity hues are a separate family** from status: `--agent-ochre #b08a4f`, `--agent-jade #6f9b74`, `--agent-slate #6d8299`, `--agent-bronze #a8674a`, `--agent-violet #9a7aa8`, `--agent-neutral #77808c`. They are low-saturation on purpose and render as a tinted fill with the glyph in the same hue — an identity must never restate a status colour, and a saturated block at avatar size competes with the content it labels.
+- Text (opacity layers on ink, not separate greys): primary .9 / secondary .7 / muted .46 / disabled .25; the flat equivalents are `--text-primary #ededed` / `--text-secondary #a1a1aa` / `--text-muted #71717a` / `--text-disabled #3f3f46`
+- Borders (hairline-first): `--border-subtle` (rgba .08) default, `--border-medium` (.15) active
+- Radii: `--radius-card 12px` · `--radius-button 8px` · `--radius-badge 6px`
 - Shadows: only the composer setback shadows; cards use border + background shift, **not** drop shadows
 
 ## Binding Rules (MOZI already respects most — keep it that way)
@@ -37,7 +48,7 @@ Never hardcode colors/radii in components — consume these variables.
 **DO**
 - Consume tokens; add a new token to `index.css` rather than a one-off hex in a component.
 - Elevate surfaces with background shift + a hairline border first; add shadow only when truly needed.
-- Keep cards compact, flat, sharply bounded (8px), single-level — no card-in-card.
+- Keep cards compact, flat, sharply bounded (`--radius-card`), single-level — no card-in-card.
 - Keep motion purposeful and short (fades, small translates, ≤200ms); ease-out, standard curves.
 - Preserve legibility of product proof: chat, tables, code, task/artifact cards stay readable above all styling.
 - Respect both `dark` and `light` themes via tokens. The product preference
@@ -48,7 +59,7 @@ Never hardcode colors/radii in components — consume these variables.
 - No purple→blue / neon gradients, no neon cyan fields, no glow as decoration.
 - No glassmorphism / decorative `backdrop-blur` (translucency is allowed *only* for real overlays: modals, menus).
 - No bounce/elastic/overshoot easing (`cubic-bezier` with values >1); no gratuitous motion.
-- No pure black or pure white as a fill or ground — always tint toward the warm palette.
+- No unmotivated mid-greys or muddy tints. The ground is true black (dark) / near-white (light) by design; depth comes from the surface ladder and hairline borders, not from washing the background.
 - No gray body text on colored backgrounds; use the ink-opacity text layers.
 - No card-in-card nesting; no oversized rounded "pill" cards for dense content.
 - No default/undistinctive typographic hierarchy — respect the size/weight scale, don't ship walls of same-size text.

@@ -59,16 +59,17 @@
     --activity-glow: rgba(255, 255, 255, 0.15);
     --code-bg: rgba(255, 255, 255, 0.05);
 
-    /* Agent identity avatars. Solid, muted backgrounds that carry the same
-       foreground in both themes — an identity chip must not restate a status
-       colour (amber = warning) or sit on a translucent surface token. */
-    --agent-ochre: #a16207;
-    --agent-jade: #047857;
-    --agent-slate: #475569;
-    --agent-bronze: #9a3412;
-    --agent-violet: #6d28d9;
-    --agent-neutral: #52525b;
-    --agent-fg: #ffffff;
+    /* Agent identity hues. Low-saturation and their own tokens: an identity
+       must not restate a status colour (amber = warning), and a saturated
+       fill at avatar size competes with the content it labels. Rendered as a
+       tinted fill with the same hue as the glyph — never a solid block, never
+       a framed tile. */
+    --agent-ochre: #b08a4f;
+    --agent-jade: #6f9b74;
+    --agent-slate: #6d8299;
+    --agent-bronze: #a8674a;
+    --agent-violet: #9a7aa8;
+    --agent-neutral: #77808c;
 
     /* Top-inner highlight shadow & multi-stage depth */
     --composer-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 8px 40px -12px rgba(0,0,0,0.8);
@@ -265,6 +266,13 @@
   }
 
   .btn-primary {
+    /* Inline-flex, not the button default: with an icon beside the label the
+       inline line box exceeds a fixed height utility and the text spills out
+       of the pill. */
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     background-color: var(--action);
     color: var(--action-fg);
     border-radius: var(--radius-button);

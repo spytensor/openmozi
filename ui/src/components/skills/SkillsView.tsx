@@ -491,16 +491,17 @@ function groupSkillsByCategory(skills: SkillInfo[]): Array<{ key: CategorySectio
 }
 
 function categoryAccentClass(category: CategorySectionKey): string {
-  // Tinted fill only — a border around an icon tile reads as a frame with a
-  // small glyph rattling inside it (the "empty box" anti-pattern).
+  // The glyph alone, in the category hue. No fill and no border: `docs/DESIGN.md`
+  // allows an icon bare, and at this size a tint reads as a container the icon
+  // has been placed inside — one more box in a view already made of cards.
   const classes: Record<CategorySectionKey, string> = {
-    utility: "bg-selection/10 text-selection",
-    media: "bg-warning/10 text-warning",
-    coding: "bg-success/10 text-success",
-    communication: "bg-error/10 text-error",
-    research: "bg-link/10 text-link",
-    system: "bg-ink/[0.06] text-ink/62",
-    other: "bg-ink/[0.04] text-ink/52",
+    utility: "text-selection",
+    media: "text-warning",
+    coding: "text-success",
+    communication: "text-error",
+    research: "text-link",
+    system: "text-ink/62",
+    other: "text-ink/52",
   };
   return classes[category];
 }
@@ -549,13 +550,13 @@ function SkillIconTile({ skill, size = "md" }: { skill: SkillInfo | SkillDetail;
     <div
       data-testid={`skill-icon-${iconKey}`}
       className={cn(
-        "flex flex-shrink-0 items-center justify-center rounded-md",
+        "flex flex-shrink-0 items-center justify-center",
         categoryAccentClass(category),
-        size === "lg" ? "h-12 w-12 text-[24px]" : "h-11 w-11 text-[22px]",
+        size === "lg" ? "h-12 w-12" : "h-11 w-11",
       )}
       aria-hidden="true"
     >
-      <Icon className={size === "lg" ? "h-6 w-6" : "h-5 w-5"} strokeWidth={2} />
+      <Icon className={size === "lg" ? "h-7 w-7" : "h-6 w-6"} strokeWidth={1.75} />
     </div>
   );
 }

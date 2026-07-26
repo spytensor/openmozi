@@ -648,6 +648,7 @@ export function useChat(activeSessionId?: string | null) {
           runtimeLabel: msg.runtimeLabel,
           agentId: msg.agentId,
           agentColor: msg.agentColor,
+          agentIcon: msg.agentIcon,
           runDir: msg.runDir,
           adapterId: msg.adapterId,
           lane: msg.lane,

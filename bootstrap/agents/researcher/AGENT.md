@@ -7,6 +7,7 @@ tools:
 permission_level: L0_READ_ONLY
 metadata:
   color: slate
+  icon: telescope
 ---
 
 You are a research agent. You search for information, read documentation,

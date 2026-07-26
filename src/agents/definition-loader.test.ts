@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -8,7 +8,9 @@ import {
   formatAgentDefinitionsCommandOutput,
   hasReadyAgentDefinitionSync,
   parseAgentDefinition,
+  serializeAgentDefinition,
   setAgentDefinitionState,
+  updateAgentDefinition,
 } from './definition-loader.js';
 
 let root = '';
@@ -137,6 +139,44 @@ describe('agent definition loader', () => {
     expect(await discoverAgentDefinitions(paths)).toHaveLength(2);
   });
 
+  it('forks a bundled definition into the workspace when it is edited', async () => {
+    // The shipped presets are bundled, so a read-only rule made them permanently
+    // uneditable — you could not rename one or change its tools. Editing now
+    // writes a workspace copy, which discovery already shadows the bundled one
+    // with; the install tree stays untouched (read-only in a packaged app).
+    const paths = { bundledDir, workspaceDir, bundledSkillsDir, workspaceSkillsDir };
+    writeDefinition(bundledDir, 'preset', agent('preset'));
+    clearAgentDefinitionCache();
+
+    const forked = await updateAgentDefinition('bundled:preset', {
+      name: 'preset', description: 'edited description', persona: 'Edited persona.', tools: ['git'],
+    }, paths);
+
+    expect(forked.source).toBe('workspace');
+    expect(forked.description).toBe('edited description');
+    expect(forked.tools).toEqual(['git']);
+
+    clearAgentDefinitionCache();
+    const preset = (await discoverAgentDefinitions(paths)).filter(a => a.name === 'preset');
+    expect(preset).toHaveLength(1);
+    expect(preset[0]).toMatchObject({ source: 'workspace', description: 'edited description' });
+    expect(readFileSync(join(bundledDir, 'preset', 'AGENT.md'), 'utf-8')).toBe(agent('preset'));
+  });
+
+  it('renames a workspace definition and moves its directory', async () => {
+    const paths = { bundledDir, workspaceDir, bundledSkillsDir, workspaceSkillsDir };
+    writeDefinition(workspaceDir, 'old-name', agent('old-name'));
+    clearAgentDefinitionCache();
+
+    const renamed = await updateAgentDefinition('workspace:old-name', {
+      name: 'new-name', description: 'still here', persona: 'Body.',
+    }, paths);
+
+    expect(renamed.name).toBe('new-name');
+    expect(existsSync(join(workspaceDir, 'new-name', 'AGENT.md'))).toBe(true);
+    expect(existsSync(join(workspaceDir, 'old-name'))).toBe(false);
+  });
+
   it('rejects state toggles on bundled definitions instead of writing into the bundled tree', async () => {
     const paths = { bundledDir, workspaceDir, bundledSkillsDir, workspaceSkillsDir };
     writeDefinition(bundledDir, 'preset', agent('preset'));
@@ -156,3 +196,44 @@ describe('agent definition loader', () => {
     expect(await discoverAgentDefinitions(paths)).toHaveLength(2);
   });
 });
+
+describe('AGENT.md icon', () => {
+  it('round-trips through serialize and parse alongside color', () => {
+    const text = serializeAgentDefinition({
+      name: 'scout',
+      description: 'Finds things',
+      skills: [],
+      persona: 'You scout.',
+      color: 'jade',
+      icon: 'radar',
+    });
+    const parsed = parseAgentDefinition(text);
+    expect(parsed.frontmatter.metadata).toEqual({ color: 'jade', icon: 'radar' });
+  });
+
+  it('carries an icon with no color, and a color with no icon', () => {
+    const iconOnly = parseAgentDefinition(serializeAgentDefinition({
+      name: 'icon-only', description: 'd', skills: [], persona: 'p', icon: 'beaker',
+    }));
+    expect(iconOnly.frontmatter.metadata).toEqual({ icon: 'beaker' });
+
+    const colorOnly = parseAgentDefinition(serializeAgentDefinition({
+      name: 'color-only', description: 'd', skills: [], persona: 'p', color: 'slate',
+    }));
+    expect(colorOnly.frontmatter.metadata).toEqual({ color: 'slate' });
+  });
+
+  it('rejects a blank icon but accepts a name the UI does not know', () => {
+    expect(() => parseAgentDefinition(
+      '---\nname: blank-icon\ndescription: d\nskills: []\nmetadata:\n  icon: "   "\n---\n\np\n',
+    )).toThrow(/metadata.icon/);
+
+    // The runtime does not own the icon vocabulary. Failing to load an agent
+    // because a UI-side name went stale would be worse than a fallback glyph.
+    const unknown = parseAgentDefinition(
+      '---\nname: blank-icon\ndescription: d\nskills: []\nmetadata:\n  icon: not-a-real-icon\n---\n\np\n',
+    );
+    expect(unknown.frontmatter.metadata?.icon).toBe('not-a-real-icon');
+  });
+});
+

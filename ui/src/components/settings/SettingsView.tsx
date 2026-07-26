@@ -76,6 +76,7 @@ import {
 } from "@/lib/model-catalog";
 import { cn } from "@/lib/utils";
 import MemoryPanel from "@/components/memory/MemoryPanel";
+import McpPanel from "@/components/settings/McpPanel";
 
 interface ApiKeyEntry {
   provider: string;
@@ -143,7 +144,7 @@ interface CodingWorkersResponse {
   config: { routing: CodingWorkerRouting; available: CodingWorkerId[] };
 }
 
-type Category = "general" | "models" | "providers" | "memory" | "appearance" | "diagnostics" | "about";
+type Category = "general" | "models" | "providers" | "memory" | "mcp" | "appearance" | "diagnostics" | "about";
 
 interface SettingsViewProps {
   initialCategory?: Category;
@@ -721,6 +722,7 @@ export default function SettingsView({
     { key: "models", label: t("settings.nav.models"), icon: Brain },
     { key: "providers", label: t("settings.nav.providers"), icon: KeyRound },
     { key: "memory", label: t("settings.nav.memory"), icon: Database },
+    { key: "mcp", label: t("settings.nav.mcp"), icon: Plug },
     { key: "appearance", label: t("settings.nav.appearance"), icon: Palette },
     { key: "diagnostics", label: t("settings.nav.diagnostics"), icon: Server },
     { key: "about", label: t("settings.nav.about"), icon: Info },
@@ -1189,6 +1191,12 @@ export default function SettingsView({
           )}
 
           {category === "memory" && <MemoryPanel />}
+
+          {category === "mcp" && (
+            <SettingsGroup icon={Plug} title={t("settings.nav.mcp")} description={t("settings.mcp.description")}>
+              <McpPanel />
+            </SettingsGroup>
+          )}
 
           {category === "appearance" && (
             <>

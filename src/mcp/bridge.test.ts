@@ -1,11 +1,40 @@
 import { describe, it, expect } from 'vitest';
-import { createMCPBridge } from './bridge.js';
+import { createMCPBridge, buildServerEnv } from './bridge.js';
+
+describe('buildServerEnv', () => {
+  const parent = {
+    PATH: '/usr/bin',
+    HOME: '/home/me',
+    ANTHROPIC_API_KEY: 'sk-secret',
+    MOZI_MASTER_KEY: 'master-secret',
+    JWT_SECRET: 'jwt-secret',
+  } as NodeJS.ProcessEnv;
+
+  it('does not leak MOZI credentials into a third-party server process', () => {
+    const env = buildServerEnv(undefined, parent);
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.MOZI_MASTER_KEY).toBeUndefined();
+    expect(env.JWT_SECRET).toBeUndefined();
+  });
+
+  it('passes through the minimum a process needs to run', () => {
+    const env = buildServerEnv(undefined, parent);
+    expect(env.PATH).toBe('/usr/bin');
+    expect(env.HOME).toBe('/home/me');
+  });
+
+  it('passes declared variables and lets them win', () => {
+    const env = buildServerEnv({ GITHUB_TOKEN: 'ghp_x', PATH: '/custom/bin' }, parent);
+    expect(env.GITHUB_TOKEN).toBe('ghp_x');
+    expect(env.PATH).toBe('/custom/bin');
+  });
+});
 
 describe('MCPBridge', () => {
   it('returns empty tools when no servers configured', async () => {
     const bridge = createMCPBridge({ servers: {} });
     await bridge.start();
-    expect(bridge.getTools()).toEqual({});
+    expect(bridge.listTools()).toEqual([]);
     expect(bridge.listServers()).toEqual([]);
     await bridge.shutdown();
   });
@@ -51,7 +80,7 @@ describe('MCPBridge', () => {
 
     await bridge.start();
     expect(bridge.listServers()).toEqual([]);
-    expect(bridge.getTools()).toEqual({});
+    expect(bridge.listTools()).toEqual([]);
     await bridge.shutdown();
   });
 
@@ -60,6 +89,6 @@ describe('MCPBridge', () => {
     await bridge.start();
     await bridge.shutdown();
     await bridge.shutdown(); // Should not throw
-    expect(bridge.getTools()).toEqual({});
+    expect(bridge.listTools()).toEqual([]);
   });
 });

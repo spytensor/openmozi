@@ -12,6 +12,8 @@ import { ALL_TOOLS } from './definitions.js';
 import { isCodingWorkerConfigured } from './delegation-tools.js';
 import { isAnySearchProviderConfigured } from '../core/service-providers.js';
 import { hasReadyAgentDefinitionSync } from '../agents/definition-loader.js';
+import { getMcpToolDefinitions } from '../mcp/tool-adapter.js';
+import { isMcpToolName } from '../mcp/naming.js';
 
 const logger = pino({ name: 'mozi:tools:dynamic-registry' });
 const execFileAsync = promisify(execFile);
@@ -181,6 +183,14 @@ function ensureNoBuiltInConflict(name: string): void {
   const builtInNames = new Set(ALL_TOOLS.map(t => t.function.name));
   if (builtInNames.has(name)) {
     throw new Error(`Tool name "${name}" conflicts with a built-in tool.`);
+  }
+  // The `mcp_` prefix is reserved. `TOOL_NAME_PATTERN` allows it, and a dynamic
+  // tool that took an MCP tool's name would be the one that executes (dispatch
+  // reaches dynamic tools before MCP) while `getToolPermission` still resolved
+  // the MCP entry — so a script could run under an MCP server's declared level
+  // instead of the `shell/execute` a script requires.
+  if (isMcpToolName(name)) {
+    throw new Error(`Tool name "${name}" uses the reserved MCP prefix.`);
   }
 }
 
@@ -571,6 +581,13 @@ export function loadDynamicToolsFromDb(tenantId?: string): void {
     try {
       const tool = hydrateDynamicTool(row);
       if (tool.status === 'deprecated') continue;
+      // Registration rejects the reserved prefix, but rows written before that
+      // check existed would otherwise still hydrate and shadow an MCP tool's
+      // permission lookup.
+      if (isMcpToolName(tool.name)) {
+        logger.warn({ tool: tool.name }, 'Skipping dynamic tool using the reserved MCP prefix');
+        continue;
+      }
       dynamicRegistry.set(registryKey(effectiveTenantId, tool.name), tool);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -580,8 +597,20 @@ export function loadDynamicToolsFromDb(tenantId?: string): void {
 }
 
 /**
- * Merge built-in and dynamic tool definitions.
+ * Merge built-in, dynamic and MCP tool definitions.
+ *
+ * MCP tools come from the turn snapshot, not live bridge state, so repeated
+ * calls within one turn return an identical set. A built-in or dynamic tool
+ * always wins a name collision — an MCP server must never be able to shadow
+ * `shell_exec`.
  */
 export function getAllRegisteredTools(tenantId?: string): ToolDefinition[] {
-  return [...getEnabledBuiltInTools(), ...getDynamicTools(tenantId)];
+  const local = [...getEnabledBuiltInTools(), ...getDynamicTools(tenantId)];
+  const taken = new Set(local.map(tool => tool.function.name));
+  const mcp = getMcpToolDefinitions().filter(tool => {
+    if (!taken.has(tool.function.name)) return true;
+    logger.warn({ tool: tool.function.name }, 'MCP tool name collides with a local tool — not exposed');
+    return false;
+  });
+  return [...local, ...mcp];
 }

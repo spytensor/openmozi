@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findPublicExportViolations } from './verify-public-export.mjs';
+import { findCommitMessageViolations, findPublicExportViolations } from './verify-public-export.mjs';
 
 describe('verify-public-export', () => {
   it('blocks private paths, runtime data, and internal project names', () => {
@@ -93,6 +93,24 @@ describe('verify-public-export', () => {
       ['dist/CHANGELOG.md'],
       () => '## [v1.1.0]\n\nAdds user-defined agents and Azure OpenAI support.\n',
     )).toEqual([]);
+  });
+
+  it('scans commit messages, which are published as loudly as file contents', () => {
+    // The real incident: the export tooling generated exactly this subject and
+    // nothing checked it, because the gate only ever read tracked files.
+    const upstreamWord = ['inter', 'nal'].join('');
+    const product = ['MO', 'ZI'].join('');
+    expect(findCommitMessageViolations([
+      { sha: 'deadbeef', message: `sync: mirror ${upstreamWord} ${product} v2.15.0 (854ec4a0)\n` },
+    ])).toEqual([
+      'commit deadbeef: upstream tree reference in commit message',
+      'commit deadbeef: upstream mirror wording in commit message',
+      'commit deadbeef: upstream version reference in commit message',
+    ]);
+
+    expect(findCommitMessageViolations([
+      { sha: 'cafe1234', message: 'sync: update public tree for v1.1.0\n\nAdds Azure OpenAI support.\n' },
+    ])).toEqual([]);
   });
 
   it('rejects the private repository in its SSH and API forms, not just as an https URL', () => {

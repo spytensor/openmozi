@@ -114,6 +114,7 @@ export interface TaskUpdate {
   runtimeLabel?: string;
   agentId?: string;
   agentColor?: string;
+  agentIcon?: string;
   runDir?: string;
   adapterId?: string;
   lane?: string;
@@ -239,7 +240,7 @@ export type WSInboundMessage =
   | { type: "stream_end"; requestId: string; content: string; turnId?: string; seq?: number; sessionId?: string }
   | { type: "tool_event"; phase: "start" | "end"; tool: string; status?: string; intent?: string; result?: string; sources?: ToolSourceRef[]; error?: string; elapsed_ms?: number; callId: string; taskId?: string; turnId?: string; seq?: number; agentId?: string; skillName?: string; skillDescription?: string; skillLoadOutcome?: "success" | "not_found" | "ineligible"; skillMissingBins?: string[]; skillMissingEnv?: string[]; skillLoadError?: string; timestamp?: number; sessionId?: string }
   | { type: "task_update"; task_id: string; parentTaskId?: string; rawStatus?: string; title: string; status: string; progress?: number; detail?: string; turnId?: string; seq?: number; timestamp?: number }
-  | { type: "task_progress"; task_id: string; parentTaskId?: string; jobId?: string; adapterId?: string; runtimeLabel?: string; agentId?: string; agentColor?: string; runDir?: string; rawStatus?: string; status: string; userStatus?: string; title: string; detail?: string; progress?: number; turnId?: string; seq?: number; lane?: string; sandboxProfile?: string; heartbeat?: boolean; elapsed_ms?: number; timestamp?: number; sessionId?: string }
+  | { type: "task_progress"; task_id: string; parentTaskId?: string; jobId?: string; adapterId?: string; runtimeLabel?: string; agentId?: string; agentColor?: string; agentIcon?: string; runDir?: string; rawStatus?: string; status: string; userStatus?: string; title: string; detail?: string; progress?: number; turnId?: string; seq?: number; lane?: string; sandboxProfile?: string; heartbeat?: boolean; elapsed_ms?: number; timestamp?: number; sessionId?: string }
   | { type: "plan_started"; plan_id: string; goal: string; phases: Array<{ taskId: string; title: string; dependsOn: string[] }>; locale?: string; turnId?: string; seq?: number; timestamp?: number; sessionId?: string }
   | { type: "approval_request"; id: string; description: string; action?: string; sessionId?: string; turnId?: string; seq?: number; required_level?: string; current_level?: string; denied_action?: string; tool?: string; tool_intent?: string; originating_prompt?: string; grant_scope?: "once" | "session" }
   | { type: "approval_resolved"; id: string; status: "approved" | "rejected"; action?: string; description?: string; sessionId?: string; turnId?: string; seq?: number; permission_level?: string; required_level?: string; current_level?: string; denied_action?: string; tool?: string; tool_intent?: string; originating_prompt?: string; grant_scope?: "once" | "session" }

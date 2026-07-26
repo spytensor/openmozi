@@ -117,14 +117,14 @@ export async function cmdMCPTest(id: string): Promise<void> {
       process.exit(1);
     }
 
-    const tools = bridge.getTools();
-    const toolNames = Object.keys(tools);
+    const tools = bridge.listTools();
 
-    console.log(`  ✅ Connected (${toolNames.length} tools):`);
-    for (const name of toolNames) {
-      // Strip the mcp_{id}_ prefix for display
-      const shortName = name.replace(`mcp_${id}_`, '');
-      console.log(`     - ${shortName}`);
+    console.log(`  ✅ Connected (${tools.length} tools):`);
+    for (const tool of tools) {
+      // Show the server's own name alongside the name the model will see, so
+      // an operator can match a sanitised name back to the server's docs.
+      const exposed = tool.name === `mcp_${id}_${tool.remoteName}` ? '' : `  → ${tool.name}`;
+      console.log(`     - ${tool.remoteName}${exposed}`);
     }
     console.log('');
 

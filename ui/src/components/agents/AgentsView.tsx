@@ -15,7 +15,8 @@ import { useApi } from "@/hooks/useApi";
 import { useModelState } from "@/hooks/useModelState";
 import type { AgentDetail, AgentInfo, SkillInfo } from "@/types/management";
 import type { CatalogModel, CatalogProvider } from "@/lib/model-catalog";
-import { AGENT_COLOR_IDS, agentAvatarColor, agentInitial } from "@/lib/agent-colors";
+import { AGENT_COLOR_IDS, agentAvatarColor, agentAvatarStyle, agentSwatchStyle } from "@/lib/agent-colors";
+import { AGENT_ICON_IDS, agentIcon } from "@/lib/agent-icons";
 
 type StatusFilter = "all" | AgentInfo["status"];
 type PermissionLevel = NonNullable<AgentDetail["permission_level"]>;
@@ -29,6 +30,7 @@ interface AgentForm {
   tools: string[];
   permission_level: PermissionLevel;
   color: string;
+  icon: string;
 }
 
 const EMPTY_FORM: AgentForm = {
@@ -40,9 +42,21 @@ const EMPTY_FORM: AgentForm = {
   tools: [],
   permission_level: "L0_READ_ONLY",
   color: "ochre",
+  icon: "bot",
 };
 
 const COLORS = AGENT_COLOR_IDS.map(id => ({ id, value: agentAvatarColor(id) }));
+
+// Mirrors TOOL_GROUPS in src/agents/delegate-runner.ts — the groups the isolated
+// run actually understands. Leaving the selection empty inherits the default
+// (filesystem + shell), which is what an AGENT.md without a `tools:` key gets.
+const TOOL_GROUPS = [
+  { id: "filesystem", label: "Files", hint: "read / write / edit / list" },
+  { id: "shell", label: "Shell", hint: "run commands, manage processes" },
+  { id: "git", label: "Git", hint: "status / diff / log / commit" },
+  { id: "network", label: "Web", hint: "search and fetch" },
+] as const;
+const DEFAULT_TOOL_GROUPS = ["filesystem", "shell"];
 
 function modelParts(value: string): { provider: string; model: string } {
   const separator = value.indexOf("/");
@@ -61,6 +75,7 @@ function formFromDetail(detail: AgentDetail): AgentForm {
     tools: detail.tools ?? [],
     permission_level: detail.permission_level ?? "L0_READ_ONLY",
     color: detail.color ?? "ochre",
+    icon: detail.icon ?? "bot",
   };
 }
 
@@ -242,10 +257,13 @@ export default function AgentsView() {
               onClick={() => openAgent(agent)}
             >
               <div
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[14px] font-semibold"
-                style={{ background: agentAvatarColor(agent.color), color: "var(--agent-fg)" }}
+                className="flex h-10 w-10 shrink-0 items-center justify-center"
+                style={agentAvatarStyle(agent.color)}
               >
-                {agentInitial(agent.name)}
+                {(() => {
+                  const Glyph = agentIcon(agent.icon, agent.name);
+                  return <Glyph className="h-5 w-5" strokeWidth={1.75} />;
+                })()}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -337,11 +355,15 @@ function AgentDrawer({
   onClose: () => void;
   onSave: () => void;
 }) {
-  const readOnly = detail?.source === "bundled";
+  // Editing a bundled preset is allowed: saving forks it into the workspace,
+  // where a definition of the same name shadows the bundled one. Nothing in the
+  // install tree is written.
+  const forksOnSave = detail?.source === "bundled";
+  const readOnly = false;
   const selected = modelParts(form.model);
   const set = <K extends keyof AgentForm>(key: K, value: AgentForm[K]) => onChange({ ...form, [key]: value });
   const selectModel = (provider: CatalogProvider, model: CatalogModel) => set("model", `${provider.id}/${model.id}`);
-  const canSave = form.name.trim() && form.description.trim() && !saving && !readOnly
+  const canSave = form.name.trim() && form.description.trim() && !saving
     && !loading && (mode === "create" || detail !== null);
 
   return (
@@ -353,7 +375,9 @@ function AgentDrawer({
               {mode === "create" ? "Create agent" : detail?.name ?? "Agent details"}
             </h2>
             <p className="mt-1 text-[12px] text-ink/42">
-              {readOnly ? "Bundled agents are read-only." : "Saved as workspace/agents/<name>/AGENT.md."}
+              {forksOnSave
+                ? "Built-in agent — saving keeps your edits as your own copy, which takes over from the original."
+                : "Saved as workspace/agents/<name>/AGENT.md."}
             </p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-md text-ink/45 hover:bg-ink/[0.06]">
@@ -453,6 +477,37 @@ function AgentDrawer({
                 )}
               </Field>
 
+              <Field label="Tools">
+                <div className="flex flex-wrap gap-2">
+                  {TOOL_GROUPS.map(group => {
+                    const checked = form.tools.includes(group.id);
+                    return (
+                      <label
+                        key={group.id}
+                        title={group.hint}
+                        className="flex cursor-pointer items-center gap-2 rounded-md border border-ink/[0.08] px-2 py-1.5 text-[11.5px] text-ink/55"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={readOnly}
+                          onChange={() => set("tools", checked
+                            ? form.tools.filter(name => name !== group.id)
+                            : [...form.tools, group.id])}
+                          className="h-3.5 w-3.5 accent-[var(--action)]"
+                        />
+                        {group.label}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="mt-1.5 text-[11px] text-ink/35">
+                  {form.tools.length === 0
+                    ? `Nothing selected — this agent gets the default (${DEFAULT_TOOL_GROUPS.join(" + ")}).`
+                    : "Delegation tools are always withheld, so an agent cannot re-delegate."}
+                </p>
+              </Field>
+
               <Field label="Color">
                 <div className="flex items-center gap-2">
                   {COLORS.map(color => (
@@ -470,6 +525,37 @@ function AgentDrawer({
                     />
                   ))}
                 </div>
+              </Field>
+
+              <Field label="Icon">
+                <div className="flex flex-wrap gap-1.5">
+                  {AGENT_ICON_IDS.map(id => {
+                    const Glyph = agentIcon(id, id);
+                    const selected = form.icon === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        disabled={readOnly}
+                        onClick={() => set("icon", id)}
+                        aria-label={id}
+                        aria-pressed={selected}
+                        title={id}
+                        className="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+                        style={
+                          selected
+                            ? agentSwatchStyle(form.color)
+                            : { color: "var(--text-muted)", background: "transparent" }
+                        }
+                      >
+                        <Glyph className="h-4 w-4" strokeWidth={1.75} />
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1.5 text-[11px] text-ink/35">
+                  Shown wherever this agent appears — the roster, the @ menu, and its delegation cards.
+                </p>
               </Field>
 
               <Field label="Persona">

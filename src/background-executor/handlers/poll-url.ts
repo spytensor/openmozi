@@ -35,6 +35,16 @@ export async function pollUrlHandler(task: BackgroundTask, signal: AbortSignal):
     throw new Error('poll_url handler requires "url" parameter');
   }
 
+  // The URL comes from task params, i.e. ultimately from the model. Checked
+  // once here rather than per poll: this handler hits the same URL up to a
+  // thousand times, so an unchecked target is a private-network scanner that
+  // outlives the turn that created it.
+  const { checkSSRF } = await import('../../security/ssrf-guard.js');
+  const verdict = await checkSSRF(url);
+  if (!verdict.safe) {
+    throw new Error(`poll_url target blocked by SSRF protection — ${verdict.reason}`);
+  }
+
   const method = (params.method ?? 'GET').toUpperCase();
   const headers = params.headers ?? {};
   const expectedStatus = params.expected_status ?? 200;

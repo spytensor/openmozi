@@ -3,7 +3,6 @@ import type * as React from "react";
 import type { ChangeEvent, ClipboardEvent, ComponentType, CSSProperties, KeyboardEvent } from "react";
 import {
   ArrowUp,
-  AtSign,
   ChevronDown,
   ChevronRight,
   Check,
@@ -40,7 +39,8 @@ import {
 } from "@/lib/runtime-display";
 import { cn } from "@/lib/utils";
 import { useLocale, type MessageKey } from "@/i18n";
-import { agentAvatarColor, agentInitial } from "@/lib/agent-colors";
+import { agentAvatarStyle } from "@/lib/agent-colors";
+import { agentIcon } from "@/lib/agent-icons";
 import { useApi } from "@/hooks/useApi";
 
 interface InputBarProps {
@@ -89,6 +89,7 @@ interface MentionAgent {
   name: string;
   description: string;
   color: string | null;
+  icon: string | null;
   status: string;
   enabled: boolean;
 }
@@ -581,22 +582,6 @@ export default function InputBar({
     });
   };
 
-  const insertMentionTrigger = () => {
-    if (disabled || readyAgents.length === 0) return;
-    const textarea = inputRef.current;
-    const start = textarea?.selectionStart ?? text.length;
-    const end = textarea?.selectionEnd ?? start;
-    const prefix = start > 0 && !/\s/.test(text[start - 1] ?? "") ? " " : "";
-    const inserted = `${prefix}@`;
-    const next = text.slice(0, start) + inserted + text.slice(end);
-    const caret = start + inserted.length;
-    setText(next);
-    updateMentionQuery(next, caret);
-    requestAnimationFrame(() => {
-      textarea?.focus();
-      textarea?.setSelectionRange(caret, caret);
-    });
-  };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionQuery !== null && filteredAgents.length > 0) {
@@ -740,10 +725,13 @@ export default function InputBar({
               )}
             >
               <span
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold"
-                style={{ background: agentAvatarColor(agent.color), color: "var(--agent-fg)" }}
+                className="flex h-7 w-7 shrink-0 items-center justify-center"
+                style={agentAvatarStyle(agent.color)}
               >
-                {agentInitial(agent.name)}
+                {(() => {
+                  const Glyph = agentIcon(agent.icon, agent.name);
+                  return <Glyph className="h-4 w-4" strokeWidth={1.75} />;
+                })()}
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-[12.5px] font-medium text-ink/82">{agent.name}</span>
@@ -919,11 +907,6 @@ export default function InputBar({
                   {isEmptyVariant && <span>{t("composer.add")}</span>}
                 </button>
               </>
-            )}
-            {mentionControlsEnabled && (
-              <IconButton title={t("composer.mention")} onClick={insertMentionTrigger}>
-                <AtSign className="h-3.5 w-3.5" />
-              </IconButton>
             )}
           </div>
 

@@ -169,6 +169,7 @@ export type WsOutgoingMessage =
       runtimeLabel?: string;
       agentId?: string;
       agentColor?: string;
+      agentIcon?: string;
       runDir?: string;
       rawStatus?: string;
       status: 'pending' | 'running' | 'completed' | 'failed';
@@ -1211,6 +1212,7 @@ export function buildWorkerTaskProgressMessage(
     runtimeLabel: event.runtimeLabel,
     agentId: event.agentId,
     agentColor: event.agentColor,
+    agentIcon: event.agentIcon,
     runDir: event.runDir,
     rawStatus: event.workerStatus,
     status: mapped.status,
@@ -1346,6 +1348,7 @@ function persistTaskProgressTimeline(
       runtimeLabel: msg.runtimeLabel,
       agentId: msg.agentId,
       agentColor: msg.agentColor,
+      agentIcon: msg.agentIcon,
       runDir: msg.runDir,
       adapterId: msg.adapterId,
       lane: msg.lane,

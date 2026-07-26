@@ -319,6 +319,7 @@ export async function delegateToAgent(input: DelegateAgentRunInput): Promise<Age
       type: 'worker_status',
       agentId: definition?.name ?? input.agent,
       agentColor: definition?.color,
+      agentIcon: definition?.icon,
       runtimeLabel: definition?.name ?? input.agent,
       workerStatus,
       heartbeat,

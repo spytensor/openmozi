@@ -3,237 +3,191 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ScheduledView from "./ScheduledView";
 
 function jsonResponse(body: unknown, ok = true, status = 200) {
-  return {
-    ok,
-    status,
-    json: () => Promise.resolve(body),
-  } as Response;
+  return { ok, status, json: () => Promise.resolve(body) } as Response;
+}
+
+const PROMPT_ITEM = {
+  id: "task:task-ok",
+  kind: "prompt",
+  body: "Morning review",
+  schedule: { kind: "cron", value: "30 6 * * *" },
+  status: "ok",
+  nextRunAt: "2026-07-04T06:30:00.000Z",
+  runCount: 3,
+  permissionLevel: "L2_SHELL_EXEC",
+  canPause: true,
+  canRunNow: true,
+  runs: [{
+    id: "run-1",
+    session_id: "session-run-1",
+    scheduled_for: "2026-07-03T06:30:00.000Z",
+    trigger_origin: "schedule",
+    status: "completed",
+    started_at: "2026-07-03T06:30:00.000Z",
+    completed_at: "2026-07-03T06:31:05.000Z",
+  }],
+};
+
+const FAILED_ITEM = {
+  id: "task:task-failed",
+  kind: "prompt",
+  body: "Sync digest",
+  schedule: { kind: "cron", value: "15 15 * * 1-5" },
+  status: "failed",
+  nextRunAt: "2026-07-05T09:00:00.000Z",
+  runCount: 1,
+  error: "Token expired",
+  canPause: true,
+  canRunNow: true,
+};
+
+const REMINDER_ITEM = {
+  id: "reminder:7",
+  kind: "reminder",
+  body: "Stand up",
+  schedule: { kind: "at", value: "2026-07-05T09:00:00.000Z" },
+  status: "scheduled",
+  nextRunAt: "2026-07-05T09:00:00.000Z",
+  runCount: 0,
+  permissionLevel: null,
+  canPause: false,
+  canRunNow: false,
+};
+
+function stubItems(items: unknown[]) {
+  vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({ items }))));
 }
 
 describe("ScheduledView", () => {
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse({
-      tasks: [
-        {
-          id: "task-ok",
-          description: "Morning review",
-          schedule_kind: "cron",
-          schedule_value: "30 6 * * *",
-          handler_type: "daily_summary",
-          next_run_at: "2026-07-04T06:30:00.000Z",
-          last_status: "ok",
-          enabled: 1,
-          permission_level: "L2_SHELL_EXEC",
-          runs: [{
-            id: "run-1", session_id: "session-run-1", scheduled_for: "2026-07-03T06:30:00.000Z",
-            trigger_origin: "schedule", status: "completed", started_at: "2026-07-03T06:30:00.000Z",
-            completed_at: "2026-07-03T06:31:05.000Z",
-          }],
-        },
-        {
-          id: "task-failed",
-          name: "Sync digest",
-          next_run_at: "2026-07-05T09:00:00.000Z",
-          last_status: "failed",
-          last_error: "Token expired",
-        },
-      ],
-    }))));
-  });
+  beforeEach(() => stubItems([PROMPT_ITEM, FAILED_ITEM, REMINDER_ITEM]));
+  afterEach(() => vi.unstubAllGlobals());
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("lists scheduled tasks from the scheduler endpoint", async () => {
-    const onOpenSession = vi.fn();
-    renderWithLocale(<ScheduledView onOpenSession={onOpenSession} />);
-
+  it("lists prompts and reminders together, from one endpoint", async () => {
+    renderWithLocale(<ScheduledView />);
     expect(await screen.findByText("Morning review")).toBeInTheDocument();
     expect(screen.getByText("Sync digest")).toBeInTheDocument();
-    expect(screen.getAllByText("OK").length).toBeGreaterThan(0);
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByText("Token expired")).toBeInTheDocument();
-    expect(screen.getByText("Permission level: L2_SHELL_EXEC")).toBeInTheDocument();
-    expect(screen.getAllByText("Next run").length).toBeGreaterThan(0);
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/scheduler/tasks",
-      expect.objectContaining({ method: "GET", credentials: "include" }),
-    );
+    // A reminder is a row in the same list, not a separate section with its own
+    // form bolted underneath.
+    expect(screen.getByText("Stand up")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(4));
-    expect(screen.getByText("cron: 30 6 * * * · daily_summary")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByText("Run history")[0]);
-    fireEvent.click(screen.getByRole("link", { name: /Scheduled.*OK.*1m 5s/ }));
-    expect(onOpenSession).toHaveBeenCalledWith("session-run-1");
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(call => String(call[0]));
+    expect(calls.some(url => url.includes("/api/scheduler/items"))).toBe(true);
+    expect(calls.some(url => url.includes("/api/scheduler/reminders"))).toBe(false);
   });
 
-  it("uses semantic dot tokens and opens the active run session", async () => {
-    vi.mocked(fetch).mockImplementation((input) => Promise.resolve(jsonResponse(
-      String(input).includes("/reminders") ? { reminders: [] } : { tasks: [
-        { id: "active", description: "Active", enabled: 1, last_status: "running", runs: [
-          { id: "run-active", session_id: "session-live", scheduled_for: "2026-07-22T08:00:00Z", status: "running" },
-        ] },
-        { id: "success", description: "Success", enabled: 1, last_status: "completed", runs: [] },
-        { id: "failure", description: "Failure", enabled: 1, last_status: "failed", runs: [] },
-      ] },
-    )));
-    const onOpenSession = vi.fn();
-    renderWithLocale(<ScheduledView onOpenSession={onOpenSession} />);
-
-    const activeDot = await screen.findByTestId("task-status-dot-active");
-    expect(activeDot).toHaveClass("bg-activity", "pulse-dot");
-    expect(screen.getByTestId("task-status-dot-success")).toHaveStyle({ background: "var(--success)" });
-    expect(screen.getByTestId("task-status-dot-failure")).toHaveStyle({ background: "var(--danger)" });
-    const liveLink = screen.getByTitle("View live execution");
-    expect(liveLink).toHaveAttribute("href", "#/session/session-live");
-    expect(liveLink).toHaveTextContent("Running · View live");
-    expect(liveLink).toHaveClass("text-activity", "underline", "underline-offset-2");
-    expect(liveLink.querySelector("svg")).toBeInTheDocument();
-    fireEvent.click(liveLink);
-    expect(onOpenSession).toHaveBeenCalledWith("session-live");
-  });
-
-  it("renders run history origins, duration, navigation, and its quiet empty state", async () => {
-    vi.mocked(fetch).mockImplementation((input) => Promise.resolve(jsonResponse(
-      String(input).includes("/reminders") ? { reminders: [] } : { tasks: [
-        { id: "history", description: "History", enabled: 1, last_status: "completed", runs: [
-          {
-            id: "manual", session_id: "session-manual", scheduled_for: "2026-07-22T08:00:00Z",
-            trigger_origin: "manual", status: "completed", started_at: "2026-07-22T08:00:00Z",
-            completed_at: "2026-07-22T08:00:09Z",
-          },
-          {
-            id: "scheduled", session_id: "session-scheduled", scheduled_for: "2026-07-21T08:00:00Z",
-            trigger_origin: "schedule", status: "completed", started_at: "2026-07-21T08:00:00Z",
-            completed_at: "2026-07-21T08:01:02Z",
-          },
-        ] },
-        { id: "empty-history", description: "Empty history", enabled: 1, runs: [] },
-      ] },
-    )));
-    const onOpenSession = vi.fn();
-    renderWithLocale(<ScheduledView onOpenSession={onOpenSession} />);
-
-    const histories = await screen.findAllByText("Run history");
-    fireEvent.click(histories[0]);
-    expect(screen.getByText("Manual")).toBeInTheDocument();
-    expect(screen.getByText("Scheduled")).toBeInTheDocument();
-    expect(screen.getByText("9s")).toBeInTheDocument();
-    expect(screen.getByText("1m 2s")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("link", { name: /Manual.*OK.*9s/ }));
-    expect(onOpenSession).toHaveBeenCalledWith("session-manual");
-
-    fireEvent.click(histories[1]);
-    expect(screen.getByText("No runs yet.")).toHaveClass("text-ink/36");
-  });
-
-  it("pauses and resumes a task through the existing scheduler patch route", async () => {
-    let enabled = 1;
-    vi.mocked(fetch).mockImplementation((input, init) => {
-      const url = String(input);
-      if (init?.method === "PATCH") {
-        enabled = JSON.parse(String(init.body)).enabled ? 1 : 0;
-        return Promise.resolve(jsonResponse({ ok: true }));
-      }
-      if (url.includes("/api/scheduler/reminders")) return Promise.resolve(jsonResponse({ reminders: [] }));
-      return Promise.resolve(jsonResponse({ tasks: [{
-        id: "task-toggle", description: "Toggle report", enabled,
-        schedule_kind: "every", schedule_value: "60000",
-        next_run_at: enabled ? "2026-07-04T06:30:00.000Z" : null,
-      }] }));
-    });
+  it("describes the schedule in words and keeps runtime identifiers off the card", async () => {
     renderWithLocale(<ScheduledView />);
-
-    fireEvent.click(await screen.findByTitle("Pause schedule"));
-    expect(await screen.findByText("Paused")).toBeInTheDocument();
-    expect(screen.getByText("Next run").nextElementSibling).toHaveTextContent("");
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/scheduler/tasks/task-toggle",
-      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ enabled: false }) }),
-    );
-
-    fireEvent.click(screen.getByTitle("Resume schedule"));
-    await waitFor(() => expect(screen.queryByText("Paused")).not.toBeInTheDocument());
+    expect(await screen.findByText("Daily at 06:30")).toBeInTheDocument();
+    expect(screen.getByText("Weekdays at 15:15")).toBeInTheDocument();
+    // The old card led with the raw expression and the internal handler id.
+    expect(screen.queryByText(/cron: 30 6/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/managed_brain|daily_summary/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Permission level:/)).not.toBeInTheDocument();
   });
 
-  it("queues one manual run and disables the action while a run is active", async () => {
-    let active = false;
-    vi.mocked(fetch).mockImplementation((input, init) => {
-      const url = String(input);
-      if (init?.method === "POST" && url.endsWith("/run-now")) {
-        active = true;
-        return Promise.resolve(jsonResponse({ run: { id: "manual-run", trigger_origin: "manual" } }));
-      }
-      if (url.includes("/api/scheduler/reminders")) return Promise.resolve(jsonResponse({ reminders: [] }));
-      return Promise.resolve(jsonResponse({ tasks: [{
-        id: "task-manual", description: "Manual report", enabled: 0,
-        schedule_kind: "every", schedule_value: "60000",
-        last_status: active ? "queued" : "failed",
-        runs: active ? [{ id: "manual-run", scheduled_for: "2026-07-22T08:00:00.000Z", status: "queued" }] : [],
-      }] }));
-    });
+  it("states why the last run failed instead of hiding it behind a markerless disclosure", async () => {
     renderWithLocale(<ScheduledView />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Run once now" }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/api/scheduler/tasks/task-manual/run-now",
-      expect.objectContaining({ method: "POST" }),
-    ));
-    const button = await screen.findByRole("button", { name: "Run once now" });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute("title", "A run is already active");
-    expect(screen.getByText("Paused")).toBeInTheDocument();
+    // Previously this text lived inside a <summary> with `list-none`, so it was
+    // rendered but had no affordance saying it could be opened.
+    expect(await screen.findByText("Token expired")).toBeVisible();
+    expect(screen.getByText("Last run failed")).toBeVisible();
   });
 
-  it("shows a quiet empty state when no tasks are scheduled", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ tasks: [] }));
-
+  it("offers no pause or run-now on a reminder, because neither means anything", async () => {
     renderWithLocale(<ScheduledView />);
-
-    expect(await screen.findByText("No scheduled tasks yet. Try asking MOZI to prepare a morning briefing every day.")).toBeInTheDocument();
+    await screen.findByText("Stand up");
+    // Two prompts carry both controls; the reminder carries neither.
+    expect(screen.getAllByTitle("Run once now")).toHaveLength(2);
+    expect(screen.getAllByTitle("Pause schedule")).toHaveLength(2);
+    expect(screen.getAllByTitle("Delete task")).toHaveLength(3);
   });
 
-  it.each([
-    { locale: "en" as const, label: "Reminded" },
-    { locale: "zh-CN" as const, label: "已提醒" },
-  ])("hides reminder identifiers and humanizes fired status in $locale", async ({ locale, label }) => {
-    const reminderUuid = "8fd7424a-b24f-4cc6-85ea-5c45d6a6dc2d";
-    vi.mocked(fetch).mockImplementation((input) => {
-      const url = String(input);
-      if (url.includes("/api/scheduler/reminders")) {
-        return Promise.resolve(jsonResponse({
-          reminders: [{ id: 1, chat_id: reminderUuid, message: "Stand up", fire_at: "2026-07-04T06:30:00.000Z", fired: 1 }],
-        }));
-      }
-      return Promise.resolve(jsonResponse({ tasks: [] }));
-    });
-
-    renderWithLocale(<ScheduledView />, { locale });
-
-    expect(await screen.findByText(label, {}, { timeout: 1500 })).toBeInTheDocument();
-    expect(screen.queryByText(reminderUuid)).not.toBeInTheDocument();
-  });
-
-  it("creates reminders without a hard-coded chat identity", async () => {
-    vi.mocked(fetch).mockImplementation((input, init) => {
-      const url = String(input);
-      if (init?.method === "POST" && url.includes("/api/scheduler/reminders")) {
-        return Promise.resolve(jsonResponse({ reminder: { id: 2 } }));
-      }
-      return Promise.resolve(jsonResponse(url.includes("/api/scheduler/reminders") ? { reminders: [] } : { tasks: [] }));
-    });
+  it("uses semantic status tokens for the dots", async () => {
     renderWithLocale(<ScheduledView />);
-    fireEvent.change(await screen.findByPlaceholderText("Reminder message"), { target: { value: "Stretch" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add reminder" }));
+    await screen.findByText("Morning review");
+    expect(screen.getByTestId("task-status-dot-task:task-ok")).toHaveStyle({ background: "var(--success)" });
+    expect(screen.getByTestId("task-status-dot-task:task-failed")).toHaveStyle({ background: "var(--danger)" });
+  });
 
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith(
-      "/api/scheduler/reminders",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ message: "Stretch", delayMinutes: 15 }),
-      }),
-    ));
+  it("mutates through the unified item routes", async () => {
+    renderWithLocale(<ScheduledView />);
+    await screen.findByText("Morning review");
+    fireEvent.click(screen.getAllByTitle("Pause schedule")[0]);
+    await waitFor(() => {
+      const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(call => String(call[0]));
+      expect(calls.some(url => url.includes("/api/scheduler/items/task%3Atask-ok"))).toBe(true);
+    });
+  });
+
+  it("teaches with templates when nothing is scheduled, and opens the composer prefilled", async () => {
+    stubItems([]);
+    renderWithLocale(<ScheduledView />);
+    // The empty state used to be one line that explained nothing.
+    expect(await screen.findByText("Weekly repo report")).toBeInTheDocument();
+    expect(screen.getByText("Research digest")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Weekly repo report"));
+    const body = await screen.findByRole("textbox");
+    // A template is a draft to edit, never something that runs on one click.
+    expect((body as HTMLTextAreaElement).value).toContain("merged pull requests");
+  });
+
+  it("still offers templates once the list is no longer empty", async () => {
+    // They used to be gated on an empty list, so they were a first-run tutorial
+    // that vanished the moment you had one task — exactly when "add another"
+    // makes an example most useful. They belong to the act of creating.
+    renderWithLocale(<ScheduledView />);
+    await screen.findByText("Morning review");
+    expect(screen.queryByText("Weekly repo report")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("New"));
+    expect(await screen.findByText("Weekly repo report")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Morning market brief"));
+    const body = await screen.findByRole("textbox");
+    expect((body as HTMLTextAreaElement).value).toContain("yesterday's close");
+    // Once there is something to schedule, the examples get out of the way.
+    expect(screen.queryByText("Weekly repo report")).not.toBeInTheDocument();
+  });
+
+  // NOTE: the Escape half of this is verified in jsdom only. In the packaged app
+  // the automation harness cannot deliver Escape to the renderer at all — the
+  // long-standing handler in SettingsView does not fire under it either — so
+  // this path is unproven on a real keystroke.
+  it("keeps the way out reachable, and takes it on Escape", async () => {
+    // Cancel used to render after the ten example cards, so with a blank body it
+    // sat below the fold — changing your mind meant scrolling past everything to
+    // find the exit.
+    stubItems([]);
+    renderWithLocale(<ScheduledView />);
+    fireEvent.click(await screen.findByText("New"));
+
+    const cancel = await screen.findByText("Cancel");
+    const examples = screen.getByText("Weekly repo report");
+    // Cancel must come before the examples in document order.
+    expect(cancel.compareDocumentPosition(examples) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Dispatch on the field that actually has focus, so this exercises the real
+    // bubbling path. Firing straight at `window` would pass even if something
+    // between the textarea and the listener swallowed the key.
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape", bubbles: true });
+    await waitFor(() => expect(screen.queryByText("Cancel")).not.toBeInTheDocument());
+  });
+
+  it("closes the composer when Cancel is clicked", async () => {
+    stubItems([]);
+    renderWithLocale(<ScheduledView />);
+    fireEvent.click(await screen.findByText("New"));
+    fireEvent.click(await screen.findByText("Cancel"));
+    await waitFor(() => expect(screen.queryByText("Schedule it")).not.toBeInTheDocument());
+  });
+
+  it("opens an empty composer from the header, which the page never had before", async () => {
+    stubItems([]);
+    renderWithLocale(<ScheduledView />);
+    fireEvent.click(await screen.findByText("New"));
+    const body = await screen.findByRole("textbox");
+    expect((body as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByText("Schedule it")).toBeInTheDocument();
   });
 });

@@ -3,6 +3,7 @@ import { getAccessibleChatIdsForUser, getHistory } from '../memory/conversations
 import { getSession, listSessions } from '../memory/sessions.js';
 import { addCronTask, cancelCronTask, isScheduledHandlerType, listCronTaskRuns, listCronTasks, runCronTaskNow, setCronTaskEnabled } from '../scheduler/cron-tasks.js';
 import { addReminder, cancelReminder, listReminders } from '../scheduler/reminders.js';
+import { cronTaskToItem, parseItemId, reminderToItem, sortItems } from './scheduler-items.js';
 
 type TenantContext = { tenant_id: string; user_id: string; roles: string[] };
 
@@ -133,6 +134,144 @@ export function registerSchedulerRoutes(app: FastifyInstance): void {
     const { cascadeCancelCronTask } = await import('../background-executor/runner.js');
     await cascadeCancelCronTask(id, tenantId);
     cancelCronTask(id, tenantId);
+    return reply.send({ ok: true });
+  });
+
+  // ---------------------------------------------------------------------
+  // Unified item surface. One list and one creation path over both stores —
+  // see scheduler-items.ts for why the stores themselves stay separate.
+  // ---------------------------------------------------------------------
+
+  app.get('/api/scheduler/items', async (request, reply) => {
+    const tenant = context(request);
+    const tenantId = tenant?.tenant_id ?? 'default';
+    const tasks = listCronTasks(tenantId)
+      .filter(task => canAccessChat(tenant, task.chat_id))
+      .map(task => ({
+        ...cronTaskToItem(task),
+        runs: listCronTaskRuns(task.tenant_id, task.id).slice(0, 10),
+      }));
+    const reminders = listReminders(tenantId)
+      .filter(reminder => canAccessChat(tenant, reminder.chat_id))
+      .map(reminderToItem);
+    return reply.send({ items: sortItems([...tasks, ...reminders]) });
+  });
+
+  app.post('/api/scheduler/items', async (request, reply) => {
+    const body = request.body as {
+      kind?: 'prompt' | 'reminder';
+      body?: string;
+      chatId?: string;
+      scheduleKind?: 'at' | 'every' | 'cron';
+      scheduleValue?: string;
+      timezone?: string;
+      deleteAfterRun?: boolean;
+    };
+    const text = body.body?.trim();
+    if (!text) return reply.code(400).send({ error: '"body" is required' });
+    if (!body.scheduleKind || !body.scheduleValue) {
+      return reply.code(400).send({ error: 'Missing required fields: scheduleKind, scheduleValue' });
+    }
+
+    const tenant = context(request);
+    const target = resolveWebDeliveryTarget(tenant, body.chatId);
+    if (!target) return reply.code(404).send({ error: 'Chat or session not found' });
+
+    // A reminder only sends a message, so it needs no permission level and no
+    // operator role — the same boundary the dedicated reminder route applies.
+    if (body.kind === 'reminder') {
+      if (body.scheduleKind !== 'at') {
+        return reply.code(400).send({ error: 'Reminders fire once, at a time' });
+      }
+      const fireAt = Date.parse(body.scheduleValue);
+      if (!Number.isFinite(fireAt)) return reply.code(400).send({ error: 'Invalid reminder time' });
+      const delayMinutes = Math.max(0, (fireAt - Date.now()) / 60_000);
+      return reply.send({ item: reminderToItem(addReminder({
+        ...target,
+        message: text,
+        delayMinutes,
+        tenantId: tenant?.tenant_id ?? 'default',
+      })) });
+    }
+
+    if (tenant && !tenant.roles.some(role => role === 'admin' || role === 'operator')) {
+      return reply.code(403).send({ error: 'Operator role required to schedule a prompt' });
+    }
+    const creatingSession = target.sessionId
+      ? getSession(target.sessionId, tenant?.tenant_id ?? 'default')
+      : null;
+    if (!creatingSession?.permission_level) {
+      return reply.code(400).send({ error: 'Scheduled prompts require a creating session permission level' });
+    }
+    try {
+      return reply.send({ item: cronTaskToItem(addCronTask({
+        ...target,
+        scheduleKind: body.scheduleKind,
+        scheduleValue: body.scheduleValue,
+        timezone: body.timezone,
+        handlerType: 'managed_brain',
+        description: text,
+        deleteAfterRun: body.deleteAfterRun ?? body.scheduleKind === 'at',
+        permissionLevel: creatingSession.permission_level,
+        tenantId: tenant?.tenant_id ?? 'default',
+      })) });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.patch('/api/scheduler/items/:id', async (request, reply) => {
+    const parsed = parseItemId((request.params as { id: string }).id);
+    const body = request.body as { enabled?: boolean };
+    if (!parsed) return reply.code(404).send({ error: 'Item not found' });
+    if (typeof body.enabled !== 'boolean') return reply.code(400).send({ error: '"enabled" must be boolean' });
+    if (parsed.kind === 'reminder') return reply.code(400).send({ error: 'A reminder cannot be paused' });
+
+    const tenant = context(request);
+    const tenantId = tenant?.tenant_id ?? 'default';
+    const task = listCronTasks(tenantId).find(entry => entry.id === parsed.nativeId && canAccessChat(tenant, entry.chat_id));
+    if (!task) return reply.code(404).send({ error: 'Item not found' });
+    try {
+      setCronTaskEnabled(parsed.nativeId, body.enabled, tenantId);
+      return reply.send({ ok: true });
+    } catch (err) {
+      return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/scheduler/items/:id/run-now', async (request, reply) => {
+    const parsed = parseItemId((request.params as { id: string }).id);
+    if (!parsed) return reply.code(404).send({ error: 'Item not found' });
+    if (parsed.kind === 'reminder') return reply.code(400).send({ error: 'A reminder cannot be run early' });
+
+    const tenant = context(request);
+    const tenantId = tenant?.tenant_id ?? 'default';
+    const task = listCronTasks(tenantId).find(entry => entry.id === parsed.nativeId && canAccessChat(tenant, entry.chat_id));
+    if (!task) return reply.code(404).send({ error: 'Item not found' });
+    const run = runCronTaskNow(parsed.nativeId, tenantId);
+    if (!run) return reply.code(409).send({ error: 'This task already has an active run' });
+    return reply.send({ run });
+  });
+
+  app.delete('/api/scheduler/items/:id', async (request, reply) => {
+    const parsed = parseItemId((request.params as { id: string }).id);
+    if (!parsed) return reply.code(404).send({ error: 'Item not found' });
+    const tenant = context(request);
+    const tenantId = tenant?.tenant_id ?? 'default';
+
+    if (parsed.kind === 'reminder') {
+      const numericId = Number(parsed.nativeId);
+      if (!Number.isInteger(numericId)) return reply.code(404).send({ error: 'Item not found' });
+      const owned = listReminders(tenantId).some(r => r.id === numericId && canAccessChat(tenant, r.chat_id));
+      if (!owned) return reply.code(404).send({ error: 'Item not found' });
+      return reply.send({ ok: cancelReminder(numericId, tenantId) });
+    }
+
+    const task = listCronTasks(tenantId).find(entry => entry.id === parsed.nativeId && canAccessChat(tenant, entry.chat_id));
+    if (!task) return reply.code(404).send({ error: 'Item not found' });
+    const { cascadeCancelCronTask } = await import('../background-executor/runner.js');
+    await cascadeCancelCronTask(parsed.nativeId, tenantId);
+    cancelCronTask(parsed.nativeId, tenantId);
     return reply.send({ ok: true });
   });
 

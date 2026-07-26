@@ -153,6 +153,20 @@ describe('alerts', () => {
       expect(names).toContain('Success Rate Drop');
     });
 
+    it('the metrics the proactive engine actually sends can match a rule', () => {
+      // The engine used to send only `turn_failure_rate`, which no built-in
+      // rule keys off — so alert_history stayed empty and the pause/kill
+      // actions never ran despite the whole path looking wired. This pins the
+      // metric names the engine derives from its signal snapshot.
+      registerBuiltinRules();
+      const sent = ['success_rate', 'consecutive_failures', 'token_usage_ratio'];
+      const matched = sent.filter(metric => listRules().some(rule => {
+        const value = metric === 'success_rate' ? 0.1 : metric === 'token_usage_ratio' ? 1.5 : 9;
+        return rule.condition?.({ metric_name: metric, metric_value: value, timestamp: Date.now() });
+      }));
+      expect(matched).toEqual(sent);
+    });
+
     it('Cost Spike: fires when metric_value > 3 * historical_average', () => {
       registerBuiltinRules();
       const rule = getRule('builtin-cost-spike');

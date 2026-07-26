@@ -84,6 +84,10 @@ export function findPublicExportViolations(files, readFile = (path) => readFileS
       // a slug ending in those characters.
       for (const match of line.matchAll(/github\.com\/spytensor\/([^/\\\s?#)"'<>\]`*_|!]+)/g)) {
         const slug = match[1].replace(/[.,;:]+$/, '').replace(/\.git$/, '');
+        // `&lt;slug&gt;` and friends are an escaped placeholder in generated
+        // HTML, not a repository name — matching them reports a violation that
+        // cannot be fixed by renaming anything.
+        if (slug.startsWith('&')) continue;
         if (slug !== 'openmozi') {
           violations.push(`${path}:${index + 1}: non-canonical public repository slug "${slug}" (expected "openmozi")`);
         }
@@ -100,6 +104,46 @@ function trackedFiles() {
     .filter(Boolean);
 }
 
+/**
+ * Commit messages are published just as loudly as file contents, and nothing
+ * used to check them: the leak that motivated this scan lived entirely in a
+ * commit subject the export tooling generated. Scans the messages that are not
+ * yet on the upstream branch, so the check is about what is being added.
+ */
+export function findCommitMessageViolations(messages) {
+  const violations = [];
+  for (const { sha, message } of messages) {
+    for (const { label, pattern } of forbiddenTextPatterns) {
+      if (pattern.test(message)) violations.push(`commit ${sha}: ${label} in commit message`);
+    }
+  }
+  return violations;
+}
+
+function unpushedCommitMessages() {
+  let range;
+  try {
+    const upstream = execFileSync('git', ['rev-parse', '--abbrev-ref', '@{upstream}'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    range = `${upstream}..HEAD`;
+  } catch {
+    // No upstream (fresh clone of the public tree, or a detached checkout):
+    // check every commit rather than silently checking none.
+    range = 'HEAD';
+  }
+  const raw = execFileSync('git', ['log', range, '--format=%H%x00%B%x1e'], { encoding: 'utf8' });
+  return raw
+    .split('\x1e')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [sha, message] = entry.split('\x00');
+      return { sha: sha.slice(0, 8), message: message ?? '' };
+    });
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // With --exclude-config, files the public-export policy excludes are not
   // checked — the gate then verifies exactly what would be exported, so it is
@@ -114,10 +158,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     files = files.filter((path) => !isExcluded(path, exclude));
   }
   const violations = findPublicExportViolations(files);
+  // `--skip-commit-scan` exists for the source repository, whose own history
+  // legitimately discusses the export machinery. In the published tree the
+  // scan always runs.
+  if (!process.argv.includes('--skip-commit-scan')) {
+    violations.push(...findCommitMessageViolations(unpushedCommitMessages()));
+  }
   if (violations.length > 0) {
     console.error('[public-export] blocked');
     for (const violation of violations) console.error(`- ${violation}`);
     process.exit(1);
   }
-  console.log('[public-export] privacy/path check passed');
+  console.log('[public-export] privacy/path + commit-message check passed');
 }

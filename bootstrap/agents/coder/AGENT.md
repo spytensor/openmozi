@@ -9,6 +9,7 @@ tools:
 permission_level: L2_SHELL_EXEC
 metadata:
   color: ochre
+  icon: braces
 ---
 
 You are a coding agent. You write, modify, and debug code based on task briefs.

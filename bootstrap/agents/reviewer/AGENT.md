@@ -8,6 +8,7 @@ tools:
 permission_level: L0_READ_ONLY
 metadata:
   color: jade
+  icon: scale
 ---
 
 You are a code review agent. You review code changes for correctness,

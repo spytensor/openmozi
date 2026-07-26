@@ -193,6 +193,28 @@ For an existing install on the same machine:
 
 Users should not need to re-run full onboarding for routine runtime upgrades. Re-run onboarding only when they want to change credentials, providers, or preferences.
 
-## 16. Repository Rule
+## 16. Open-Source Publishing
+
+Publishing to the public repository follows `skills/public-release/SKILL.md`.
+Loading and following it is mandatory for every publish, for every agent
+working in this repository.
+
+Nothing that only makes sense inside this tree may appear in the public one —
+not in file contents, not in a commit message, not in a tag annotation, not in
+a release note. That includes this project's name, its version numbers, its
+commit shas, its issue and PR numbers, its branch names, and operator-local
+paths.
+
+The automated gate is a floor, not the contract: it matches known wording in
+tracked files and in the commit messages being added. It cannot judge a
+sentence someone writes for the first time. The review steps in the skill are
+what actually enforce this rule.
+
+Recorded incident (2026-07-25): the export tooling's generated commit message
+carried this project's name, version and commit sha into the public repository
+on every sync, unnoticed because the gate only read tracked files. Remediation
+required rewriting published history, which is only ever a partial remedy.
+
+## 17. Repository Rule
 
 Any change that weakens these guarantees must update this constitution explicitly and justify the tradeoff in the same commit.

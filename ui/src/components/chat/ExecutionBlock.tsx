@@ -33,7 +33,8 @@ import {
 import { buildTaskTree, type TaskGroupNode, type TaskNodeState, type TaskTreeNode } from "./task-tree";
 import { formatDurationForLocale, translateMessage, useLocale, type Locale } from "@/i18n";
 import { formatApproximateDurationForLocale } from "@/i18n/format";
-import { agentAvatarColor, agentInitial } from "@/lib/agent-colors";
+import { agentAvatarStyle } from "@/lib/agent-colors";
+import { agentIcon } from "@/lib/agent-icons";
 
 /** Open the workbench source panel for an aggregated activity row. */
 export type OpenSourcesHandler = (sources: ExecutionSourceRef[], label: string) => void;
@@ -177,7 +178,8 @@ function AgentDelegationExecution({
   const name = task?.agentId || agentNameFromIntent(tool?.intent) || "Agent";
   const status = agentStatus(task, envelope);
   const runDir = task?.runDir || runDirOfEnvelope(envelope);
-  const color = agentAvatarColor(task?.agentColor);
+  const avatar = agentAvatarStyle(task?.agentColor);
+  const AgentGlyph = agentIcon(task?.agentIcon, name);
   const terminal = status === "completed" || status === "failed" || status === "blocked";
   const round = task?.heartbeat && task.detail?.match(/round\s+(\d+)/i)?.[1];
 
@@ -193,10 +195,10 @@ function AgentDelegationExecution({
         )}
       >
         <span
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[11px] font-semibold"
-          style={{ background: color, color: "var(--agent-fg)" }}
+          className="flex h-7 w-7 shrink-0 items-center justify-center"
+          style={avatar}
         >
-          {agentInitial(name)}
+          <AgentGlyph className="h-4 w-4" strokeWidth={1.75} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">

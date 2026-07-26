@@ -27,3 +27,6 @@ data/
 data.pre-*/
 spikes/sandbox-b0/stage/
 spikes/sandbox-b0/*.log
+
+# 架构全景生成器的 Python 缓存
+docs/atlas/__pycache__/

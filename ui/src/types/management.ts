@@ -59,6 +59,7 @@ export interface AgentInfo {
   model: string | null;
   skills: string[];
   color: string | null;
+  icon: string | null;
   source: "bundled" | "workspace";
   status: AgentDefinitionStatus;
   enabled: boolean;

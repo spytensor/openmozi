@@ -76,6 +76,11 @@ export function requiredRoleForApiRoute(method: string, routePath: string): Role
   if (normalizedPath === '/api/auth/logout') return 'viewer';
   if (normalizedPath === '/api/auth/password') return 'viewer';
   if (normalizedPath.startsWith('/api/config')) return 'admin';
+  // MCP server definitions are arbitrary commands MOZI spawns, and `/test`
+  // spawns one immediately. They also write the same file `/api/config` guards
+  // at admin, and are not tenant-scoped — one writer changes what every
+  // tenant's Brain can call. Reading the list stays viewer.
+  if (normalizedPath.startsWith('/api/mcp') && normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD') return 'admin';
   if (normalizedPath === '/api/coding-workers' && normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD') return 'admin';
   if (normalizedPath.startsWith('/api/audit')) return 'admin';
   // Tenant infrastructure — provider API keys, search key, model role slots,

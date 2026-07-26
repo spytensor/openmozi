@@ -74,4 +74,43 @@ describe('billing reconciliation', () => {
     expect(result.attributed).toBe(1);
     expect(getDb().prepare('SELECT user_id FROM billing_records WHERE id = ?').get(call.id)).toEqual({ user_id: 'owner-1' });
   });
+
+  it('never zeroes a row that already carries a persisted price snapshot', () => {
+    // The regression this pins: the unknown-pricing branch used to run before
+    // the persisted-snapshot guard, so a row whose price could not be resolved
+    // on this run had its historical cost overwritten with 0. This function
+    // runs at every process start, so a transient resolution failure — a
+    // catalog that did not download, or a provider inference that stopped
+    // being unique — permanently destroyed real spend.
+    const db = getDb();
+    const priced = recordLlmCall({
+      tenant_id: 't-guard', model: 'model-with-no-catalog-entry',
+      input_tokens: 1000, output_tokens: 500, cost_usd: 4.25,
+    });
+    db.prepare(`UPDATE billing_records SET cost_usd = 4.25, pricing_source = 'catalog_calculated',
+      input_cost_per_million = 2.5, output_cost_per_million = 10 WHERE id = ?`).run(priced.id);
+
+    repriceBillingRecords();
+
+    const after = db.prepare('SELECT cost_usd, pricing_source FROM billing_records WHERE id = ?')
+      .get(priced.id) as { cost_usd: number; pricing_source: string };
+    expect(after.cost_usd).toBe(4.25);
+    expect(after.pricing_source).toBe('catalog_calculated');
+  });
+
+  it('still records unresolvable pricing for rows that never had a price', () => {
+    const db = getDb();
+    const unpriced = recordLlmCall({
+      tenant_id: 't-guard', model: 'another-model-with-no-catalog-entry',
+      input_tokens: 10, output_tokens: 2, cost_usd: 0,
+    });
+    db.prepare("UPDATE billing_records SET pricing_source = 'unknown' WHERE id = ?").run(unpriced.id);
+
+    repriceBillingRecords();
+
+    const after = db.prepare('SELECT cost_usd, pricing_source FROM billing_records WHERE id = ?')
+      .get(unpriced.id) as { cost_usd: number; pricing_source: string };
+    expect(after.pricing_source).toBe('unknown');
+    expect(after.cost_usd).toBe(0);
+  });
 });

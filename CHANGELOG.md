@@ -6,9 +6,63 @@ OpenMozi maintains its own version line.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-26
+
 ### Added
 
-- Release queue reset after v1.1.0; new entries land here.
+- **MCP servers can now give MOZI extra tools.** Connect a server and its tools
+  become callable by the model, gated at the permission level you declare for
+  that server. Manage servers from Settings → MCP: add, edit, remove, and
+  dry-run a connection to see what a server would expose before enabling it.
+  Credential values never leave your machine through the API — only the variable
+  names are shown, with an explicit action to clear them.
+- **Agents have icons.** Pick one of 33 role glyphs in the agent editor, or set
+  `metadata.icon` in `AGENT.md`. It appears wherever the agent does. An agent
+  that declares none gets a stable glyph derived from its name.
+- **Scheduled work can be created from the UI.** Previously the scheduled page
+  could only list what already existed — you had to ask MOZI in chat to set
+  something up. There is now a composer for both a recurring prompt and a
+  one-shot reminder, with ten worked examples to start from.
+
+### Changed
+
+- **The scheduled page is one list.** Recurring tasks and reminders were two
+  separate features stacked on one page, with different controls. They now share
+  one list, one card and one way to create them.
+- **Schedules read as words.** A task described as `cron: 15 15 * * 1-5` now
+  reads "Weekdays at 15:15". An expression too complex to phrase accurately
+  keeps its expression rather than being described wrongly.
+- **A scheduled prompt shows what it is allowed to do** while running
+  unattended, instead of quietly inheriting it from whichever chat you happened
+  to be in.
+- Agent and skill icons render as plain glyphs rather than sitting inside a
+  tinted tile.
+
+### Fixed
+
+- **A failed scheduled run now says why on the card.** The reason was being
+  recorded and even rendered, but inside a collapsed disclosure with no visible
+  control to open it — so a failure showed as a red dot and nothing else.
+- **MCP server processes no longer inherit MOZI's environment.** A server that
+  declared any environment variable previously received the whole parent
+  environment, including MOZI's own provider keys and secrets. Servers now get a
+  minimal base plus what they declare. Proxy and TLS-trust variables are still
+  passed through.
+- **An MCP server that stops responding can no longer hang MOZI.** Requests now
+  run against a deadline, so a server that accepts a call and goes silent cannot
+  block a turn, startup, or the connection test.
+- **A disabled or deleted MCP server stops immediately.** It previously kept
+  running with its credentials, and its tools stayed callable, until the next
+  restart.
+- Failed MCP servers are retried according to `restart_on_failure` and
+  `max_restarts`, which had no effect before.
+- Claude Code is detected as available when you are signed in through the CLI,
+  not only when an API key is set.
+- Built-in alerts fire again: they were being evaluated against a metric none of
+  them used.
+- The ACP channel no longer rejects every prompt it receives.
+- Reprocessing usage records no longer zeroes the cost of rows whose price
+  cannot be resolved on that run.
 
 ### Changed
 

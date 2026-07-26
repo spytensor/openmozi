@@ -1,5 +1,13 @@
 export { MCPConfigSchema, MCPServerConfigSchema, type MCPConfig, type MCPServerConfig } from './config.js';
-export { createMCPBridge, type MCPBridge, type MCPServerStatus } from './bridge.js';
+export {
+  createMCPBridge,
+  buildServerEnv,
+  type MCPBridge,
+  type MCPServerStatus,
+  type McpToolEntry,
+  type McpCallOutcome,
+} from './bridge.js';
+export { buildMcpToolName, isMcpToolName, MCP_TOOL_PREFIX } from './naming.js';
 
 // ---------------------------------------------------------------------------
 // Singleton accessor — set once at startup, read from handler

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { MoziConfig } from '../config/index.js';
 import { getMCPBridge } from '../mcp/index.js';
+import { isMcpToolName } from '../mcp/naming.js';
 import { parseSkillFile } from '../skills/loader.js';
 import { parseAgentDefinition } from '../agents/definition-loader.js';
 import { getWorkspaceDir } from '../tools/tool-utils.js';
@@ -231,6 +232,10 @@ export function buildRuntimeCapabilityManifest(
     || subagentConfig.enabled_tenants.includes(tenantId)
     || subagentConfig.enabled_sessions.length > 0;
   const toolSet = new Set(tools);
+  // Counted from the tool set the model was actually handed, not from the
+  // bridge. `getAllRegisteredTools` drops MCP tools whose names collide with a
+  // local tool, so bridge state can claim tools the Brain cannot call.
+  const mcpToolsOffered = tools.filter(isMcpToolName).length;
   const skillExtensions = readActiveSkillExtensions(tenantId);
   const agentExtensions = readAgentExtensions(toolSet.has('delegate_to_agent'));
   const hasAnyTool = (...names: string[]) => names.some((name) => toolSet.has(name));
@@ -275,6 +280,11 @@ export function buildRuntimeCapabilityManifest(
     runtimeSkillInjection: hasAllTools('use_skill', 'list_runtime_skills') && skillExtensions.length > 0,
     sessionQueue: false,
     blackboard: hasAllTools('read_context', 'write_context'),
+    // Playwright is an optional dependency: the tool registry only exposes the
+    // browser family when it resolves, so absence is normal rather than broken.
+    // Reported explicitly because otherwise the tools simply are not there and
+    // nobody can tell whether that is a bug or a missing install.
+    browserAutomation: hasAnyTool('browser_open'),
     taskDecomposition: hasAnyTool('decompose_task'),
     peerCollaboration: peerCapabilitiesReady,
     acpChannel: process.env.MOZI_MODE === 'acp',
@@ -307,6 +317,13 @@ export function buildRuntimeCapabilityManifest(
         status: tools.length > 0 ? 'enabled' : 'disabled',
         summary: 'LLM can call registered runtime tools. Hot-path permission gate enforces L0–L3 levels on every tool (fs/shell/web/browser/desktop/git/memory).',
         value: `registered_tools=${tools.length}`,
+      },
+      {
+        id: 'browser_automation',
+        status: runtimeTruth.browserAutomation ? 'enabled' : 'disabled',
+        summary: runtimeTruth.browserAutomation
+          ? 'Headless browser tools are registered; the runtime can open pages, click, and read rendered content.'
+          : 'Browser tools are not registered because Playwright is not installed in this runtime. Install it (`pnpm add playwright && npx playwright install chromium`) to enable them; every other capability is unaffected.',
       },
       {
         id: 'tool_plugin_hooks',
@@ -458,20 +475,28 @@ export function buildRuntimeCapabilityManifest(
       },
       {
         id: 'mcp_bridge',
-        status: (() => {
+        // Keyed on tools actually callable, not on servers connected. A server
+        // can be connected and expose nothing the model can reach (every tool
+        // name collided, or the list came back empty), and claiming a
+        // capability the Brain cannot exercise is the §9 failure this entry
+        // previously embodied.
+        status: mcpToolsOffered > 0 ? 'enabled' as CapabilityStatus : 'disabled' as CapabilityStatus,
+        summary: (() => {
           const bridge = getMCPBridge();
-          if (!bridge) return 'disabled' as CapabilityStatus;
-          const servers = bridge.listServers();
-          return servers.some(s => s.connected) ? 'enabled' as CapabilityStatus : 'disabled' as CapabilityStatus;
+          if (!bridge) return 'MCP bridge is not running.';
+          const connected = bridge.listServers().filter(s => s.connected).length;
+          if (mcpToolsOffered > 0) {
+            return `${mcpToolsOffered} tool(s) from ${connected} connected MCP server(s) are offered to the model, gated at each server's declared permission level.`;
+          }
+          return connected > 0
+            ? `Connected to ${connected} MCP server(s), but none of them currently expose a callable tool.`
+            : 'Not connected to any MCP server.';
         })(),
-        summary: 'Connect to external MCP servers for filesystem, GitHub, database, browser, and other tools.',
         value: (() => {
           const bridge = getMCPBridge();
           if (!bridge) return 'servers=0';
-          const servers = bridge.listServers();
-          const connected = servers.filter(s => s.connected).length;
-          const tools = Object.keys(bridge.getTools()).length;
-          return `servers=${connected},tools=${tools}`;
+          const connected = bridge.listServers().filter(s => s.connected).length;
+          return `servers=${connected},tools=${mcpToolsOffered}`;
         })(),
       },
     ],

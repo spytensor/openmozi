@@ -23,6 +23,7 @@ const AgentBodySchema = z.object({
   tools: z.array(z.string().trim().min(1)).optional(),
   permission_level: z.enum(PERMISSION_LEVELS).optional(),
   color: z.string().trim().min(1).optional(),
+  icon: z.string().trim().min(1).optional(),
 }).strict();
 const AgentStateSchema = z.object({ enabled: z.boolean() }).strict();
 
@@ -34,6 +35,7 @@ function summary(agent: LoadedAgentDefinition) {
     model: agent.model ?? null,
     skills: agent.skills,
     color: agent.color ?? null,
+    icon: agent.icon ?? null,
     source: agent.source,
     status: agent.status,
     enabled: agent.enabled,

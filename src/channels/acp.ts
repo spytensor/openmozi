@@ -312,7 +312,11 @@ export class ACPServer {
       isCommand,
       command: isCommand ? content.split(/\s+/)[0].slice(1) : undefined,
       commandArgs: isCommand ? content.split(/\s+/).slice(1).join(' ') : undefined,
-      sessionId: session.key,
+      // Deliberately no sessionId: `session.key` is this channel's own
+      // `acp:<uuid>` handle, not a row in the sessions table. Passing it made
+      // the gateway's ownership check ("session not found or access denied")
+      // reject every single prompt. chatId is the stable per-conversation key,
+      // and the gateway creates or resumes the database session from it.
       timestamp: new Date(),
     };
 

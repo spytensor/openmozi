@@ -77,6 +77,7 @@ export interface ProgressEvent {
   agentId?: string;
   /** Definition color token id for file-defined agent presentation. */
   agentColor?: string;
+  agentIcon?: string;
   agentRole?: string;
   /** For budget_warning: 'soft' | 'hard' | 'rotate' */
   level?: string;

@@ -79,16 +79,24 @@ export function repriceBillingRecords(): BillingRepriceResult {
         ? (hasObservedUsage ? 'legacy_provider_reported' : 'unavailable')
         : row.usage_status;
 
-      if (pricing.source === 'unknown') {
-        result.unavailable += 1;
-        update.run(provider, row.pricing_source === 'provider_reported' ? row.cost_usd : 0, null, null, null, null,
-          row.pricing_source === 'provider_reported' ? row.pricing_source : 'unknown', usageStatus, null, row.id);
-        continue;
-      }
-
       // These rows already carry a persisted price snapshot. Never rewrite
       // historical spend merely because the live catalog changes later.
+      //
+      // This guard has to come BEFORE the unknown-pricing branch below. It used
+      // to sit after it, so any row whose price could not be resolved on this
+      // run — a catalog that failed to download, or a provider inference that
+      // stopped being unique — had its historical `cost_usd` overwritten with 0
+      // before the guard was ever consulted. That is not a hypothetical: an
+      // over-broad forwardCompat rule made provider inference ambiguous and
+      // this function, which runs unconditionally at every process start,
+      // zeroed real spend.
       if (['catalog_calculated', 'catalog_upper_bound', 'provider_reported', 'provider_reconciled'].includes(row.pricing_source)) continue;
+
+      if (pricing.source === 'unknown') {
+        result.unavailable += 1;
+        update.run(provider, 0, null, null, null, null, 'unknown', usageStatus, null, row.id);
+        continue;
+      }
       const cacheDetailKnown = (row.cache_read_tokens !== null || pricing.cacheReadCost === undefined)
         && (row.cache_write_tokens !== null || pricing.cacheWriteCost === undefined || pricing.cacheWriteCost === 0);
       const cost = calculateCatalogCost({

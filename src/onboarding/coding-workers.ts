@@ -49,7 +49,7 @@ const WORKER_DEFS: {
   id: CodingWorkerId;
   name: string;
   providerId: string;
-  authCheck: () => boolean;
+  authCheck: (commandPath: string | null) => boolean;
   authHint: string;
   installHint: string;
 }[] = [
@@ -57,19 +57,67 @@ const WORKER_DEFS: {
     id: 'claude_code',
     name: 'Claude Code',
     providerId: 'claude-cli',
-    authCheck: () => readClaudeCliCredentials() !== null,
-    authHint: 'Run: claude login',
+    authCheck: (commandPath) => readClaudeCliCredentials() !== null
+      || hasEnvAuth('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN')
+      || claudeCliReportsLogin(commandPath),
+    authHint: 'Run: claude login (or set ANTHROPIC_API_KEY)',
     installHint: 'npm install -g @anthropic-ai/claude-code',
   },
   {
     id: 'codex_cli',
     name: 'Codex CLI',
     providerId: 'codex-cli',
-    authCheck: () => readCodexCliCredentials() !== null,
-    authHint: 'Run: codex login',
+    authCheck: () => readCodexCliCredentials() !== null || hasEnvAuth('OPENAI_API_KEY'),
+    authHint: 'Run: codex login (or set OPENAI_API_KEY)',
     installHint: 'npm install -g @openai/codex',
   },
 ];
+
+/**
+ * A CLI counts as authorized when any credential path it supports is present.
+ *
+ * Reading the OAuth file alone is too narrow: both CLIs also run on an API key
+ * from the environment, and Claude Code stores a subscription login outside
+ * that file entirely (`authMethod: "claude.ai"`). Treating the file as the only
+ * signal marked an installed, working CLI as unauthorized, which removed it
+ * from the model picker — the tool ran fine in a terminal but could not be
+ * selected in the app.
+ */
+function hasEnvAuth(...vars: string[]): boolean {
+  return vars.some((name) => Boolean(process.env[name]?.trim()));
+}
+
+/**
+ * Ask Claude Code itself. `claude auth status` reports `loggedIn` for every
+ * credential path it supports, which is the only source that stays correct as
+ * the CLI adds new ones. Cached because the probe runs on hot paths
+ * (`/api/providers`, brain selection) and spawning a process per call is not
+ * affordable there.
+ */
+let claudeCliLoginState: boolean | undefined;
+
+function claudeCliReportsLogin(commandPath: string | null): boolean {
+  if (claudeCliLoginState !== undefined) return claudeCliLoginState;
+  if (!commandPath) return false;
+  try {
+    const out = execFileSync(commandPath, ['auth', 'status'], {
+      encoding: 'utf-8',
+      timeout: 5_000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    claudeCliLoginState = JSON.parse(out)?.loggedIn === true;
+  } catch {
+    // Older builds have no `auth status`, and a timeout must not be read as
+    // "logged out" louder than the credential checks above — those run first.
+    claudeCliLoginState = false;
+  }
+  return claudeCliLoginState;
+}
+
+/** Test seam: the login probe is cached for the process lifetime. */
+export function resetCliAuthProbeCache(): void {
+  claudeCliLoginState = undefined;
+}
 
 function findOnPath(command: string): string | null {
   const trimmed = command.trim();
@@ -184,7 +232,7 @@ export function detectCodingWorkers(): CodingWorkerProbe[] {
     const commandPath = findOnPath(command);
     const installed = commandPath !== null;
     const version = installed ? getVersion(commandPath!) : null;
-    const authorized = installed ? def.authCheck() : false;
+    const authorized = installed ? def.authCheck(commandPath) : false;
 
     return {
       id: def.id,

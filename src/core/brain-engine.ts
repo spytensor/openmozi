@@ -20,6 +20,7 @@ import { IncompleteStreamError, type LLMClient, type ChatMessage, type ChatOptio
 import type { ToolContext } from '../tools/types.js';
 import { executeToolCalls, extractToolIntent, extractToolSkillName } from '../tools/executor.js';
 import { getAllRegisteredTools } from '../tools/dynamic-registry.js';
+import { refreshMcpToolSnapshot } from '../mcp/tool-adapter.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
 import { ArtifactCoordinator } from '../artifacts/coordinator.js';
 import { createTurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
@@ -222,6 +223,7 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
   let totalTokens = 0;
   let completionGateRejections = 0;
   const maxCompletionGateRejections = 2;
+  refreshMcpToolSnapshot(); // turn boundary — holds the MCP tool set steady for this loop
   const availableTools = externalCliTurn ? [] : getAllRegisteredTools(opts.tenantId);
   const toolShaping = shapeToolsForExecution({
     tools: availableTools,

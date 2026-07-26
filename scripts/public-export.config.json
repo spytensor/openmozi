@@ -10,7 +10,8 @@
     "build_guide_pdf.py",
     "build_guide_pptx.cjs",
     ".claude/research-prompt-assembly.md",
-    ".claude/research-use-cases.md"
+    ".claude/research-use-cases.md",
+    "skills/public-release/SKILL.md"
   ],
   "preserveTarget": [
     "CHANGELOG.md"

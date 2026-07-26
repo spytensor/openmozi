@@ -179,6 +179,7 @@ import { registerOfficeRoutes } from '../api/office-routes.js';
 import { registerGitBranchRoutes } from '../api/git-branch-routes.js';
 import { registerMemoryRoutes } from '../api/memory-routes.js';
 import { registerAgentDefinitionRoutes } from '../api/agent-definition-routes.js';
+import { registerMcpRoutes } from '../api/mcp-routes.js';
 import { registerSchedulerRoutes } from '../api/scheduler-routes.js';
 import { registerTaskTemplateRoutes } from '../api/task-template-routes.js';
 import {
@@ -3460,6 +3461,7 @@ export async function registerApiRoutes(
   registerTaskTemplateRoutes(app);
 
   registerAgentDefinitionRoutes(app);
+  registerMcpRoutes(app);
 
   // ── REST API: config hot-reload ──
   registerConfigRoutes(app);

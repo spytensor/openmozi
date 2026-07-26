@@ -425,13 +425,32 @@ function collectObserverAlerts(systemState: AgentLoopSignalSnapshot | null, tena
   if (!systemState) return;
 
   try {
-    const context = {
-      metric_name: 'turn_failure_rate',
-      metric_value: systemState.recent_turns.failure_rate,
-      threshold: 0.5,
-      timestamp: Date.now(),
-    };
-    const alerts = evaluateAlerts(context, tenantId);
+    // The built-in rules key off specific metric names, and this was the only
+    // caller — sending a single `turn_failure_rate` meant not one rule could
+    // ever match, so alert_history stayed empty and the pause/kill actions
+    // never ran. Feed the metrics the rules are actually written against,
+    // derived from signals this snapshot already carries.
+    const now = Date.now();
+    const { recent_turns: turns, quota, tasks } = systemState;
+    const contexts: Array<{ metric_name: string; metric_value: number; timestamp: number }> = [
+      { metric_name: 'turn_failure_rate', metric_value: turns.failure_rate, timestamp: now },
+    ];
+    if (turns.total > 0) {
+      contexts.push({ metric_name: 'success_rate', metric_value: 1 - turns.failure_rate, timestamp: now });
+      contexts.push({ metric_name: 'consecutive_failures', metric_value: turns.failed, timestamp: now });
+    }
+    if (quota.daily_token_limit > 0) {
+      contexts.push({
+        metric_name: 'token_usage_ratio',
+        metric_value: quota.daily_tokens_used / quota.daily_token_limit,
+        timestamp: now,
+      });
+    }
+    if (tasks.failed > 0) {
+      contexts.push({ metric_name: 'consecutive_failures', metric_value: tasks.failed, timestamp: now });
+    }
+
+    const alerts = contexts.flatMap(context => evaluateAlerts(context, tenantId));
     for (const alert of alerts) {
       pushEvent({
         type: `alert:${alert.rule_id}`,

@@ -1341,8 +1341,11 @@ async function main(): Promise<void> {
       mcpBridge = createMCPBridge(config.mcp);
       await mcpBridge.start();
       const connectedServers = mcpBridge.listServers().filter(s => s.connected);
-      const totalTools = Object.keys(mcpBridge.getTools()).length;
-      logger.info({ servers: connectedServers.length, tools: totalTools }, 'MCP bridge started');
+      const totalTools = mcpBridge.listTools().length;
+      logger.info(
+        { servers: connectedServers.length, tools: totalTools },
+        'MCP bridge connected — tools are offered to the model from the next turn',
+      );
     } catch (err) {
       logger.warn({ err: err instanceof Error ? err.message : String(err) }, 'MCP bridge startup failed — continuing without MCP');
       mcpBridge = null;
