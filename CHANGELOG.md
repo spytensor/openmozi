@@ -6,6 +6,13 @@ OpenMozi maintains its own version line.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-08-02
+
+### Fixed
+
+- Public CI and release checks no longer reference the private export-policy
+  file that is intentionally absent from OpenMozi.
+
 ## [1.3.0] - 2026-08-02
 
 ### Added

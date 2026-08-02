@@ -69,6 +69,48 @@ export function withTargetVersion(sourceText, targetVersion) {
   return sourceText.replace(/"version"\s*:\s*"[^"]*"/, `"version": "${targetVersion}"`);
 }
 
+const PUBLIC_RELEASE_WIRING_PATHS = new Set([
+  '.github/workflows/tests-layered.yml',
+  'scripts/release.mjs',
+  'scripts/community-release-contract.test.ts',
+]);
+
+function replaceRequired(sourceText, expected, replacement, path) {
+  if (!sourceText.includes(expected)) {
+    throw new Error(`public release wiring changed unexpectedly: ${path}`);
+  }
+  return sourceText.replace(expected, replacement);
+}
+
+/** Remove internal export-policy references from the generated public tree. */
+export function withPublicReleaseWiring(path, sourceText) {
+  if (path === '.github/workflows/tests-layered.yml') {
+    return replaceRequired(
+      sourceText,
+      'node scripts/verify-public-export.mjs --exclude-config scripts/public-export.config.json',
+      'node scripts/verify-public-export.mjs',
+      path,
+    );
+  }
+  if (path === 'scripts/release.mjs') {
+    return replaceRequired(
+      sourceText,
+      "    '--exclude-config', 'scripts/public-export.config.json',\n",
+      '',
+      path,
+    );
+  }
+  if (path === 'scripts/community-release-contract.test.ts') {
+    return replaceRequired(
+      sourceText,
+      "expect(release).toContain(\"'--exclude-config', 'scripts/public-export.config.json'\");",
+      "expect(release).not.toContain('scripts/public-export.config.json');",
+      path,
+    );
+  }
+  return sourceText;
+}
+
 /** The public tree's own version, used for the public-facing commit message. */
 function readTargetVersion(target) {
   try {
@@ -214,6 +256,8 @@ function main() {
           }
         }
         writeFileSync(dest, withTargetVersion(readFileSync(src, 'utf8'), targetVersion));
+      } else if (PUBLIC_RELEASE_WIRING_PATHS.has(path)) {
+        writeFileSync(dest, withPublicReleaseWiring(path, readFileSync(src, 'utf8')));
       } else {
         copyFileSync(src, dest);
       }

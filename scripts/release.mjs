@@ -408,7 +408,6 @@ function buildMacReleaseAssets(version, channel, unsigned) {
 
   run(process.execPath, [
     'scripts/verify-public-export.mjs',
-    '--exclude-config', 'scripts/public-export.config.json',
     '--skip-commit-scan',
   ]);
   const gitleaks = process.env.MOZI_GITLEAKS_BIN || 'gitleaks';

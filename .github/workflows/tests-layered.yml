@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: 22
       - name: Verify no private paths, owner data, or runtime files would be exported
-        run: node scripts/verify-public-export.mjs --exclude-config scripts/public-export.config.json
+        run: node scripts/verify-public-export.mjs
 
   prompt_contract:
     name: Prompt Contract

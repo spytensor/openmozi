@@ -6,7 +6,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore — plain .mjs module without type declarations
-import { isExcluded, withTargetVersion } from './export-public.mjs';
+import { isExcluded, withPublicReleaseWiring, withTargetVersion } from './export-public.mjs';
 
 const EXPORT_SCRIPT = join(process.cwd(), 'scripts/export-public.mjs');
 const VERIFIER = join(process.cwd(), 'scripts/verify-public-export.mjs');
@@ -40,6 +40,20 @@ describe('public export policy helpers', () => {
     expect(withTargetVersion(src, '1.0.0')).toContain('"name": "mozi"');
     expect(withTargetVersion(src, null)).toBe(src);
   });
+
+  it('removes internal export-policy wiring from public release entry points', () => {
+    const workflow = 'run: node scripts/verify-public-export.mjs --exclude-config scripts/public-export.config.json\n';
+    expect(withPublicReleaseWiring('.github/workflows/tests-layered.yml', workflow))
+      .toBe('run: node scripts/verify-public-export.mjs\n');
+
+    const release = "    '--exclude-config', 'scripts/public-export.config.json',\n    '--skip-commit-scan',\n";
+    expect(withPublicReleaseWiring('scripts/release.mjs', release))
+      .toBe("    '--skip-commit-scan',\n");
+
+    const contract = "expect(release).toContain(\"'--exclude-config', 'scripts/public-export.config.json'\");";
+    expect(withPublicReleaseWiring('scripts/community-release-contract.test.ts', contract))
+      .toBe("expect(release).not.toContain('scripts/public-export.config.json');");
+  });
 });
 
 describe('export-public end to end', () => {
@@ -62,8 +76,9 @@ describe('export-public end to end', () => {
     write(source, 'CHANGELOG.md', 'internal changelog\n');
     mkdirSync(join(source, 'scripts'), { recursive: true });
     copyFileSync(VERIFIER, join(source, 'scripts/verify-public-export.mjs'));
+    copyFileSync(EXPORT_SCRIPT, join(source, 'scripts/export-public.mjs'));
     write(source, 'untracked-secret.txt', 'never committed, must never export\n');
-    git(source, ['add', 'README.md', 'IMPLEMENTATION.md', 'package.json', 'src/app.ts', 'requirements/dev.txt', 'CHANGELOG.md', 'scripts/verify-public-export.mjs']);
+    git(source, ['add', 'README.md', 'IMPLEMENTATION.md', 'package.json', 'src/app.ts', 'requirements/dev.txt', 'CHANGELOG.md', 'scripts/export-public.mjs', 'scripts/verify-public-export.mjs']);
     git(source, ['commit', '-q', '-m', 'source tree']);
 
     // Target repo: the existing public repo with its own version line and changelog.
@@ -126,6 +141,7 @@ describe('export-public end to end', () => {
     write(source, 'docs/leak.md', `see ${ownerPath}\n`);
     mkdirSync(join(source, 'scripts'), { recursive: true });
     copyFileSync(VERIFIER, join(source, 'scripts/verify-public-export.mjs'));
+    copyFileSync(EXPORT_SCRIPT, join(source, 'scripts/export-public.mjs'));
     git(source, ['add', '-A']);
     git(source, ['commit', '-q', '-m', 'tree with a violation']);
 
