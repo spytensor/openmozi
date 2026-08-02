@@ -31,7 +31,7 @@ describe('OpenMozi community and release contract', () => {
     expect(release).toContain("'--verify-tag'");
     expect(release).toContain('unsigned macOS prerelease');
     expect(release).toContain('scripts/release-supply-chain.mjs');
-    expect(release).toContain('OpenMozi-${version}-SHA256SUMS.txt');
+    expect(release).toContain('openmozi-${version}-SHA256SUMS.txt');
     expect(release).toContain("'desktop:test:packaged'");
     expect(release).not.toContain('scripts/public-export.config.json');
     expect(release).toContain("'--skip-commit-scan'");
@@ -39,6 +39,14 @@ describe('OpenMozi community and release contract', () => {
     const supplyChain = readFileSync('.github/workflows/release-supply-chain.yml', 'utf8');
     expect(supplyChain).toContain("tr '[:upper:]' '[:lower:]'");
     expect(supplyChain).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"');
+    expect(supplyChain).toContain('gh release create');
+    expect(supplyChain).toContain('openmozi-${{ inputs.version }}-${{ inputs.channel }}-manifest.json');
     expect(supplyChain).not.toContain('ghcr.io/${{ github.repository }}');
+
+    const build = JSON.parse(readFileSync('desktop/package.json', 'utf8')) as {
+      build: { artifactName: string; productName: string };
+    };
+    expect(build.build.artifactName).toBe('openmozi-${version}-${arch}.${ext}');
+    expect(build.build.productName).toBe('MOZI');
   });
 });

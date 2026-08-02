@@ -30,6 +30,19 @@ vi.mock('../tools/tool-utils.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../skills/provision-deps.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../skills/provision-deps.js')>();
+  return {
+    ...actual,
+    provisionSkillDependencies: vi.fn().mockResolvedValue({
+      installed: [],
+      ready: ['pptxgenjs', 'markitdown[pptx]', 'defusedxml'],
+      needsAction: [],
+      failed: [],
+    }),
+  };
+});
+
 const dagBridgeHoisted = vi.hoisted(() => ({
   executeDecomposeTaskMock: vi.fn(),
 }));
@@ -1311,13 +1324,7 @@ describe('brainExecute', () => {
     expect(failedPatches).toHaveLength(1);
   });
 
-  // Runs `use_skill('pptx')`, whose `install:` manifest declares `markitdown[pptx]`,
-  // and `use_skill` awaits provisioning. MOZI_HOME is a fresh temp dir per test, so
-  // that is a real cold pip install over the network. It previously fit the default
-  // timeout only because provisioning failed fast (a `cryptography` source build);
-  // now that installs are restricted to binary wheels they actually succeed, and
-  // succeeding takes longer than failing.
-  it('emits one file_v1 artifact for a generated deck and patches overwrites without surfacing the build script', { timeout: 120_000 }, async () => {
+  it('emits one file_v1 artifact for a generated deck and patches overwrites without surfacing the build script', async () => {
     const savedMoziHome = process.env.MOZI_HOME;
     const moziHome = mkdtempSync(join(tmpdir(), 'mozi-file-artifacts-home-'));
     const { tmpDir: dbTmpDir } = setupTestDb();

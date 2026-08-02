@@ -20,6 +20,11 @@ on:
         required: true
         default: false
         type: boolean
+      publish_github_release:
+        description: Create a GitHub Release and attach the verified macOS artifacts
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -126,9 +131,12 @@ jobs:
       - name: Upload macOS release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mozi-macos-${{ inputs.version }}-${{ inputs.channel }}
-          path: desktop/dist
+          name: openmozi-macos-${{ inputs.version }}-${{ inputs.channel }}
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
           if-no-files-found: error
+          compression-level: 0
           retention-days: 14
 
   docker_image:
@@ -191,7 +199,7 @@ jobs:
           cache: pnpm
       - uses: actions/download-artifact@v4
         with:
-          name: mozi-macos-${{ inputs.version }}-${{ inputs.channel }}
+          name: openmozi-macos-${{ inputs.version }}-${{ inputs.channel }}
           path: desktop/dist
       - name: Generate release supply-chain manifest
         run: |
@@ -204,14 +212,50 @@ jobs:
             --channel "${{ inputs.channel }}" \
             --commit "${{ github.sha }}" \
             --dist desktop/dist \
-            --out "release/mozi-${{ inputs.channel }}-${{ inputs.version }}.json" \
+            --out "release/openmozi-${{ inputs.version }}-${{ inputs.channel }}-manifest.json" \
             --docker-image "${{ needs.docker_image.outputs.image }}" \
             --docker-digest "${{ needs.docker_image.outputs.digest }}" \
             $flags
       - name: Upload release manifest
         uses: actions/upload-artifact@v4
         with:
-          name: mozi-release-manifest-${{ inputs.version }}-${{ inputs.channel }}
+          name: openmozi-release-manifest-${{ inputs.version }}-${{ inputs.channel }}
           path: release/*.json
           if-no-files-found: error
           retention-days: 30
+      - name: Stage GitHub Release assets
+        if: ${{ inputs.publish_github_release }}
+        run: |
+          mkdir -p release-assets
+          cp desktop/dist/*.dmg desktop/dist/*.zip release-assets/
+          cp "release/openmozi-${{ inputs.version }}-${{ inputs.channel }}-manifest.json" release-assets/
+          cd release-assets
+          shasum -a 256 ./*.dmg ./*.zip ./*.json > "openmozi-${{ inputs.version }}-SHA256SUMS.txt"
+      - name: Create GitHub Release
+        if: ${{ inputs.publish_github_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="release-assets/openmozi-${{ inputs.version }}-release-notes.md"
+          if [ "${{ inputs.publish_update_feed }}" = "true" ]; then
+            echo "> **Verified macOS release:** the manifest records Developer ID signing and Apple notarization evidence." > "$notes"
+          else
+            echo "> **Unsigned macOS prerelease:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing." > "$notes"
+          fi
+          echo >> "$notes"
+          sed -n "/^## \[${{ inputs.version }}\]/,/^## \[/p" CHANGELOG.md | sed '$d' >> "$notes"
+
+          release_flags=()
+          if [ "${{ inputs.publish_update_feed }}" != "true" ] || [ "${{ inputs.channel }}" = "beta" ]; then
+            release_flags+=(--prerelease)
+          fi
+
+          gh release create "v${{ inputs.version }}" \
+            release-assets/*.dmg \
+            release-assets/*.zip \
+            release-assets/*.json \
+            "release-assets/openmozi-${{ inputs.version }}-SHA256SUMS.txt" \
+            --target "${{ github.sha }}" \
+            --title "openmozi v${{ inputs.version }}" \
+            --notes-file "$notes" \
+            "${release_flags[@]}"

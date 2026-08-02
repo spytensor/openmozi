@@ -10,6 +10,7 @@ import {
 } from "@codesandbox/sandpack-react";
 import type { SandpackPredefinedTemplate, SandpackFiles, SandpackTheme } from "@codesandbox/sandpack-react";
 import { renderAsync } from "docx-preview";
+import pptxWorkerUrl from "@file-viewer/pptx/worker/pptx.worker.js?url";
 // pdfjs LEGACY build: the modern build assumes bleeding-edge JS APIs
 // (Math.sumPrecise, Map.prototype.getOrInsertComputed, …) that Electron's
 // Chromium lacks — every embedded font then fails to translate and pdfjs
@@ -233,6 +234,7 @@ type PdfDocumentProxy = import("pdfjs-dist/legacy/build/pdf.mjs").PDFDocumentPro
 type SortDirection = "asc" | "desc";
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const SHEET_EXTENSIONS = new Set(["xlsx", "xls", "ods", "csv", "tsv"]);
 // Formats supported by the local ONLYOFFICE session contract. The simplified
@@ -246,6 +248,10 @@ function isPdfInfo(info: FileArtifactInfo): boolean {
 
 function isDocxInfo(info: FileArtifactInfo): boolean {
   return info.ext === "docx" || info.mime.toLowerCase().includes(DOCX_MIME);
+}
+
+function isPptxInfo(info: FileArtifactInfo): boolean {
+  return info.ext === "pptx" || info.mime.toLowerCase().includes(PPTX_MIME);
 }
 
 function isSheetInfo(info: FileArtifactInfo): boolean {
@@ -486,7 +492,127 @@ function TextFileRenderer({
 /** Types that render as fetched text (source view). */
 const TEXT_PREVIEW_TYPES = new Set(["code", "document", "html", "js", "react", "svg"]);
 
-/** LibreOffice/PDF or format-specific preview used when ONLYOFFICE is unavailable. */
+type PptxViewerHandle = { destroy(): void };
+const PPTX_FRAME_HTML = `<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; media-src data: blob:; font-src data:; style-src 'unsafe-inline'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<style>html,body{height:100%;margin:0;background:transparent}#pptx-root{min-height:100%;padding:16px;box-sizing:border-box}</style>
+</head><body><div id="pptx-root"></div></body></html>`;
+
+/** Browser-native PPTX preview; no LibreOffice, container, or remote upload. */
+function PptxFileRenderer({
+  info,
+  type,
+  sizeLabel,
+  downloadLabel,
+}: {
+  info: FileArtifactInfo;
+  type: string;
+  sizeLabel: string;
+  downloadLabel: string;
+}) {
+  const { t } = useLocale();
+  const { buffer, status, error } = useFileArrayBuffer(info.downloadUrl);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [frameReady, setFrameReady] = useState(0);
+  const [renderStatus, setRenderStatus] = useState<"idle" | "loading" | "loaded" | "failed">("idle");
+  const [renderError, setRenderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const container = frameRef.current?.contentDocument?.getElementById("pptx-root");
+    if (!buffer || !container) {
+      setRenderStatus("idle");
+      setRenderError(null);
+      return;
+    }
+
+    let cancelled = false;
+    let viewer: PptxViewerHandle | null = null;
+    container.replaceChildren();
+    setRenderStatus("loading");
+    setRenderError(null);
+
+    void import("@file-viewer/pptx")
+      .then(({ PptxViewer, RECOMMENDED_ZIP_LIMITS }) => PptxViewer.open(buffer.slice(0), container, {
+        workerUrl: pptxWorkerUrl,
+        workerType: "module",
+        fitMode: "contain",
+        zoomPercent: 100,
+        zipLimits: RECOMMENDED_ZIP_LIMITS,
+        lazySlides: true,
+        lazyMedia: true,
+        listOptions: {
+          windowed: true,
+          initialSlides: 3,
+          batchSize: 4,
+          overscanViewport: 1.5,
+        },
+        onSlideRendered: () => {
+          if (!cancelled) setRenderStatus("loaded");
+        },
+        onRenderComplete: () => {
+          if (!cancelled) setRenderStatus("loaded");
+        },
+        onError: (nextError) => {
+          if (cancelled) return;
+          setRenderStatus("failed");
+          setRenderError(safeErrorMessage(nextError));
+        },
+      }))
+      .then((openedViewer) => {
+        if (cancelled) openedViewer.destroy();
+        else viewer = openedViewer;
+      })
+      .catch((nextError: unknown) => {
+        if (cancelled) return;
+        setRenderStatus("failed");
+        setRenderError(safeErrorMessage(nextError));
+      });
+
+    return () => {
+      cancelled = true;
+      viewer?.destroy();
+      container.replaceChildren();
+    };
+  }, [buffer, frameReady]);
+
+  const loading = status === "loading" || renderStatus === "loading";
+  const failed = status === "failed" || renderStatus === "failed";
+  const displayError = error ?? renderError;
+
+  return (
+    <BinaryPreviewFrame info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel}>
+      <div className="relative h-full min-h-0 bg-ink/[0.03]">
+        <iframe
+          ref={frameRef}
+          data-testid="pptx-browser-preview"
+          title={info.filename}
+          sandbox="allow-same-origin"
+          referrerPolicy="no-referrer"
+          srcDoc={PPTX_FRAME_HTML}
+          onLoad={() => setFrameReady((ready) => ready + 1)}
+          className="h-full min-h-[320px] w-full border-0"
+        />
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface/90">
+            <LoadingState label={t("artifact.preview.loading")} />
+          </div>
+        )}
+        {failed && (
+          isMissingFileError(displayError) ? (
+            <div className="absolute inset-0 bg-surface"><MissingFileNotice info={info} /></div>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center bg-surface px-6 text-center">
+              <p className="max-w-[420px] text-sm text-ink/42">{displayError || t("artifact.preview.loadFailed")}</p>
+            </div>
+          )
+        )}
+      </div>
+    </BinaryPreviewFrame>
+  );
+}
+
+/** Format-specific local preview used when ONLYOFFICE is unavailable. */
 function OfficeFallbackRenderer({
   info,
   type,
@@ -499,8 +625,6 @@ function OfficeFallbackRenderer({
   downloadLabel: string;
 }) {
   const { t } = useLocale();
-  const [pdfFailed, setPdfFailed] = useState(false);
-  const handleLoadFailed = useCallback(() => setPdfFailed(true), []);
 
   // Spreadsheets → interactive SheetJS grid (all worksheets).
   if (isSheetInfo(info)) {
@@ -514,25 +638,16 @@ function OfficeFallbackRenderer({
     return <DocxFileRenderer info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel} />;
   }
 
-  // Slides / other office types → LibreOffice-converted PDF preview (the only
-  // decent embedded option for pptx); binary card if even that is unavailable.
-  if (pdfFailed) {
-    return <BinaryPreviewFrame info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel} />;
+  if (isPptxInfo(info)) {
+    return <PptxFileRenderer info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel} />;
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="office-fallback-preview">
-      <div className="min-h-0 flex-1">
-        <PdfFileRenderer
-          info={info}
-          type={type}
-          sizeLabel={sizeLabel}
-          downloadLabel={downloadLabel}
-          pdfUrl={info.path ? officePdfUrl(info.path) : undefined}
-          onLoadFailed={handleLoadFailed}
-        />
+    <BinaryPreviewFrame info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel}>
+      <div className="flex h-full items-center justify-center px-6 text-center" data-testid="office-legacy-preview-unavailable">
+        <p className="max-w-[460px] text-sm text-ink/42">{t("artifact.office.legacyUnsupported")}</p>
       </div>
-    </div>
+    </BinaryPreviewFrame>
   );
 }
 
@@ -1354,6 +1469,10 @@ export function FileArtifactRenderer({ artifact }: { artifact: Artifact }) {
 
   if (info.downloadUrl && isDocxInfo(info)) {
     return <DocxFileRenderer info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel} />;
+  }
+
+  if (info.downloadUrl && isPptxInfo(info)) {
+    return <PptxFileRenderer info={info} type={type} sizeLabel={sizeLabel} downloadLabel={downloadLabel} />;
   }
 
   if (info.downloadUrl && isSheetInfo(info)) {
