@@ -337,6 +337,9 @@ describe('memory/context-builder', () => {
     expect(systemContent).toContain('- frontend-design: Guidance for distinctive, intentional visual design');
     expect(systemContent).not.toContain('# Frontend Design');
     expect(systemContent).toContain('## Always-On Skills');
+    expect(systemContent).toContain('# Visual Quality Gate');
+    expect(systemContent).toContain('Web UI, HTML, React, SVG, dashboards, charts, or visual reports: `frontend-design`');
+    expect(systemContent).not.toContain('## Data products, dashboards, and reports');
     expect(systemContent).toContain('# Coding Agent');
   });
 

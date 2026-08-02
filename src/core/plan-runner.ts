@@ -958,6 +958,9 @@ async function summarizePlanCompletionWithBrain(
           '"Successfully...") when verification failed; completed steps do not outrank a failed check.',
           'NEVER state step or tool counts ("3/3 steps", "Steps: N/N") — the plan card already shows',
           'phase progress; describe outcomes, not tallies.',
+          'Use concise Markdown without ceremony. Keep one compact paragraph when there is only one point;',
+          'when there are multiple outcomes, failure causes, or next steps, use a short lead and bullets',
+          'with at most one descriptive heading. Never return a wall of long paragraphs.',
         ].join(' '),
       },
       {

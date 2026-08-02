@@ -18,7 +18,6 @@ import type { IncomingMessage } from '../../channels/telegram.js';
 import { getTurnEnvelope } from '../../memory/turn-envelopes.js';
 import { PermanentBackgroundTaskError } from '../registry.js';
 import { openCronRunSession } from '../../scheduler/cron-tasks.js';
-import { durablePlanBlockedResponse } from '../../core/durable-plan-admission.js';
 
 interface ManagedBrainParams {
   prompt?: unknown;
@@ -166,11 +165,6 @@ export async function managedBrainHandler(task: BackgroundTask, signal: AbortSig
     ? getTurnEnvelope(task.session_id, msg.turnId, task.tenant_id)
     : null;
   const content = response?.trim() || 'Managed scheduled execution returned no result.';
-  if (content === durablePlanBlockedResponse(prompt)) {
-    // No plan, no side effects, safe to re-enter through the bounded outer
-    // runner: this retry is idempotent.
-    throw new Error(content);
-  }
   if (envelope?.status === 'failed') throw new PermanentBackgroundTaskError(content);
   if (/previous request is still running/i.test(content)) throw new Error(content);
   return content;

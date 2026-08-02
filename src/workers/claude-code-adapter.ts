@@ -15,6 +15,7 @@ import type {
   WorkerLaunchRequest,
   WorkerLaunchResult,
   WorkerLifecycleState,
+  WorkerExecutionLane,
   WorkerStatus,
 } from './adapter.js';
 import {
@@ -79,6 +80,20 @@ function resolveClaudeBackend(): ClaudeBackend {
     maxPromptArgBytes: backend.maxPromptArgBytes,
     stdinPromptArgs: backend.stdinPromptArgs,
   };
+}
+
+function claudeAllowedTools(allowedTools: string[], lane: WorkerExecutionLane): string[] {
+  const tools = new Set(['Read', 'Glob', 'Grep']);
+  if (allowedTools.includes('filesystem') && lane !== 'review') {
+    tools.add('Edit');
+    tools.add('Write');
+  }
+  if (allowedTools.includes('shell') || allowedTools.includes('git')) tools.add('Bash');
+  if (allowedTools.includes('web')) {
+    tools.add('WebSearch');
+    tools.add('WebFetch');
+  }
+  return [...tools];
 }
 
 function toResultEnvelope(run: ActiveRun): ResultEnvelope {
@@ -153,6 +168,17 @@ export class ClaudeCodeWorkerAdapter implements WorkerAdapter {
     const args = request.adapter_config.args.length > 0
       ? [...request.adapter_config.args]
       : [...this.backend.args];
+    const lane = resolveWorkerExecutionLane(request.task, request.adapter_config);
+    if (!args.some((arg) => arg === '--setting-sources' || arg.startsWith('--setting-sources='))) {
+      args.push('--setting-sources', 'project,local');
+    }
+    if (!args.some((arg) => arg === '--permission-mode' || arg.startsWith('--permission-mode='))) {
+      args.push('--permission-mode', 'dontAsk');
+    }
+    if (!args.some((arg) => arg === '--allowedTools' || arg === '--allowed-tools'
+      || arg.startsWith('--allowedTools=') || arg.startsWith('--allowed-tools='))) {
+      args.push('--allowedTools', claudeAllowedTools(request.task.constraints.allowed_tools, lane).join(','));
+    }
 
     const requestedModel = request.adapter_config.model?.trim().toLowerCase();
     const isRealModel = request.adapter_config.model
@@ -169,7 +195,7 @@ export class ClaudeCodeWorkerAdapter implements WorkerAdapter {
       );
     }
     const promptDelivery = resolveCliPromptDelivery(
-      buildManagedWorkerTaskPrompt(request.task),
+      buildManagedWorkerTaskPrompt(request.task, request.metadata),
       this.backend,
     );
     args.push(...promptDelivery.promptArgs);
@@ -202,7 +228,6 @@ export class ClaudeCodeWorkerAdapter implements WorkerAdapter {
       throw new Error(`Unknown worker transport: ${request.transport}`);
     }
 
-    const lane = resolveWorkerExecutionLane(request.task, request.adapter_config);
     const sandboxProfile = resolveWorkerSandboxProfile(this, lane);
 
     const handle: WorkerHandle = {

@@ -862,7 +862,11 @@ describe('core/plan-runner', () => {
     expect(chatMock).toHaveBeenCalledTimes(1);
     // Summarization input is grounded: goal + per-step status block.
     const [messages] = chatMock.mock.calls[0] as [Array<{ role: string; content: string }>];
+    const systemMsg = messages.find((m) => m.role === 'system')!;
     const userMsg = messages.find((m) => m.role === 'user')!;
+    expect(systemMsg.content).toContain('Keep one compact paragraph when there is only one point');
+    expect(systemMsg.content).toContain('use a short lead and bullets');
+    expect(systemMsg.content).toContain('Never return a wall of long paragraphs');
     expect(userMsg.content).toContain('Quarterly tax update report');
     expect(userMsg.content).toContain('Collect policy sources');
 

@@ -457,6 +457,7 @@ function deriveLiveActivity(
 interface TurnFoldGroup {
   key: string;
   items: ChatRenderItem[];
+  status: "completed" | "failed";
 }
 
 interface FailedTurnGroup {
@@ -507,7 +508,8 @@ function mergeExecutionBlocks(blocks: ExecutionBlockModel[], key: string): Execu
 }
 
 /**
- * A terminally failed TURN owns one visible process surface. Assistant narration
+ * A terminally failed TURN owns one visible process surface unless an explicit
+ * detached-plan parent already owns the task-level fold. Assistant narration
  * can split its execution stream into several render blocks, but those blocks
  * are child operations of the same turn — rendering each as its own capsule
  * shatters both the task identity and the page.
@@ -516,9 +518,11 @@ function buildFailedTurnGroups(
   renderItems: ChatRenderItem[],
   failedTurnIds: ReadonlySet<string>,
   startIndex: number,
+  foldedRowIndices: ReadonlySet<number>,
 ): { groups: Map<number, FailedTurnGroup>; grouped: Set<number> } {
   const byTurn = new Map<string, { indices: number[]; blocks: ExecutionBlockModel[] }>();
   for (let i = startIndex; i < renderItems.length; i++) {
+    if (foldedRowIndices.has(i)) continue;
     const item = renderItems[i];
     if (item.kind !== "execution" || !item.block.turnId || !failedTurnIds.has(item.block.turnId)) continue;
     const bucket = byTurn.get(item.block.turnId) ?? { indices: [], blocks: [] };
@@ -575,9 +579,10 @@ function isFoldableRow(ri: ChatRenderItem, failedTurnIds: ReadonlySet<string>): 
   // delivered — they fold, and the completed turn reads as done). What never
   // folds: running work, cancellations/interruptions (no later answer
   // supersedes them), approvals, deliverable artifacts, and any block of a
-  // turn whose ENVELOPE is failed — hard failure owns its own surface
-  // (presentation matrix), and terminal truth comes from the envelope, never
-  // from block shape.
+  // turn whose ENVELOPE is failed — hard failure normally owns its own surface
+  // (presentation matrix). buildTurnFolds may later lift an explicit detached-
+  // plan child into its parent's task-level surface. Terminal truth still comes
+  // from the envelope, never from block shape.
   if (ri.kind === "execution") {
     if (ri.block.turnId && failedTurnIds.has(ri.block.turnId)) return false;
     return ri.block.status === "success" || ri.block.status === "error" || ri.block.status === "mixed";
@@ -607,9 +612,9 @@ function buildTurnFolds(renderItems: ChatRenderItem[], failedTurnIds: ReadonlySe
       }
     }
     if (lastAssistant < 0) return;
-    const collected: number[] = [];
+    const collected = new Set<number>();
     for (let i = start; i < lastAssistant; i++) {
-      if (isFoldableRow(renderItems[i], failedTurnIds)) collected.push(i);
+      if (isFoldableRow(renderItems[i], failedTurnIds)) collected.add(i);
     }
     // A scheduled plan's caller-owned delivery can arrive under a separate
     // background message turn before the stable `turn_bg_<planId>` execution
@@ -617,31 +622,37 @@ function buildTurnFolds(renderItems: ChatRenderItem[], failedTurnIds: ReadonlySe
     // pull the plan's existing child execution into its foreground fold instead
     // of leaving a second standalone "View work" disclosure after the answer.
     const linkedPlanTurns = new Set(
-      collected.flatMap((index) => {
+      [...collected].flatMap((index) => {
         const item = renderItems[index];
         const planId = item.kind === "execution" ? item.block.plan?.plan_id : undefined;
         return planId ? [`turn_bg_${planId}`] : [];
       }),
     );
     if (linkedPlanTurns.size > 0) {
-      for (let i = lastAssistant + 1; i < end; i++) {
+      for (let i = start; i < end; i++) {
+        if (i === lastAssistant || collected.has(i)) continue;
         const item = renderItems[i];
         if (
           item.kind === "execution" &&
           item.block.turnId &&
           linkedPlanTurns.has(item.block.turnId) &&
-          isFoldableRow(item, failedTurnIds)
+          (isFoldableRow(item, failedTurnIds) || failedTurnIds.has(item.block.turnId))
         ) {
-          collected.push(i);
+          collected.add(i);
         }
       }
     }
-    if (collected.length === 0) return;
-    groups.set(collected[0], {
-      key: `turn-fold-${collected[0]}`,
-      items: collected.map((i) => renderItems[i]),
+    if (collected.size === 0) return;
+    const ordered = [...collected].sort((a, b) => a - b);
+    groups.set(ordered[0], {
+      key: `turn-fold-${ordered[0]}`,
+      items: ordered.map((i) => renderItems[i]),
+      status: ordered.some((i) => {
+        const turnId = renderTurnId(renderItems[i]);
+        return turnId != null && failedTurnIds.has(turnId);
+      }) ? "failed" : "completed",
     });
-    collected.forEach((i) => folded.add(i));
+    ordered.forEach((i) => folded.add(i));
   };
 
   let segStart = 0;
@@ -725,13 +736,16 @@ function TurnFold({
         onClick={() => setExpanded((value) => !value)}
         className="inline-flex max-w-full items-center gap-2 px-1 py-1 text-[12px] leading-none text-ink/35 transition-colors duration-180ms hover:text-ink/55"
       >
-        {/* By construction the fold only exists once the turn produced its final
-            answer (buildTurnFolds requires a lastAssistant), so it always
-            represents a completed turn. Survived mid-turn errors are normal
-            process, not a failure — the dot is green ("done"), never amber. */}
+        {/* Survived mid-turn errors remain completed work. A linked background
+            turn whose authoritative envelope failed makes this one task-level
+            disclosure failed — the plan is one user task even though runtime
+            execution crossed foreground/background turn identities. */}
         <span
-          data-testid="turn-fold-done-dot"
-          className="h-1.5 w-1.5 shrink-0 rounded-full bg-success/80"
+          data-testid={group.status === "failed" ? "turn-fold-issue-dot" : "turn-fold-done-dot"}
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            group.status === "failed" ? "bg-danger/80" : "bg-success/80",
+          )}
         />
         <span className="truncate">{label}</span>
         <ChevronDown size={12} className={cn("shrink-0 text-ink/25 transition-transform duration-180ms", expanded && "rotate-180")} />
@@ -1119,9 +1133,9 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // projection (Issue #625) is memoized above.
   const activityIndicator = deriveActivityIndicator(timeline, renderItems, sessionState, activeTool, activeTurnId);
   const turnLocale = latestTurnLocale(timeline, turns, activeTurnId, locale);
-  // Turns whose ENVELOPE is terminally failed: their process never folds and
-  // keeps one turn-scoped surface. The final assistant message remains the
-  // visible failure report; process details open only when the user asks.
+  // Turns whose ENVELOPE is terminally failed normally keep one turn-scoped
+  // surface. An explicit detached-plan child can instead join its parent's one
+  // task-level fold. The final assistant message remains the visible report.
   const failedTurnIds = new Set((turns ?? []).filter((turn) => turn.status === "failed").map((turn) => turn.turnId));
 
   // Windowing (Issue #628): cap mounted DOM rows for very long sessions. The cut
@@ -1339,7 +1353,12 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // paragraphs in multi-phase turns.) Windowing drops only a leading prefix;
   // every mounted row is wrapped for keyboard/screen-reader navigation.
   const { groups: turnFoldGroups, folded: foldedRowIndices } = buildTurnFolds(renderItems, failedTurnIds);
-  const { groups: failedTurnGroups, grouped: failedTurnRowIndices } = buildFailedTurnGroups(renderItems, failedTurnIds, windowStart);
+  const { groups: failedTurnGroups, grouped: failedTurnRowIndices } = buildFailedTurnGroups(
+    renderItems,
+    failedTurnIds,
+    windowStart,
+    foldedRowIndices,
+  );
   const rows: Array<{ key: string; node: ReactNode }> = [];
   // Supporting files are process, not product (operator decision 2026-07-19):
   // a completed turn's chat rows are the answer and its deliverable(s) — the

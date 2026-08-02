@@ -175,7 +175,7 @@ export class CodexCliWorkerAdapter implements WorkerAdapter {
       );
     }
     const promptDelivery = resolveCliPromptDelivery(
-      buildManagedWorkerTaskPrompt(request.task),
+      buildManagedWorkerTaskPrompt(request.task, request.metadata),
       this.backend,
     );
     args.push(...promptDelivery.promptArgs);

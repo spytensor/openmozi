@@ -3,6 +3,9 @@ import type {
   ManagedWorkerTaskResult,
   WorkerAdapterRegistry,
 } from './adapter.js';
+import { createHash } from 'node:crypto';
+import { lstat, readFile, readlink, realpath } from 'node:fs/promises';
+import { resolve, sep } from 'node:path';
 import {
   buildManagedWorkerFailureEnvelope,
   isTerminalWorkerState,
@@ -17,6 +20,9 @@ import {
   deriveFailureCategory,
   persistExternalWorkerJob,
   transitionExternalWorkerJob,
+  type ExternalWorkerTestResult,
+  type ExternalWorkerTestStatus,
+  type ExternalWorkerTaskSpec,
 } from './job-state.js';
 import {
   inspectManagedWorkerPreflight,
@@ -24,6 +30,8 @@ import {
   reportManagedWorkerSuccess,
 } from './preflight.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
+import { exec, execFile } from '../capabilities/shell.js';
+import { getRuntimeProjectRoot, resolveProjectRelativePath } from '../runtime/project-root.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const DEFAULT_WORKER_HEARTBEAT_MS = 30_000;
@@ -31,6 +39,149 @@ const DEFAULT_WORKER_HEARTBEAT_MS = 30_000;
 const DEFAULT_WALL_CLOCK_MULTIPLIER = 10;
 /** Absolute maximum wall clock time (2 hours) as safety net */
 const ABSOLUTE_MAX_WALL_CLOCK_MS = 7_200_000;
+const VERIFICATION_EXCERPT_LENGTH = 4_000;
+
+type GitWorkspaceSnapshot = {
+  root: string;
+  files: Map<string, string>;
+};
+
+type RuntimeVerificationEvidence = {
+  changedFiles: string[];
+  scopeViolations: string[];
+  testsRun: string[];
+  testResults: ExternalWorkerTestResult[];
+  testStatus: ExternalWorkerTestStatus;
+  errors: string[];
+};
+
+function resolveWorkerCwd(input: ManagedWorkerTaskInput): string {
+  return input.worker.cwd
+    ? resolveProjectRelativePath(input.worker.cwd)
+    : getRuntimeProjectRoot();
+}
+
+async function fingerprintWorkspacePath(path: string): Promise<string> {
+  try {
+    const stat = await lstat(path);
+    const hash = createHash('sha256').update(String(stat.mode)).update('\0');
+    if (stat.isSymbolicLink()) {
+      hash.update(await readlink(path));
+    } else if (stat.isFile()) {
+      hash.update(await readFile(path));
+    } else {
+      hash.update('directory');
+    }
+    return hash.digest('hex');
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return 'missing';
+    throw error;
+  }
+}
+
+async function captureGitWorkspace(cwd: string): Promise<GitWorkspaceSnapshot | null> {
+  const rootResult = await execFile('git', ['rev-parse', '--show-toplevel'], { cwd, timeout: 10_000 });
+  if (rootResult.exit_code !== 0) return null;
+  const root = rootResult.stdout.trim();
+  if (!root) return null;
+
+  const filesResult = await execFile(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+    { cwd: root, timeout: 30_000 },
+  );
+  if (filesResult.exit_code !== 0) {
+    throw new Error(filesResult.stderr.trim() || 'git ls-files failed while capturing worker baseline');
+  }
+
+  const files = new Map<string, string>();
+  for (const path of filesResult.stdout.split('\0').filter(Boolean)) {
+    files.set(path, await fingerprintWorkspacePath(resolve(root, path)));
+  }
+  return { root, files };
+}
+
+async function collectChangedFiles(before: GitWorkspaceSnapshot, cwd: string): Promise<string[]> {
+  const after = await captureGitWorkspace(cwd);
+  if (!after || after.root !== before.root) {
+    throw new Error('Managed worker workspace is no longer the Git repository captured before launch.');
+  }
+
+  const paths = new Set([...before.files.keys(), ...after.files.keys()]);
+  return [...paths]
+    .filter((path) => before.files.get(path) !== after.files.get(path))
+    .sort();
+}
+
+function findScopeViolations(
+  changedFiles: string[],
+  repoRoot: string,
+  cwd: string,
+  allowedScope: string[],
+): string[] {
+  if (allowedScope.length === 0) return [];
+  const allowedPaths = allowedScope.map((path) => resolve(cwd, path));
+  return changedFiles.filter((path) => {
+    const absolutePath = resolve(repoRoot, path);
+    return !allowedPaths.some((allowedPath) => (
+      absolutePath === allowedPath || absolutePath.startsWith(`${allowedPath}${sep}`)
+    ));
+  });
+}
+
+async function collectRuntimeVerificationEvidence(
+  input: ManagedWorkerTaskInput,
+  cwd: string,
+  baseline: GitWorkspaceSnapshot | null,
+  taskSpec: ExternalWorkerTaskSpec,
+): Promise<RuntimeVerificationEvidence> {
+  const evidence: RuntimeVerificationEvidence = {
+    changedFiles: [],
+    scopeViolations: [],
+    testsRun: [],
+    testResults: [],
+    testStatus: taskSpec.required_tests.length > 0 ? 'failed' : 'not_run',
+    errors: [],
+  };
+
+  if (baseline) {
+    try {
+      evidence.changedFiles = await collectChangedFiles(baseline, cwd);
+      evidence.scopeViolations = findScopeViolations(
+        evidence.changedFiles,
+        baseline.root,
+        await realpath(cwd),
+        taskSpec.allowed_scope,
+      );
+    } catch (error) {
+      evidence.errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  if (taskSpec.required_tests.length === 0) return evidence;
+  if (!taskSpec.allowed_tools.includes('shell')) {
+    evidence.errors.push('Required tests were not executed because shell is absent from allowed_tools.');
+    return evidence;
+  }
+
+  const timeout = input.timeout_ms > 0 ? input.timeout_ms : 900_000;
+  for (const command of taskSpec.required_tests) {
+    const result = await exec(command, { cwd, timeout });
+    evidence.testsRun.push(command);
+    evidence.testResults.push({
+      command,
+      exit_code: result.exit_code,
+      timed_out: result.timed_out,
+      stdout_excerpt: result.stdout.slice(-VERIFICATION_EXCERPT_LENGTH),
+      stderr_excerpt: result.stderr.slice(-VERIFICATION_EXCERPT_LENGTH),
+    });
+  }
+  evidence.testStatus = evidence.testResults.every((result) => result.exit_code === 0 && !result.timed_out)
+    ? 'passed'
+    : 'failed';
+  return evidence;
+}
 
 function sleep(ms: number): Promise<void> {
   if (ms <= 0) return Promise.resolve();
@@ -176,6 +327,33 @@ export async function dispatchManagedWorkerTask(
     persistExternalWorkerJob(job);
     emitManagedWorkerStatus(input, job, 'failed', { summary: message });
     throw new Error(message);
+  }
+
+  const verificationCwd = resolveWorkerCwd(input);
+  let workspaceBaseline: GitWorkspaceSnapshot | null = null;
+  if (job.task_spec.allowed_scope.length > 0) {
+    try {
+      workspaceBaseline = await captureGitWorkspace(verificationCwd);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      job = transitionExternalWorkerJob(job, 'failed', {
+        failure_category: deriveFailureCategory({ status: 'failed' }),
+        last_error: `Managed worker verification baseline failed: ${message}`,
+      });
+      persistExternalWorkerJob(job);
+      emitManagedWorkerStatus(input, job, 'failed', { summary: job.last_error ?? message });
+      throw new Error(job.last_error ?? message);
+    }
+    if (!workspaceBaseline) {
+      const message = 'Managed worker allowed_scope requires a Git workspace for runtime verification.';
+      job = transitionExternalWorkerJob(job, 'failed', {
+        failure_category: deriveFailureCategory({ status: 'failed' }),
+        last_error: message,
+      });
+      persistExternalWorkerJob(job);
+      emitManagedWorkerStatus(input, job, 'failed', { summary: message });
+      throw new Error(message);
+    }
   }
 
   job = transitionExternalWorkerJob(job, 'launching');
@@ -333,6 +511,15 @@ export async function dispatchManagedWorkerTask(
       ? deriveFailureCategory({ status: 'failed' })
       : null;
 
+  const verificationEvidence = result.envelope.status === 'success' || result.envelope.status === 'partial'
+    ? await collectRuntimeVerificationEvidence(
+      input,
+      verificationCwd,
+      workspaceBaseline,
+      job.task_spec,
+    )
+    : null;
+
   const persistedResult = buildExternalWorkerResultEnvelope({
     job,
     result: result.envelope,
@@ -341,6 +528,12 @@ export async function dispatchManagedWorkerTask(
     stdout: result.stdout,
     stderr: result.stderr,
     failure_category: resultFailureCategory,
+    changed_files: verificationEvidence?.changedFiles,
+    tests_run: verificationEvidence?.testsRun,
+    test_results: verificationEvidence?.testResults,
+    test_status: verificationEvidence?.testStatus,
+    scope_violations: verificationEvidence?.scopeViolations,
+    verification_errors: verificationEvidence?.errors,
   });
 
   if (result.envelope.status === 'cancelled') {

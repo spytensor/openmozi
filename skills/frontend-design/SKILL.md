@@ -1,8 +1,8 @@
 ---
 name: frontend-design
-description: Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. Helps with aesthetic direction, typography, and making choices that don't read as templated defaults.
+description: Guidance for distinctive, intentional visual design when building or reshaping UI, HTML/React artifacts, dashboards, charts, and visual reports. Use before implementation to choose a content-specific structure, typography, and visual system that does not read as a templated default.
 license: Complete terms in LICENSE.txt
-version: "1.0.0"
+version: "1.1.0"
 category: coding
 user-invocable: true
 ---
@@ -27,6 +27,26 @@ Leverage motion deliberately. Think about where and if animation can serve the s
 
 Match complexity to the vision. Maximalist directions need elaborate execution; minimal directions need precision in spacing, type, and detail. Elegance is executing the chosen vision well.
 
+## Structure before styling
+
+Choose the composition before choosing colors or polishing components. Name the artifact's dominant reading pattern — comparison, sequence, investigation, monitoring, narrative, reference, or decision — and make that pattern visible in the layout. Do not reuse the same hero, equal-card grid, and footer rhythm for unrelated briefs.
+
+Use containers only when they express a real boundary, interaction, or reusable unit. Prefer whitespace, alignment, rules, and typography for ordinary grouping. A page where every fact is boxed has no hierarchy; a grid of equal cards says every item matters equally even when the content does not.
+
+Lock a small set of color, type, spacing, radius, and motion tokens before building. Every later value should come from those tokens. Use real content only: never invent metrics, testimonials, logos, or benchmark claims to make a layout feel complete.
+
+## Data products, dashboards, and reports
+
+Start from the decision the reader needs to make, not from a checklist of available metrics. Give the primary finding or most useful chart the dominant visual position, then arrange supporting evidence by causal or analytical relationship.
+
+- Do not automatically turn summary metrics into four equal cards. Use one compact metric band, an annotated lead visualization, a comparison table, or inline figures when those better express the argument.
+- Do not turn observations into rounded pills. Chips are for compact state, filters, or removable values — not sentences or conclusions.
+- Avoid card-in-card layouts and repeated borders. One semantic surface may contain several aligned facts without wrapping each fact again.
+- Charts need honest scales, labels, units, and source context. Decorative empty chart frames are worse than a clear table or prose finding.
+- Use tabular numerals for dense figures and monospace only for code or genuinely machine-like data; it is not a shortcut to “technical.”
+- Put detail on demand. The first viewport should explain what changed and why it matters, not display every dimension at equal weight.
+- Check that headline totals and ratios recompute from the detailed data. If they conflict, remove the summary until the data is corrected.
+
 Consider written content carefully. Often a design brief may not contain real content, and it's up to you to come up with copy. Copy can make a design feel as templated as the design itself. See the below section on writing for more guidance.
 
 ## Process: brainstorm, explore, plan, critique, build, critique again
@@ -35,7 +55,7 @@ For calibration: AI-generated design right now clusters around three looks: (1) 
 
 Work in two passes. First, brainstorm a short design plan based on the human's design brief: create a compact token system with color, type, layout, and signature. Color: describe the palette as 4–6 named hex values. Type: the typefaces for 2+ roles (a characterful display face that's used with restraint, a complementary body face, and a utility face for captions or data if needed). Layout: a layout concept, using one-sentence prose descriptions and ASCII wireframes to ideate and compare. Signature: the single unique element this page will be remembered by that embodies the brief in an appropriate way.
 
-Then review that plan against the brief before building: if any part of it reads like the generic default you would produce for any similar page (work through a similar prompt to see if you arrive somewhere similar) rather than a choice made for this specific brief — revise that part, say what you changed and why. Only after you've confirmed the relative uniqueness of your design plan should you start to write the code, following the revised plan exactly and deriving every color and type decision from it.
+Then review that plan against the brief before building: if any part of it reads like the generic default you would produce for any similar page (work through a similar prompt to see if you arrive somewhere similar) rather than a choice made for this specific brief — revise that part. Only after you've confirmed the relative uniqueness of your design plan should you start to write the code, following the revised plan exactly and deriving every color and type decision from it.
 
 When writing the code, be careful of structuring your CSS selector specificities. It's easy to generate CSS classes that cancel each other out (especially with a type-based selector like .section and a element-based selector like .cta). This can happen often with paddings/margins between sections.
 

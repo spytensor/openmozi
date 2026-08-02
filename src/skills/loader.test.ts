@@ -304,7 +304,7 @@ describe('formatSkillsForPrompt', () => {
 // ---------------------------------------------------------------------------
 
 describe('discoverSkills', () => {
-  it('exposes design-impeccable as an always-on skill whose design red lines reach the prompt', async () => {
+  it('exposes a compact always-on visual router while keeping specialist design bodies deferred', async () => {
     const skills = await discoverSkills({
       bundledDir: BUNDLED_SKILLS_DIR,
       workspaceDir: '/tmp/__mozi_test_nonexistent_workspace__/skills',
@@ -314,12 +314,15 @@ describe('discoverSkills', () => {
     expect(design!.frontmatter.always).toBe(true);
     expect(design!.eligible).toBe(true);
 
-    // Always-on → full body is injected every turn so the Brain always has the
-    // design standard when it might emit visual output.
+    // The cheap routing gate is always present. The larger frontend procedure
+    // remains catalog-only until the Brain activates it with use_skill.
     const prompt = formatSkillsForPrompt(skills);
     expect(prompt).toContain('## Always-On Skills');
     expect(prompt).toContain('### design-impeccable');
-    expect(prompt).toContain('AI slop');
+    expect(prompt).toContain('# Visual Quality Gate');
+    expect(prompt).toContain('Web UI, HTML, React, SVG, dashboards, charts, or visual reports: `frontend-design`');
+    expect(prompt).toContain('- frontend-design: Guidance for distinctive, intentional visual design');
+    expect(prompt).not.toContain('## Data products, dashboards, and reports');
   });
 
   it('discovers the workflow skills that replaced regex-routed task modules', async () => {

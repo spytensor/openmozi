@@ -5,9 +5,6 @@ import type {
 import type { TurnTraceVerifyStatus } from './telemetry.js';
 import type { CompletionGateDecision } from '../core/completion-gates.js';
 import type { TaskToolProfile } from '../tools/tool-shaping.js';
-import type { RuntimeAdmission } from '../core/durable-plan-admission.js';
-
-export type PromptSnapshotAdmissionStatus = 'not_required' | 'required' | 'accepted' | 'blocked';
 
 export interface PromptSnapshotSlot {
   name: string;
@@ -55,8 +52,6 @@ export interface PromptSnapshot {
     tool_schema_tokens_estimate: number;
     exposed_tool_count: number;
     task_profile: TaskToolProfile;
-    runtime_admission: RuntimeAdmission | null;
-    admission_status: PromptSnapshotAdmissionStatus;
   };
 }
 
@@ -76,7 +71,6 @@ export interface CapturePromptSnapshotInput {
   promptTokensEstimate?: number;
   toolSchemaTokensEstimate?: number;
   taskProfile?: TaskToolProfile;
-  runtimeAdmission?: RuntimeAdmission;
 }
 
 function slotToSnapshot(slot: ContextSlotBreakdown): PromptSnapshotSlot {
@@ -163,9 +157,7 @@ export function capturePromptSnapshot(input: CapturePromptSnapshotInput): Prompt
       prompt_tokens_estimate: input.promptTokensEstimate ?? 0,
       tool_schema_tokens_estimate: input.toolSchemaTokensEstimate ?? 0,
       exposed_tool_count: input.tools.length,
-      task_profile: input.taskProfile ?? 'general',
-      runtime_admission: input.runtimeAdmission ?? null,
-      admission_status: input.runtimeAdmission ? 'required' : 'not_required',
+      task_profile: input.taskProfile ?? 'model_driven',
     },
   };
 }
@@ -234,10 +226,11 @@ export function updatePromptSnapshotVerifier(
     .run(JSON.stringify(redactSnapshot(snapshot)), row.id);
 }
 
-export function updatePromptSnapshotAdmission(
+export function updatePromptSnapshotTools(
   traceId: string,
   tenantId: string,
-  status: 'accepted' | 'blocked',
+  tools: PromptSnapshotToolEntry[],
+  toolSchemaTokensEstimate: number,
 ): void {
   ensureTable();
   const db = getDb();
@@ -248,7 +241,9 @@ export function updatePromptSnapshotAdmission(
   `).get(traceId, tenantId) as { id: number; snapshot: string } | undefined;
   if (!row) return;
   const snapshot = JSON.parse(row.snapshot) as PromptSnapshot;
-  snapshot.runtime_meta.admission_status = status;
+  snapshot.tools = tools;
+  snapshot.runtime_meta.exposed_tool_count = tools.length;
+  snapshot.runtime_meta.tool_schema_tokens_estimate = toolSchemaTokensEstimate;
   db.prepare('UPDATE prompt_snapshots SET snapshot = ? WHERE id = ?')
     .run(JSON.stringify(redactSnapshot(snapshot)), row.id);
 }

@@ -6,6 +6,49 @@ OpenMozi maintains its own version line.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-02
+
+### Added
+
+- **Skills can be installed from packages.** The Skills page accepts `.skill`,
+  `.zip`, and tar archives by picker or drag-and-drop. MOZI can also install the
+  same packages with `install_skill`, including a package nested inside a
+  wrapper archive.
+- **MOZI-authored skill drafts are reviewable.** Drafts now appear on the Skills
+  page with an approval action instead of remaining hidden and unusable.
+- **Tools are exposed progressively.** Models start with a compact catalog and
+  activate the full schemas they need, reducing the persistent context cost of
+  large tool collections.
+
+### Changed
+
+- Planning and DAG use are model decisions based on tool descriptions. The
+  runtime no longer classifies prompt complexity or forces a plan before the
+  selected model can act.
+- Visual-output guidance now routes work to the smallest relevant design skill,
+  requires structure before styling, and adds dashboard/report rules against
+  repetitive card grids and decorative metrics.
+- The Agents surface is now presented as `Agents` in English and `专家` in
+  Chinese, with a consistent localized editor for names, permissions, skills,
+  tools, icons, and personas.
+- Chat and document prose use a more readable type scale, line height, and
+  spacing rhythm.
+
+### Fixed
+
+- **Scheduled prompts now persist the workload they were created with.** A task
+  made from the Scheduled page previously saved its title but could reach the
+  unattended runner with an empty prompt and fail immediately.
+- **Managed coding workers are verified from runtime evidence.** Allowed-scope
+  changes are measured against the Git workspace and required test commands are
+  executed by MOZI with recorded exit codes, rather than trusting a worker's
+  prose summary.
+- Claude Code workers no longer wait for an approval UI that does not exist in
+  non-interactive mode. Their file, shell, Git, and web tools are mapped from the
+  task's declared permissions.
+- Completed work renders as one coherent section instead of showing a second,
+  nested `View work` disclosure around the same result.
+
 ## [1.2.0] - 2026-07-26
 
 ### Added

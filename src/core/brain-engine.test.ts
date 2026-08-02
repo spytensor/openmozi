@@ -114,9 +114,102 @@ function createMockClient(responses: ChatResponse[]): LLMClient {
   } as unknown as LLMClient;
 }
 
+function withAutomaticToolActivation(client: LLMClient): LLMClient {
+  let pendingChatResponse: ChatResponse | undefined;
+  let pendingStreamChunks: Array<{ type: string; [key: string]: unknown }> | undefined;
+  let pendingStreamIterator: AsyncIterator<unknown> | undefined;
+  const inactiveNames = (response: ChatResponse, options: { tools?: Array<{ function: { name: string } }> } | undefined): string[] => {
+    const active = new Set((options?.tools ?? []).map(tool => tool.function.name));
+    return [...new Set((response.tool_calls ?? [])
+      .map(call => call.function.name)
+      .filter(name => !active.has(name)))];
+  };
+  const activationResponse = (names: string[]): ChatResponse => ({
+    content: '',
+    usage: { input_tokens: 0, output_tokens: 0 },
+    model: 'test-auto-activation',
+    stop_reason: 'tool_use',
+    tool_calls: [{
+      id: `test-activate-${names.join('-')}`,
+      type: 'function',
+      function: { name: 'activate_tools', arguments: JSON.stringify({ names }) },
+    }],
+  });
+
+  return {
+    ...client,
+    chat: async (messages, options) => {
+      if (pendingChatResponse) {
+        const response = pendingChatResponse;
+        pendingChatResponse = undefined;
+        return response;
+      }
+      const response = await client.chat(messages, options);
+      const inactive = inactiveNames(response, options);
+      if (inactive.length === 0) return response;
+      pendingChatResponse = response;
+      return activationResponse(inactive);
+    },
+    chatStream: async function* (messages, options) {
+      if (pendingStreamChunks) {
+        const chunks = pendingStreamChunks;
+        pendingStreamChunks = undefined;
+        for (const chunk of chunks) yield chunk as any;
+        if (pendingStreamIterator) {
+          const iterator = pendingStreamIterator;
+          pendingStreamIterator = undefined;
+          while (true) {
+            const next = await iterator.next();
+            if (next.done) return;
+            yield next.value as any;
+          }
+        }
+        return;
+      }
+
+      const active = new Set((options?.tools ?? []).map(tool => tool.function.name));
+      const stream = client.chatStream(messages, options);
+      const iterator = stream[Symbol.asyncIterator]();
+      const buffered: Array<{ type: string; [key: string]: unknown }> = [];
+      while (true) {
+        const next = await iterator.next();
+        if (next.done) break;
+        const chunk = next.value as { type: string; toolName?: string; response?: ChatResponse; [key: string]: unknown };
+        buffered.push(chunk);
+        if (chunk.type === 'tool_input_start' && chunk.toolName && !active.has(chunk.toolName)) {
+          pendingStreamChunks = buffered;
+          pendingStreamIterator = iterator;
+          yield { type: 'done', response: activationResponse([chunk.toolName]) } as any;
+          return;
+        }
+        if (chunk.type === 'tool_input_start') {
+          for (const bufferedChunk of buffered) yield bufferedChunk as any;
+          buffered.length = 0;
+          while (true) {
+            const live = await iterator.next();
+            if (live.done) return;
+            yield live.value;
+          }
+        }
+        if (chunk.type === 'done' && chunk.response) {
+          const inactive = inactiveNames(chunk.response, options);
+          if (inactive.length > 0) {
+            pendingStreamChunks = buffered;
+            yield { type: 'done', response: activationResponse(inactive) } as any;
+            return;
+          }
+          for (const bufferedChunk of buffered) yield bufferedChunk as any;
+          return;
+        }
+      }
+    },
+  } as LLMClient;
+}
+
 function buildTestOptions(
   client: LLMClient,
   overrides?: Partial<BrainExecutionOptions>,
+  autoActivateTools = true,
 ): BrainExecutionOptions {
   const defaultToolContext: BrainExecutionOptions['toolContext'] = {
     chatId: 'test-chat',
@@ -132,7 +225,9 @@ function buildTestOptions(
     },
   };
   return {
-    client,
+    client: autoActivateTools && overrides?.modelProvider !== 'codex-cli'
+      ? withAutomaticToolActivation(client)
+      : client,
     tenantId: overrides?.tenantId ?? mergedOverrides.toolContext.tenantId ?? 'tenant-brain-test',
     contextMessages: [
       { role: 'system', content: 'You are MOZI.' },
@@ -205,7 +300,7 @@ describe('brainExecute', () => {
     expect(result.toolIterations).toBe(0);
   });
 
-  it('lets an external CLI agent own the turn without exposing MOZI tools or durable-plan admission', async () => {
+  it('lets an external CLI agent own the turn without exposing MOZI tools', async () => {
     const client = createMockClient([
       { content: 'CLI agent completed the requested work.', usage: { input_tokens: 0, output_tokens: 0 }, model: 'gpt-5.3-codex', stop_reason: 'end_turn' },
     ]);
@@ -220,461 +315,96 @@ describe('brainExecute', () => {
     }));
 
     expect(result.responseText).toBe('CLI agent completed the requested work.');
-    expect(result.durablePlanRequired).toBe(false);
     expect(client.chat).toHaveBeenCalledTimes(1);
     expect((client.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.tools).toBeUndefined();
   });
 
-  it('forces the production macro report request through durable DAG admission', async () => {
-    dagBridgeHoisted.executeDecomposeTaskMock.mockResolvedValueOnce({
-      detached: true,
-      rootTaskId: 'macro-root',
-      content: 'Plan accepted and running.',
-      userMessage: 'The macro report plan is running in the background.',
-    });
+  it('keeps planning available but lets the selected model decide whether to use it', async () => {
     const client = createMockClient([
-      // The model tries to bypass DAG admission with a direct answer. Runtime
-      // must discard it and make another constrained planning call.
-      { content: 'I will research and generate the report directly.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'deepseek-v4-pro', stop_reason: 'end_turn' },
-      {
-        content: '',
-        usage: { input_tokens: 20, output_tokens: 10 },
-        model: 'deepseek-v4-pro',
-        stop_reason: 'tool_use',
-        tool_calls: [{
-          id: 'macro-plan',
-          type: 'function',
-          function: {
-            name: 'decompose_task',
-            arguments: JSON.stringify({
-              goal: 'Produce a verified U.S. macro and bond-market PDF report.',
-              subtasks: [
-                { title: 'Collect macro data', objective: 'Collect and validate the requested series.', done_criteria: 'Every requested series is dated and sourced', depends_on: [] },
-                { title: 'Analyze the yield curve', objective: 'Run quantitative and scenario analysis.', done_criteria: 'Requested scenarios and maturities are quantified', depends_on: [0] },
-                { title: 'Generate and verify PDF', objective: 'Create charts, assemble the PDF, and verify it.', done_criteria: 'PDF exists and passes content and render checks', depends_on: [1] },
-              ],
-            }),
-          },
-        }],
-      },
+      { content: 'I can answer directly.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
     ]);
-    const prompt = 'Collect the latest U.S. macroeconomic data, including CPI, PCE, unemployment, nonfarm payrolls, retail sales, GDP growth, Fed funds expectations, and Treasury yields. Quantitatively assess how these indicators may affect the U.S. bond market across the yield curve. Generate a detailed PDF report with visualizations, scenario analysis, and implications for short-, medium-, and long-duration bonds. The report must have standard content for this kind of report.';
 
     const result = await brainExecute(buildTestOptions(client, {
       contextMessages: [
-        { role: 'system', content: 'You are MOZI.\n\n## Available Tools\n\nweb_search, write_file, decompose_task\n\nUse these tools when the user asks.' },
-        { role: 'user', content: prompt },
+        { role: 'system', content: 'You are MOZI.' },
+        { role: 'user', content: 'Research several sources and produce a detailed report.' },
       ],
-      modelProvider: 'deepseek',
-      modelId: 'deepseek-v4-pro',
-    }));
+    }, false));
 
-    expect(result.responseText).toBe('The macro report plan is running in the background.');
-    expect(result.durablePlanRequired).toBe(true);
-    expect(result.durablePlanAdmissionBlocked).toBeUndefined();
-    expect(dagBridgeHoisted.executeDecomposeTaskMock).toHaveBeenCalledTimes(1);
+    expect(result.responseText).toBe('I can answer directly.');
+    expect(client.chat).toHaveBeenCalledTimes(1);
+    const exposed = (client.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.tools
+      ?.map((tool: { function: { name: string } }) => tool.function.name);
+    expect(new Set(exposed)).toEqual(new Set([
+      'get_capabilities', 'activate_tools', 'use_skill', 'decompose_task',
+    ]));
+    expect(dagBridgeHoisted.executeDecomposeTaskMock).not.toHaveBeenCalled();
+  });
+
+  it('injects model-selected tool schemas on the next call only', async () => {
+    const onToolSurfaceChanged = vi.fn();
+    const client = createMockClient([
+      {
+        content: '',
+        usage: { input_tokens: 10, output_tokens: 5 },
+        model: 'test-model',
+        stop_reason: 'tool_use',
+        tool_calls: [{
+          id: 'activate-1',
+          type: 'function',
+          function: {
+            name: 'activate_tools',
+            arguments: JSON.stringify({ names: ['read_file', 'write_file'] }),
+          },
+        }],
+      },
+      { content: 'Selected tools are ready.', usage: { input_tokens: 12, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
+    ]);
+
+    const result = await brainExecute(buildTestOptions(client, { onToolSurfaceChanged }, false));
+
+    expect(result.responseText).toBe('Selected tools are ready.');
     expect(client.chat).toHaveBeenCalledTimes(2);
-    for (const call of (client.chat as ReturnType<typeof vi.fn>).mock.calls) {
-      const exposed = call[1]?.tools?.map((tool: { function: { name: string } }) => tool.function.name);
-      expect(new Set(exposed)).toEqual(new Set(['use_skill', 'decompose_task']));
-    }
-    const retryMessages = (client.chat as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as ChatMessage[];
-    expect(retryMessages.some(message => String(message.content).includes('Runtime admission rejected'))).toBe(true);
-    expect(retryMessages.every(message => !String(message.content).includes('Most recent decompose_task validation error'))).toBe(true);
+    const firstTools = (client.chat as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.tools
+      ?.map((tool: { function: { name: string } }) => tool.function.name);
+    const secondTools = (client.chat as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]?.tools
+      ?.map((tool: { function: { name: string } }) => tool.function.name);
+    expect(firstTools).not.toEqual(expect.arrayContaining(['read_file', 'write_file']));
+    expect(secondTools).toEqual(expect.arrayContaining(['read_file', 'write_file']));
+    expect(secondTools).not.toContain('shell_exec');
+    expect(onToolSurfaceChanged).toHaveBeenCalledTimes(1);
+    expect(result.exposedToolCount).toBe(6);
   });
 
-  it('puts the latest decompose_task validation error into the rejection directive', async () => {
-    const validationError = 'Error: Subtask 1 ("Report") depends_on index 1, which must be less than its own index 1 (only earlier subtasks allowed). Corrective hint: depends_on indices are 0-based; a subtask cannot depend on itself; "the previous subtask" is index N-1. Re-call decompose_task with corrected depends_on.';
-    dagBridgeHoisted.executeDecomposeTaskMock
-      .mockRejectedValueOnce(new Error(validationError.slice('Error: '.length)))
-      .mockResolvedValueOnce({
-        detached: true,
-        rootTaskId: 'corrected-root',
-        content: 'Plan accepted and running.',
-        userMessage: 'Corrected plan started.',
-      });
-    const invalidPlan = {
-      goal: 'Produce a verified market report.',
-      subtasks: [
-        { title: 'Research', objective: 'Collect evidence.', done_criteria: 'Evidence is persisted', depends_on: [] },
-        { title: 'Report', objective: 'Write report.', done_criteria: 'Report is verified', depends_on: [1] },
-      ],
-    };
-    const correctedPlan = {
-      ...invalidPlan,
-      subtasks: [invalidPlan.subtasks[0], { ...invalidPlan.subtasks[1], depends_on: [0] }],
-    };
-    const client = createMockClient([
-      { content: '', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test', stop_reason: 'tool_use', tool_calls: [{ id: 'invalid', type: 'function', function: { name: 'decompose_task', arguments: JSON.stringify(invalidPlan) } }] },
-      { content: 'I cannot create the plan.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test', stop_reason: 'end_turn' },
-      { content: '', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test', stop_reason: 'tool_use', tool_calls: [{ id: 'corrected', type: 'function', function: { name: 'decompose_task', arguments: JSON.stringify(correctedPlan) } }] },
-    ]);
-
-    const result = await brainExecute(buildTestOptions(client, {
-      contextMessages: [
-        { role: 'system', content: 'You are MOZI.' },
-        { role: 'user', content: 'Research current market data, analyze it, and generate a detailed verified PDF report with charts.' },
-      ],
-    }));
-
-    expect(result.durablePlanAdmissionBlocked).toBe(true);
-    const correctionMessages = (client.chat as ReturnType<typeof vi.fn>).mock.calls[2]?.[0] as ChatMessage[];
-    expect(correctionMessages.some(message => String(message.content).includes(validationError))).toBe(true);
-  });
-
-  it.each([
-    ['an unrelated running plan', '[Active plan state] Plan "Old task" — status: running'],
-    ['a recently completed plan', '[Active plan state] Plan "Old task" — status: completed'],
-  ])('does not let %s exempt a new complex request from admission', async (_label, planContext) => {
-    planGroundingHoisted.buildActivePlanContextMock.mockReturnValue(planContext);
-    dagBridgeHoisted.executeDecomposeTaskMock.mockResolvedValueOnce({
-      detached: true,
-      rootTaskId: 'new-root',
-      content: 'Plan accepted and running.',
-      userMessage: 'New plan started.',
-    });
-    const client = createMockClient([{
-      content: '',
-      usage: { input_tokens: 10, output_tokens: 5 },
-      model: 'test-model',
-      stop_reason: 'tool_use',
-      tool_calls: [{
-        id: 'new-plan',
-        type: 'function',
-        function: {
-          name: 'decompose_task',
-          arguments: JSON.stringify({
-            goal: 'Build a separate production system.',
-            subtasks: [
-              { title: 'Build', objective: 'Implement the system.', done_criteria: 'System requirements are implemented', depends_on: [] },
-              { title: 'Verify', objective: 'Test and package it.', done_criteria: 'Tests pass and package is produced', depends_on: [0] },
-            ],
-          }),
-        },
-      }],
-    }]);
-
-    const result = await brainExecute(buildTestOptions(client, {
-      contextMessages: [
-        { role: 'system', content: 'You are MOZI.' },
-        { role: 'user', content: 'Build a production-ready SaaS app with authentication, billing, organization roles, audit logs, automated tests, Docker packaging, deployment configuration, and operator documentation.' },
-      ],
-    }));
-
-    expect(result.durablePlanRequired).toBe(true);
-    expect(result.responseText).toBe('New plan started.');
-    expect(dagBridgeHoisted.executeDecomposeTaskMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not stream a model response that runtime DAG admission rejects', async () => {
-    dagBridgeHoisted.executeDecomposeTaskMock.mockResolvedValueOnce({
-      detached: true,
-      rootTaskId: 'stream-root',
-      content: 'Plan accepted and running.',
-      userMessage: 'Durable plan started.',
-    });
-    const responses: ChatResponse[] = [
-      { content: 'Unverified direct answer.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-      {
-        content: '',
-        usage: { input_tokens: 10, output_tokens: 5 },
-        model: 'test-model',
-        stop_reason: 'tool_use',
-        tool_calls: [{
-          id: 'stream-plan',
-          type: 'function',
-          function: {
-            name: 'decompose_task',
-            arguments: JSON.stringify({
-              goal: 'Research and produce a verified report.',
-              subtasks: [
-                { title: 'Research', objective: 'Collect evidence.', done_criteria: 'Sources and observations are persisted', depends_on: [] },
-                { title: 'Report', objective: 'Analyze evidence and create the report.', done_criteria: 'Report requirements are evidenced', depends_on: [0] },
-              ],
-            }),
-          },
-        }],
-      },
-    ];
-    let responseIndex = 0;
-    const client = {
-      provider: 'test',
-      chat: vi.fn(),
-      chatStream: vi.fn(async function* () {
-        const response = responses[responseIndex++] ?? responses.at(-1)!;
-        if (response.content) yield { type: 'text' as const, text: response.content };
-        yield { type: 'done' as const, response };
-      }),
-    } as LLMClient;
-    const onStreamChunk = vi.fn();
-
-    const result = await brainExecute(buildTestOptions(client, {
-      contextMessages: [
-        { role: 'system', content: 'You are MOZI.' },
-        { role: 'user', content: 'Research current inflation data, perform scenario analysis, and generate a PDF report with charts.' },
-      ],
-      progress: {
-        onToolStart: vi.fn(),
-        onToolEnd: vi.fn(),
-        onProcessingStart: vi.fn(),
-        onStreamChunk,
-        onStreamEnd: vi.fn(),
-      },
-    }));
-
-    expect(result.responseText).toBe('Durable plan started.');
-    expect(onStreamChunk).not.toHaveBeenCalled();
-    expect(client.chatStream).toHaveBeenCalledTimes(2);
-  });
-
-  it('rejects a hallucinated hidden tool before any admission side effect', async () => {
-    dagBridgeHoisted.executeDecomposeTaskMock.mockResolvedValueOnce({
-      detached: true,
-      rootTaskId: 'guard-root',
-      content: 'Plan accepted and running.',
-      userMessage: 'Guarded plan started.',
-    });
-    const client = createMockClient([
-      {
-        content: '',
-        usage: { input_tokens: 10, output_tokens: 5 },
-        model: 'test-model',
-        stop_reason: 'tool_use',
-        // web_search is intentionally not in the admission tool surface. The
-        // provider may still hallucinate it; runtime must not execute it.
-        tool_calls: [{ id: 'hidden-web', type: 'function', function: { name: 'web_search', arguments: '{"query":"must not run"}' } }],
-      },
-      {
-        content: '',
-        usage: { input_tokens: 10, output_tokens: 5 },
-        model: 'test-model',
-        stop_reason: 'tool_use',
-        tool_calls: [{
-          id: 'guard-plan',
-          type: 'function',
-          function: {
-            name: 'decompose_task',
-            arguments: JSON.stringify({
-              goal: 'Research and produce a verified report.',
-              subtasks: [
-                { title: 'Research', objective: 'Collect evidence.', done_criteria: 'Evidence is persisted', depends_on: [] },
-                { title: 'Report', objective: 'Analyze and produce the report.', done_criteria: 'Report is persisted and verified', depends_on: [0] },
-              ],
-            }),
-          },
-        }],
-      },
-    ]);
+  it('rejects an inactive catalog tool before progress events or side effects', async () => {
     const onToolStart = vi.fn();
+    const client = createMockClient([
+      {
+        content: '',
+        usage: { input_tokens: 10, output_tokens: 5 },
+        model: 'test-model',
+        stop_reason: 'tool_use',
+        tool_calls: [{
+          id: 'inactive-shell',
+          type: 'function',
+          function: { name: 'shell_exec', arguments: JSON.stringify({ command: 'echo must-not-run' }) },
+        }],
+      },
+      { content: 'I will activate it first next time.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
+    ]);
 
     const result = await brainExecute(buildTestOptions(client, {
-      contextMessages: [
-        { role: 'system', content: 'You are MOZI.' },
-        { role: 'user', content: 'Research current inflation data, perform scenario analysis, and generate a PDF report with charts.' },
-      ],
       progress: {
         onToolStart,
         onToolEnd: vi.fn(),
         onProcessingStart: vi.fn(),
       },
-    }));
+    }, false));
 
-    expect(result.responseText).toBe('Guarded plan started.');
-    expect(onToolStart).not.toHaveBeenCalledWith('web_search');
-    expect(onToolStart).toHaveBeenCalledWith('decompose_task');
+    expect(result.responseText).toBe('I will activate it first next time.');
+    expect(onToolStart).not.toHaveBeenCalled();
     const retryMessages = (client.chat as ReturnType<typeof vi.fn>).mock.calls[1]?.[0] as ChatMessage[];
-    expect(retryMessages.some(message => String(message.content).includes('no rejected tool call was executed'))).toBe(true);
-    expect(retryMessages.some(message => message.role === 'assistant' && message.tool_calls?.some(call => call.function.name === 'web_search'))).toBe(false);
-  });
-
-  it('suppresses streaming hidden artifact tools before UI or artifact side effects', async () => {
-    dagBridgeHoisted.executeDecomposeTaskMock.mockResolvedValueOnce({
-      detached: true,
-      rootTaskId: 'stream-guard-root',
-      content: 'Plan accepted and running.',
-      userMessage: 'Stream-guarded plan started.',
-    });
-    let callIndex = 0;
-    const client = {
-      provider: 'test',
-      chat: vi.fn(),
-      chatStream: vi.fn(async function* () {
-        callIndex += 1;
-        if (callIndex === 1) {
-          yield { type: 'tool_input_start' as const, toolCallId: 'hidden-artifact', toolName: 'create_artifact' };
-          yield { type: 'tool_input_delta' as const, toolCallId: 'hidden-artifact', delta: '{"title":"Phantom","content_type":"html","code":"<h1>Unverified</h1>"}' };
-          yield { type: 'tool_input_end' as const, toolCallId: 'hidden-artifact' };
-          yield { type: 'tool_input_start' as const, toolCallId: 'hidden-write', toolName: 'write_file' };
-          yield { type: 'tool_input_delta' as const, toolCallId: 'hidden-write', delta: '{"path":"phantom.html","content":"<h1>Unverified</h1>"}' };
-          yield { type: 'tool_input_end' as const, toolCallId: 'hidden-write' };
-          yield {
-            type: 'done' as const,
-            response: {
-              content: '',
-              usage: { input_tokens: 10, output_tokens: 10 },
-              model: 'test',
-              stop_reason: 'tool_use',
-              tool_calls: [
-                { id: 'hidden-artifact', type: 'function' as const, function: { name: 'create_artifact', arguments: '{"title":"Phantom","content_type":"html","code":"<h1>Unverified</h1>"}' } },
-                { id: 'hidden-write', type: 'function' as const, function: { name: 'write_file', arguments: '{"path":"phantom.html","content":"<h1>Unverified</h1>"}' } },
-              ],
-            },
-          };
-          return;
-        }
-        yield {
-          type: 'done' as const,
-          response: {
-            content: '',
-            usage: { input_tokens: 10, output_tokens: 10 },
-            model: 'test',
-            stop_reason: 'tool_use',
-            tool_calls: [{
-              id: 'stream-guard-plan',
-              type: 'function' as const,
-              function: {
-                name: 'decompose_task',
-                arguments: JSON.stringify({
-                  goal: 'Research and produce a verified report.',
-                  subtasks: [
-                    { title: 'Research', objective: 'Collect evidence.', done_criteria: 'Evidence is persisted', depends_on: [] },
-                    { title: 'Report', objective: 'Analyze and produce the report.', done_criteria: 'Report is persisted and verified', depends_on: [0] },
-                  ],
-                }),
-              },
-            }],
-          },
-        };
-      }),
-    } as unknown as LLMClient;
-    const progressEvents: ProgressEvent[] = [];
-    const unsubscribe = onProgress(event => progressEvents.push(event));
-    const artifactEvents: ArtifactEvent[] = [];
-
-    try {
-      const result = await brainExecute(buildTestOptions(client, {
-        contextMessages: [
-          { role: 'system', content: 'You are MOZI.' },
-          { role: 'user', content: 'Research current inflation data, perform scenario analysis, and generate a PDF report with charts.' },
-        ],
-        toolContext: {
-          chatId: 'test-chat',
-          sessionId: 'stream-guard-session',
-          onArtifact: event => artifactEvents.push(event),
-        },
-        progress: {
-          onToolStart: vi.fn(),
-          onToolEnd: vi.fn(),
-          onProcessingStart: vi.fn(),
-          onStreamChunk: vi.fn(),
-          onStreamEnd: vi.fn(),
-        },
-      }));
-
-      expect(result.responseText).toBe('Stream-guarded plan started.');
-      expect(artifactEvents).toHaveLength(0);
-      expect(progressEvents.some(event => (
-        event.type === 'tool_composing' &&
-        (event.toolCallId === 'hidden-artifact' || event.toolCallId === 'hidden-write')
-      ))).toBe(false);
-    } finally {
-      unsubscribe();
-    }
-  });
-
-  it('fails closed when a model repeatedly refuses required DAG admission', async () => {
-    const client = createMockClient([
-      { content: 'Direct result one.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-      { content: 'Direct result two.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-      { content: 'Direct result three.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-    ]);
-
-    const result = await brainExecute(buildTestOptions(client, {
-      contextMessages: [
-        { role: 'system', content: 'You are MOZI.' },
-        { role: 'user', content: 'Research current inflation data, perform scenario analysis, and generate a PDF report with charts.' },
-      ],
-    }));
-
-    expect(result.durablePlanRequired).toBe(true);
-    expect(result.durablePlanAdmissionBlocked).toBe(true);
-    expect(result.responseText).toContain('runtime blocked inline execution');
-    expect(result.responseText).not.toContain('Direct result');
-    expect(client.chat).toHaveBeenCalledTimes(3);
-    expect(dagBridgeHoisted.executeDecomposeTaskMock).not.toHaveBeenCalled();
-  });
-
-  it('creates a complex recurring workload through MOZI scheduler admission without running it now', async () => {
-    const db = setupTestDb();
-    try {
-      const prompt = '我需要构建一个定时任务，每天中国 A 股收盘后 15 分钟，搜索最新行情并生成 dashboard。';
-      const client = createMockClient([{
-        content: '',
-        usage: { input_tokens: 20, output_tokens: 10 },
-        model: 'test-model',
-        stop_reason: 'tool_use',
-        tool_calls: [{
-          id: 'create-market-schedule',
-          type: 'function',
-          function: {
-            name: 'set_cron_task',
-            arguments: JSON.stringify({
-              schedule_kind: 'cron',
-              schedule_value: '15 15 * * 1-5',
-              timezone: 'Asia/Shanghai',
-              handler_type: 'managed_brain',
-              handler_params: { prompt: '验证当日交易已收盘，搜索真实行情并生成 dashboard。' },
-              description: 'A 股收盘复盘',
-            }),
-          },
-        }],
-      }]);
-      const result = await brainExecute(buildTestOptions(client, {
-        contextMessages: [
-          { role: 'system', content: 'You are MOZI.' },
-          { role: 'user', content: prompt },
-        ],
-        toolContext: {
-          chatId: 'local-user:sess-scheduler-admission',
-          userId: 'local-user',
-          sessionId: 'sess-scheduler-admission',
-          channelType: 'websocket',
-          tenantId: 'tenant-brain-test',
-          permissionLevel: 'L3_FULL_ACCESS',
-          userPrompt: prompt,
-        },
-      }));
-
-      expect(result.responseText).toContain('MOZI 定时任务已创建');
-      expect(result.responseText).toMatch(/ID：cron_/);
-      expect(client.chat).toHaveBeenCalledTimes(1);
-      expect(dagBridgeHoisted.executeDecomposeTaskMock).not.toHaveBeenCalled();
-      const row = getDb().prepare('SELECT handler_type, schedule_value, timezone FROM cron_tasks').get() as Record<string, string>;
-      expect(row).toMatchObject({ handler_type: 'managed_brain', schedule_value: '15 15 * * 1-5', timezone: 'Asia/Shanghai' });
-    } finally {
-      teardownTestDb(db.tmpDir);
-    }
-  });
-
-  it('fails closed instead of executing a scheduled workload when the model refuses the scheduler tool', async () => {
-    const prompt = '我需要构建一个定时任务，每天收盘后搜索行情并生成 dashboard。';
-    const client = createMockClient([
-      { content: '我现在开始搜索行情。', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-      { content: '正在生成 dashboard。', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-      { content: '任务已经完成。', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test-model', stop_reason: 'end_turn' },
-    ]);
-    const result = await brainExecute(buildTestOptions(client, {
-      contextMessages: [
-        { role: 'system', content: 'You are MOZI.' },
-        { role: 'user', content: prompt },
-      ],
-    }));
-
-    expect(result.runtimeAdmissionBlocked).toBe(true);
-    expect(result.responseText).toContain('没有创建、修改或取消任何定时任务');
-    expect(result.responseText).not.toContain('任务已经完成');
-    expect(client.chat).toHaveBeenCalledTimes(3);
-    expect(dagBridgeHoisted.executeDecomposeTaskMock).not.toHaveBeenCalled();
+    expect(retryMessages.some(message => String(message.content).includes('Call activate_tools'))).toBe(true);
   });
 
   // Runtime-enforced detached handoff: when decompose_task starts a background
@@ -788,7 +518,7 @@ describe('brainExecute', () => {
       {
         content: '',
         reasoning_content: 'I need to call a tool before answering.',
-        tool_calls: [{ id: 'tc_1', type: 'function', function: { name: 'unknown_tool', arguments: '{}' } }],
+        tool_calls: [{ id: 'tc_1', type: 'function', function: { name: 'get_capabilities', arguments: '{}' } }],
         usage: { input_tokens: 10, output_tokens: 5 },
         model: 'test',
         stop_reason: null,
@@ -803,7 +533,9 @@ describe('brainExecute', () => {
 
     const result = await brainExecute(buildTestOptions(client));
     const secondCallMessages = vi.mocked(client.chat).mock.calls[1]?.[0] as ChatMessage[];
-    const assistantToolTurn = secondCallMessages.find(msg => msg.role === 'assistant' && msg.tool_calls);
+    const assistantToolTurn = secondCallMessages.find(msg => (
+      msg.role === 'assistant' && msg.tool_calls?.some(call => call.function.name === 'get_capabilities')
+    ));
 
     expect(result.responseText).toBe('Done.');
     expect(assistantToolTurn?.reasoning_content).toBe('I need to call a tool before answering.');
@@ -1195,7 +927,9 @@ describe('brainExecute', () => {
         onArtifact: (event) => artifactEvents.push(event),
       },
       progress: {
-        onToolStart: vi.fn(() => controller.abort(new Error('User cancelled'))),
+        onToolStart: vi.fn((name: string) => {
+          if (name === 'create_artifact') controller.abort(new Error('User cancelled'));
+        }),
         onToolEnd: vi.fn(),
         onProcessingStart: vi.fn(),
         onStreamChunk: vi.fn(),
@@ -1586,6 +1320,7 @@ describe('brainExecute', () => {
   it('emits one file_v1 artifact for a generated deck and patches overwrites without surfacing the build script', { timeout: 120_000 }, async () => {
     const savedMoziHome = process.env.MOZI_HOME;
     const moziHome = mkdtempSync(join(tmpdir(), 'mozi-file-artifacts-home-'));
+    const { tmpDir: dbTmpDir } = setupTestDb();
     process.env.MOZI_HOME = moziHome;
     loadConfig(getConfigPath());
 
@@ -1687,6 +1422,7 @@ describe('brainExecute', () => {
         event.artifact.title === 'build_deck.py'
       ))).toBe(false);
     } finally {
+      teardownTestDb(dbTmpDir);
       rmSync(moziHome, { recursive: true, force: true });
       if (savedMoziHome === undefined) {
         delete process.env.MOZI_HOME;
@@ -1700,6 +1436,7 @@ describe('brainExecute', () => {
   it('converges write_file pptx artifact with the output scan into one file_v1 card', async () => {
     const savedMoziHome = process.env.MOZI_HOME;
     const moziHome = mkdtempSync(join(tmpdir(), 'mozi-write-file-pptx-home-'));
+    const { tmpDir: dbTmpDir } = setupTestDb();
     process.env.MOZI_HOME = moziHome;
     loadConfig(getConfigPath());
 
@@ -1755,6 +1492,7 @@ describe('brainExecute', () => {
         kind: 'deck',
       });
     } finally {
+      teardownTestDb(dbTmpDir);
       rmSync(moziHome, { recursive: true, force: true });
       if (savedMoziHome === undefined) {
         delete process.env.MOZI_HOME;

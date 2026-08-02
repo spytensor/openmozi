@@ -18,7 +18,6 @@
 import pino from 'pino';
 import { IncompleteStreamError, type LLMClient, type ChatMessage, type ChatOptions } from './llm.js';
 import type { ToolContext } from '../tools/types.js';
-import { executeToolCalls, extractToolIntent, extractToolSkillName } from '../tools/executor.js';
 import { getAllRegisteredTools } from '../tools/dynamic-registry.js';
 import { refreshMcpToolSnapshot } from '../mcp/tool-adapter.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
@@ -26,15 +25,6 @@ import { ArtifactCoordinator } from '../artifacts/coordinator.js';
 import { createTurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
 import { findPublishedArtifactIdByPath } from '../memory/session-timeline.js';
 import { buildActivePlanContext } from './plan-grounding.js';
-import {
-  createDurablePlanAdmissionState,
-  DURABLE_PLAN_POLICY,
-  SCHEDULER_CONTROL_POLICY,
-  durablePlanBlockedResponse,
-  rejectDurablePlanCompletion,
-  resolveRuntimeAdmission,
-  schedulerTerminalToolNames,
-} from './durable-plan-admission.js';
 import type { BrainExecutionOptions, BrainExecutionResult } from './brain-execution-types.js';
 export type { BrainExecutionOptions, BrainExecutionResult } from './brain-execution-types.js';
 import { hasDsmlToolCallMarkup, stripDsmlToolCallMarkup, extractLegacyToolCallsFromText } from './legacy-tool-parsing.js';
@@ -175,9 +165,8 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
 
   // Plan grounding: re-read persisted plan state from the DB every turn so the
   // Brain never depends on conversation memory for plan progress. Injected
-  // before admission so the model can answer status/follow-up questions from
-  // runtime truth. Existing plans never exempt a new complex request: a recent
-  // completed plan or an unrelated running plan must not reopen inline tools.
+  // before tool exposure so the model can answer status/follow-up questions
+  // from runtime truth without relying on conversation memory.
   if (chatId) {
     try {
       const planContext = buildActivePlanContext(chatId, opts.tenantId);
@@ -189,26 +178,9 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
     }
   }
 
-  // Runtime-owned admission: multi-phase requests must establish a persisted
-  // DAG before any foreground work can execute. Prompt text explains the
-  // contract, but enforcement happens below through the exposed tool surface
-  // and the final-response gate. The model does not get to opt out.
   const externalCliTurn = opts.modelProvider
     ? getProvider(opts.modelProvider)?.apiMode === 'cli-pipe'
     : false;
-  const runtimeAdmission = externalCliTurn
-    ? undefined
-    : Object.hasOwn(opts, 'runtimeAdmission')
-      ? opts.runtimeAdmission
-      : resolveRuntimeAdmission(userMsg);
-  const durablePlanRequired = runtimeAdmission === 'durable_plan';
-  const schedulerControlRequired = runtimeAdmission === 'scheduler_control';
-  if (durablePlanRequired) {
-    appendTurnSystemContext(DURABLE_PLAN_POLICY);
-  }
-  if (schedulerControlRequired) {
-    appendTurnSystemContext(SCHEDULER_CONTROL_POLICY);
-  }
   // NOTE(2026-07-18): the keyword-regex "[Artifact Contract]" system-context
   // block that used to be appended here is DELETED with its mid-turn repair
   // twin. Deciding that the user "explicitly requested an artifact" from a
@@ -227,94 +199,15 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
   const availableTools = externalCliTurn ? [] : getAllRegisteredTools(opts.tenantId);
   const toolShaping = shapeToolsForExecution({
     tools: availableTools,
-    userText: userMsg,
-    runtimeAdmission,
-    provider: opts.modelProvider,
-    model: opts.modelId,
   });
-  if (durablePlanRequired && !toolShaping.tools.some(tool => tool.function.name === 'decompose_task')) {
-    throw new Error('Durable plan admission requires the registered decompose_task tool');
-  }
-  if (schedulerControlRequired && toolShaping.tools.length === 0) {
-    throw new Error('Scheduler control admission requires a registered scheduler tool');
-  }
-  const artifactVerificationProfiles = new Set(['office', 'report', 'data', 'creative', 'finance']);
-  const completionGateState = createCompletionGateState(
-    artifactVerificationProfiles.has(toolShaping.taskProfile) ? 'artifact' : 'project',
-  );
+  const completionGateState = createCompletionGateState('project');
   loopMessages.splice(0, loopMessages.length, ...shapePromptMessagesForExecution(loopMessages, toolShaping));
   const toolsDef = toolShaping.tools.length > 0 ? toolShaping.tools : undefined;
-  const executionMetadata = {
-    durablePlanRequired,
-    taskToolProfile: toolShaping.taskProfile,
+  const executionMetadata = () => ({
     exposedToolCount: toolShaping.shapedCount,
     toolSchemaTokensEstimate: toolShaping.schemaTokensEstimate,
-  };
-  const durablePlanAdmissionState = createDurablePlanAdmissionState();
-  let schedulerAdmissionRejections = 0;
-  const durablePlanBlockedResult = (model: string | undefined, iterationIndex: number): BrainExecutionResult => ({
-    responseText: durablePlanBlockedResponse(userMsg),
-    model,
-    totalTokens,
-    toolIterations: iterationIndex,
-    recovered: true,
-    recoveryMode: 'fallback',
-    completionGateDecision: evaluateCompletionGate(completionGateState),
-    durablePlanAdmissionBlocked: true,
-    runtimeAdmissionBlocked: true,
-    ...executionMetadata,
-  });
-  const schedulerBlockedResult = (model: string | undefined, iterationIndex: number): BrainExecutionResult => ({
-    responseText: /[㐀-鿿]/.test(userMsg)
-      ? 'MOZI 未能通过受管调度工具完成这次操作，因此没有创建、修改或取消任何定时任务。请重试。'
-      : 'MOZI could not complete this request through the managed scheduler, so no schedule was created, changed, or cancelled. Please retry.',
-    model,
-    totalTokens,
-    toolIterations: iterationIndex,
-    recovered: true,
-    recoveryMode: 'fallback',
-    completionGateDecision: evaluateCompletionGate(completionGateState),
-    durablePlanAdmissionBlocked: false,
-    runtimeAdmissionBlocked: true,
-    ...executionMetadata,
   });
   const resolveCompletionCandidate = (candidate: TurnResult, iterationIndex: number): BrainExecutionResult | null => {
-    if (durablePlanRequired && candidate.terminalToolName !== 'decompose_task') {
-      responseText = '';
-      progress.onStreamEnd?.('');
-      const admissionDecision = rejectDurablePlanCompletion(
-        durablePlanAdmissionState,
-        loopMessages,
-        candidate.responseText,
-      );
-      if (!admissionDecision.blocked) {
-        logger.warn({
-          chatId,
-          iteration: iterationIndex + 1,
-          rejection: admissionDecision.rejection,
-        }, 'Durable plan admission rejected direct model completion');
-        return null;
-      }
-      logger.error({ chatId, iteration: iterationIndex + 1 }, 'Durable plan admission failed closed after model bypass attempts');
-      return durablePlanBlockedResult(candidate.model, iterationIndex);
-    }
-
-    if (schedulerControlRequired && !schedulerTerminalToolNames(userMsg).has(candidate.terminalToolName ?? '')) {
-      responseText = '';
-      progress.onStreamEnd?.('');
-      if (schedulerAdmissionRejections < 2) {
-        schedulerAdmissionRejections += 1;
-        if (candidate.responseText.trim()) loopMessages.push({ role: 'assistant', content: candidate.responseText });
-        loopMessages.push(buildRuntimeInterjection(
-          'kernel_directive',
-          '[Runtime admission rejected] This turn must finish through the exposed MOZI scheduler tool. Do not execute the future workload, create a DAG, write files, or run shell commands now.',
-        ));
-        logger.warn({ chatId, iteration: iterationIndex + 1, schedulerAdmissionRejections }, 'Scheduler admission rejected direct completion');
-        return null;
-      }
-      return schedulerBlockedResult(candidate.model, iterationIndex);
-    }
-
     // Runtime fact check: if the final text claims deliverable files that do not
     // exist on disk, the gate FAILS regardless of what the model narrated — the
     // substrate, not the Brain, decides whether a deliverable was produced.
@@ -344,7 +237,7 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
         recoveryMode: 'fallback',
         completionGateDecision: decision,
         completionGateBlocked: true,
-        ...executionMetadata,
+        ...executionMetadata(),
       };
     }
     return {
@@ -355,7 +248,7 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
       recovered: false,
       completionGateDecision: decision,
       detachedPlanRootId: candidate.detachedPlanRootId,
-      ...executionMetadata,
+      ...executionMetadata(),
     };
   };
 
@@ -398,7 +291,12 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
   const executionAbortSignal = abortSignal
     ? AbortSignal.any([abortSignal, deadlineController.signal])
     : deadlineController.signal;
-  const baseToolContext: ToolContext = { ...opts.toolContext, tenantId: opts.tenantId, abortSignal: executionAbortSignal };
+  const baseToolContext: ToolContext = {
+    ...opts.toolContext,
+    tenantId: opts.tenantId,
+    abortSignal: executionAbortSignal,
+    availableToolNames: availableTools.map(tool => tool.function.name),
+  };
   const turnRichArtifactPaths = baseToolContext.turnRichArtifactPaths ?? new Set<string>();
   const artifactCoordinator = baseToolContext.artifactCoordinator ?? (artifactCapable
     ? new ArtifactCoordinator(turnId, (event) => {
@@ -481,8 +379,9 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
         executionAbortSignal,
         fileArtifactTracker,
         completionGateState,
-        runtimeAdmission,
-        durablePlanAdmissionState,
+        toolShaping,
+        availableTools,
+        onToolSurfaceChanged: opts.onToolSurfaceChanged,
       });
 
       truncationContinuations = result.truncationContinuations;
@@ -509,8 +408,9 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
         executionAbortSignal,
         fileArtifactTracker,
         completionGateState,
-        runtimeAdmission,
-        durablePlanAdmissionState,
+        toolShaping,
+        availableTools,
+        onToolSurfaceChanged: opts.onToolSurfaceChanged,
       });
 
       truncationContinuations = result.truncationContinuations;
@@ -533,14 +433,6 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
   // --- Recovery if no response ---
   if (!responseText) {
     throwIfAborted(abortSignal, 'Request cancelled');
-    // Recovery is intentionally not allowed to bypass a required DAG by
-    // producing an unverified inline answer after timeout/loop exhaustion.
-    if (durablePlanRequired) {
-      return durablePlanBlockedResult(undefined, iteration);
-    }
-    if (schedulerControlRequired) {
-      return schedulerBlockedResult(undefined, iteration);
-    }
     const gateDecision = evaluateCompletionGate(completionGateState);
     if (gateDecision.status === 'pending' || gateDecision.status === 'failed') {
       return {
@@ -556,7 +448,7 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
         recoveryMode: 'fallback',
         completionGateDecision: gateDecision,
         completionGateBlocked: true,
-        ...executionMetadata,
+        ...executionMetadata(),
       };
     }
     const recoveryResult = await executeRecovery({
@@ -576,7 +468,7 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
       recovered: true,
       recoveryMode: recoveryResult.mode,
       completionGateDecision: gateDecision,
-      ...executionMetadata,
+      ...executionMetadata(),
     };
   }
 
@@ -586,7 +478,7 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
     toolIterations: iteration,
     recovered: false,
     completionGateDecision: evaluateCompletionGate(completionGateState),
-    ...executionMetadata,
+    ...executionMetadata(),
   };
   } catch (err) {
     artifactCoordinator?.terminateAll('failed', errorMessageForTerminalPatch(err, 'Artifact generation interrupted'));

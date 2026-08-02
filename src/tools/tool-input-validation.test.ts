@@ -40,6 +40,36 @@ describe('tool input validation', () => {
     if (!extra.ok) expect(extra.message).toContain('unsupported property "surprise"');
   });
 
+  /**
+   * Regression for the 2026-07-27 install failure: the old message synthesized
+   * an example from `required` alone, which on install_skill's discriminated
+   * schema produced `{"source":"bundled"}` — leading the model into the branch
+   * it did not want and hiding `source_path` entirely. Five calls, no repair.
+   */
+  it('names the real parameters of a discriminated schema instead of one misleading example', () => {
+    const result = parseAndValidateToolArguments(
+      JSON.stringify({ path: '/tmp/uploads/skill.zip' }),
+      tool('install_skill'),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('unsupported property "path"');
+    // The parameter it actually needed must be reachable from the error alone.
+    expect(result.message).toContain('source_path');
+    expect(result.message).toContain('bundled|path|git');
+    expect(result.message).not.toContain('Expected example: {"source":"bundled"}');
+  });
+
+  it('states plainly when a tool takes no parameters', () => {
+    const result = parseAndValidateToolArguments(
+      JSON.stringify({ unexpected: 1 }),
+      tool('list_runtime_skills'),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.message).toContain('This tool takes no parameters.');
+  });
+
   it('can compile every built-in tool schema', () => {
     for (const definition of ALL_TOOLS) {
       const result = parseAndValidateToolArguments('{}', definition);

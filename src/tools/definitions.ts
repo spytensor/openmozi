@@ -30,7 +30,7 @@ export {
   createTaskTool, listTasksTool, getTaskTool, updateTaskTool, runTaskTool, repairTaskTool,
   useSkillTool, listRuntimeSkillsTool, installSkillTool, setSkillStateTool, validateSkillTool,
   decomposeTaskTool, delegateCodingTaskTool, delegateToAgentTool, reloadSkillsTool, restartSelfTool, proactiveControlTool,
-  findDeliverableTool,
+  findDeliverableTool, activateToolsTool,
 } from './system-tools.js';
 
 /** All available tool definitions */

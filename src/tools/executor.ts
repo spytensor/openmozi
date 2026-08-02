@@ -207,6 +207,8 @@ export function extractToolIntent(toolName: string, argsJson: string): string {
         return (args.path as string) || '.';
       case 'use_skill':
         return `Load skill ${(args.name as string) || toolName}`;
+      case 'activate_tools':
+        return Array.isArray(args.names) ? `Activate ${(args.names as string[]).join(', ')}` : toolName;
       case 'decompose_task':
         return (args.goal as string)?.slice(0, 80) || toolName;
       case 'delegate_coding_task':

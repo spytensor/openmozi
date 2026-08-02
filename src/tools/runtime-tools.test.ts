@@ -126,6 +126,37 @@ async function createMarkdownArtifact(content: string, callId: string) {
   );
 }
 
+describe('progressive tool activation', () => {
+  it('registers activate_tools and returns structured activation metadata', async () => {
+    expect(RUNTIME_TOOL_DEFINITIONS.map(tool => tool.function.name)).toContain('activate_tools');
+    const result = await executeRuntimeTool(
+      'activate_tools',
+      { names: ['web_search', 'write_file'] },
+      'call-activate',
+      { ...toolContext, availableToolNames: ['activate_tools', 'web_search', 'write_file'] },
+    );
+
+    expect(result).toMatchObject({
+      tool_name: 'activate_tools',
+      is_error: false,
+      activatedToolNames: ['web_search', 'write_file'],
+    });
+  });
+
+  it('rejects unavailable names without partially activating the request', async () => {
+    const result = await executeRuntimeTool(
+      'activate_tools',
+      { names: ['web_search', 'not_ready'] },
+      'call-activate-missing',
+      { ...toolContext, availableToolNames: ['activate_tools', 'web_search'] },
+    );
+
+    expect(result?.is_error).toBe(true);
+    expect(result?.content).toContain('not_ready');
+    expect(result?.activatedToolNames).toBeUndefined();
+  });
+});
+
 describe('runtime artifact versioning tools', () => {
   it('registers update_artifact in runtime tool definitions', () => {
     expect(RUNTIME_TOOL_DEFINITIONS.map(tool => tool.function.name)).toContain('update_artifact');

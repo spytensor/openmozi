@@ -47,6 +47,19 @@ export function isExcluded(path, excludePatterns) {
 }
 
 /**
+ * Returns true when a file's *content* marks it as private, regardless of path.
+ *
+ * Path lists cannot express "anything a local tool generates": editor and
+ * assistant plugins write per-directory scratch files, and a new directory
+ * grows a new one that no exclude list anticipated. 43 such files — carrying
+ * session ids and session titles from the operator's own machine — reached the
+ * public repository this way before this check existed.
+ */
+export function hasPrivateMarker(contentText, markers) {
+  return markers.some((marker) => contentText.includes(marker));
+}
+
+/**
  * Rewrites the first `"version"` field in a package.json source text to the
  * target repository's own version. Returns the source text unchanged when the
  * target version is unknown (first export).
@@ -105,6 +118,7 @@ function main() {
   const configPath = args.config ? resolve(args.config) : join(repoRoot, 'scripts/public-export.config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
   const exclude = config.exclude ?? [];
+  const excludeContaining = config.excludeContaining ?? [];
   const preserveTarget = new Set(config.preserveTarget ?? []);
   const preserveVersion = new Set(config.preserveTargetVersion ?? []);
   for (const entry of [...preserveTarget, ...preserveVersion]) {
@@ -138,7 +152,21 @@ function main() {
     const sourceFiles = git(repoRoot, ['ls-tree', '-r', '--name-only', '-z', refSha])
       .split('\0')
       .filter(Boolean);
-    const exported = sourceFiles.filter((path) => !isExcluded(path, exclude));
+    const exported = sourceFiles.filter((path) => {
+      if (isExcluded(path, exclude)) return false;
+      if (excludeContaining.length === 0) return true;
+      const abs = join(treeDir, path);
+      // Binary files cannot carry a text marker; reading them as utf8 is wasteful
+      // but harmless, and skipping unreadable entries keeps this from being able
+      // to fail the export.
+      let text;
+      try {
+        text = readFileSync(abs, 'utf8');
+      } catch {
+        return true;
+      }
+      return !hasPrivateMarker(text, excludeContaining);
+    });
     const exportedSet = new Set(exported);
     const excludedCount = sourceFiles.length - exported.length;
 

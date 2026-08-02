@@ -31,7 +31,7 @@ import {
   persistPromptSnapshot,
   pruneOldSnapshots,
   redactSnapshot,
-  updatePromptSnapshotAdmission,
+  updatePromptSnapshotTools,
   updatePromptSnapshotVerifier,
 } from '../observer/prompt-snapshot.js';
 import { getAllRegisteredTools, isDynamicToolAvailable } from '../tools/dynamic-registry.js';
@@ -66,8 +66,6 @@ import type { CompletionGateDecision } from '../core/completion-gates.js';
 import { shapePromptMessagesForExecution, shapeToolsForExecution } from '../tools/tool-shaping.js';
 import { rejectUnsupportedSandboxReferences } from '../core/output-reference-policy.js';
 import { expireSteerTurn } from './steer-store.js';
-import { resolveRuntimeAdmission } from '../core/durable-plan-admission.js';
-import { hasNonTerminalPlanForChat } from '../core/plan-grounding.js';
 
 const logger = pino({ name: 'mozi:gateway' });
 
@@ -659,15 +657,8 @@ export async function handleMessage(
     const effectiveSystemPrompt = intelligentContext[0]?.role === 'system'
       ? intelligentContext[0].content
       : systemPrompt;
-    const runtimeAdmission = resolveRuntimeAdmission(userMessage, {
-      hasNonTerminalPlan: hasNonTerminalPlanForChat(msg.chatId, tenantId),
-    });
     const turnToolShaping = shapeToolsForExecution({
       tools: getAllRegisteredTools(tenantId),
-      userText: userMessage,
-      runtimeAdmission,
-      provider: selectedProvider,
-      model: selectedModel,
     });
     const stablePrefixHash = createHash('sha256')
       .update(typeof effectiveSystemPrompt === 'string' ? effectiveSystemPrompt : JSON.stringify(effectiveSystemPrompt))
@@ -678,8 +669,7 @@ export async function handleMessage(
           userId,
           model: selectedModel,
           stablePrefixHash,
-          toolProfile: turnToolShaping.taskProfile,
-          runtimeAdmission: runtimeAdmission ?? null,
+          toolExposureMode: 'progressive',
         })).digest('hex').slice(0, 48)
       : undefined;
 
@@ -720,7 +710,6 @@ export async function handleMessage(
         promptTokensEstimate: Math.ceil(snapshotPromptMessages.reduce((sum, message) => sum + getTextContent(message).length, 0) / 4),
         toolSchemaTokensEstimate: snapshotToolShaping.schemaTokensEstimate,
         taskProfile: snapshotToolShaping.taskProfile,
-        runtimeAdmission,
       })));
       schedulePromptSnapshotPrune(tenantId);
     } catch (err) {
@@ -777,8 +766,18 @@ export async function handleMessage(
         think: selectedThink,
         modelProvider: selectedProvider,
         modelId: selectedModel,
-        runtimeAdmission,
         promptCacheKey,
+        onToolSurfaceChanged: (tools, toolSchemaTokensEstimate) => {
+          updatePromptSnapshotTools(
+            turnId,
+            tenantId,
+            tools.map(tool => ({
+              name: tool.function.name,
+              source: isDynamicToolAvailable(tool.function.name, tenantId) ? 'dynamic' as const : 'builtin' as const,
+            })),
+            toolSchemaTokensEstimate,
+          );
+        },
         abortSignal,
         usageCollector: turnUsageCollector,
         toolContext: buildExecutionToolContext('interactive', {
@@ -835,13 +834,6 @@ export async function handleMessage(
       }
       try {
         updatePromptSnapshotVerifier(turnId, tenantId, brainResult.completionGateDecision);
-        if (runtimeAdmission) {
-          updatePromptSnapshotAdmission(
-            turnId,
-            tenantId,
-            brainResult.runtimeAdmissionBlocked ? 'blocked' : 'accepted',
-          );
-        }
       } catch (err) {
         logger.warn({ turnId, err: err instanceof Error ? err.message : String(err) }, 'Failed to update prompt snapshot verifier state');
       }
@@ -891,9 +883,7 @@ export async function handleMessage(
         recovered: brainResult.recovered,
         recoveryMode: brainResult.recoveryMode,
       }, 'Brain execution complete');
-      if (brainResult.runtimeAdmissionBlocked) {
-        finishTurnTrace('failed', 'Runtime admission failed closed', brainResult.completionGateDecision);
-      } else if (brainResult.completionGateBlocked) {
+      if (brainResult.completionGateBlocked) {
         finishTurnTrace('failed', brainResult.completionGateDecision.summary, brainResult.completionGateDecision);
       } else {
         finishTurnTrace('success', undefined, brainResult.completionGateDecision);

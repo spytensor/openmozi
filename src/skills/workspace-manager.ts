@@ -14,6 +14,7 @@ import {
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { dump as yamlDump } from 'js-yaml';
 import { getRuntimeProjectRoot } from '../runtime/project-root.js';
 import { getWorkspaceDir } from '../tools/tool-utils.js';
 import {
@@ -24,6 +25,11 @@ import {
   type LoadedSkill,
   type SkillFrontmatter,
 } from './loader.js';
+import {
+  extractSkillFromArchive,
+  isSkillArchivePath,
+  SKILL_ARCHIVE_EXTENSIONS,
+} from './skill-archive.js';
 
 export interface SkillRuntimeRecord {
   id: string;
@@ -140,13 +146,29 @@ function readFrontmatterFromSkillFile(skillFilePath: string): { frontmatter: Ski
   };
 }
 
-function resolveSkillFilePath(inputPath: string): string {
+/**
+ * Resolve a user-supplied source into the `SKILL.md` to install from.
+ *
+ * `tempDirs` collects extraction scratch directories so the caller can clean
+ * them up after the skill has been copied into the workspace.
+ */
+function resolveSkillFilePath(inputPath: string, tempDirs: string[] = []): string {
   const resolved = resolve(inputPath);
   if (!existsSync(resolved)) {
     throw new Error(`Skill source not found: ${inputPath}`);
   }
   if (basename(resolved) === 'SKILL.md') {
     return resolved;
+  }
+  if (lstatSync(resolved).isFile()) {
+    if (!isSkillArchivePath(resolved)) {
+      throw new Error(
+        `Not a skill source: ${inputPath}. Expected a directory containing SKILL.md, a SKILL.md file, or a skill package (${SKILL_ARCHIVE_EXTENSIONS.join(', ')}).`,
+      );
+    }
+    const extracted = extractSkillFromArchive(resolved);
+    tempDirs.push(...extracted.tempDirs);
+    return extracted.skillFilePath;
   }
   const skillFilePath = join(resolved, 'SKILL.md');
   if (!existsSync(skillFilePath)) {
@@ -368,6 +390,43 @@ export async function updateWorkspaceSkillContent(
 }
 
 /**
+ * Promote an autogen draft into an ordinary workspace skill.
+ *
+ * `propose_skill` writes drafts with `origin: autogen` and
+ * `user-invocable: false`, and `listRuntimeSkills` hides them "until an operator
+ * has reviewed and promoted them" — but no promotion path existed anywhere: not
+ * a tool, not a route, not a CLI command. A draft could only ever be a draft.
+ * This is that missing step.
+ */
+export async function promoteAutogenSkill(
+  id: string,
+  paths: SkillManagerPaths = {},
+): Promise<SkillDetailRecord> {
+  const ref = resolveSkillRef(id, paths);
+  if (ref.source !== 'workspace') {
+    throw new SkillReadOnlyError('Bundled skills are read-only');
+  }
+
+  const content = readFileSync(ref.skillFilePath, 'utf-8');
+  const { frontmatter } = parseSkillFile(content);
+  if (frontmatter.origin !== 'autogen') {
+    throw new SkillValidationError('Only autogen drafts can be promoted');
+  }
+
+  // Rewrite the two fields that define draft status and keep everything else —
+  // body, requirements, metadata — exactly as the Brain wrote it.
+  const promoted: Record<string, unknown> = { ...frontmatter, 'user-invocable': true };
+  delete promoted.origin;
+
+  const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+  const rewritten = `---\n${yamlDump(promoted, { lineWidth: 120 }).trim()}\n---\n\n${body.replace(/^\n+/, '')}`;
+
+  writeFileSync(ref.skillFilePath, rewritten, 'utf-8');
+  clearSkillDiscoveryCache();
+  return getRuntimeSkillDetail(`workspace:${ref.directoryName}`, paths);
+}
+
+/**
  * Enable or disable a workspace skill from a REST-style source:name id.
  */
 export async function setRuntimeSkillState(
@@ -467,28 +526,31 @@ export async function installWorkspaceSkill(input: {
   const overwrite = input.overwrite === true;
 
   let sourceSkillFilePath: string;
-  let checkoutDir: string | null = null;
+  // Scratch directories created while resolving the source (git checkout, or
+  // archive extraction). Removed in `finally`, after the copy has happened.
+  const tempDirs: string[] = [];
 
   try {
     if (input.source === 'bundled') {
       if (!input.skill_id?.trim()) {
         throw new Error('"skill_id" is required when source="bundled"');
       }
-      sourceSkillFilePath = resolveSkillFilePath(join(bundledDir, input.skill_id.trim()));
+      sourceSkillFilePath = resolveSkillFilePath(join(bundledDir, input.skill_id.trim()), tempDirs);
     } else if (input.source === 'path') {
       if (!input.source_path?.trim()) {
         throw new Error('"source_path" is required when source="path"');
       }
-      sourceSkillFilePath = resolveSkillFilePath(input.source_path.trim());
+      sourceSkillFilePath = resolveSkillFilePath(input.source_path.trim(), tempDirs);
     } else {
       if (!input.repo_url?.trim()) {
         throw new Error('"repo_url" is required when source="git"');
       }
-      checkoutDir = cloneSkillRepo(input.repo_url.trim());
+      const checkoutDir = cloneSkillRepo(input.repo_url.trim());
+      tempDirs.push(checkoutDir);
       const checkoutTarget = input.skill_subpath?.trim()
         ? join(checkoutDir, input.skill_subpath.trim())
         : checkoutDir;
-      sourceSkillFilePath = resolveSkillFilePath(checkoutTarget);
+      sourceSkillFilePath = resolveSkillFilePath(checkoutTarget, tempDirs);
     }
 
     const sourceDir = dirname(sourceSkillFilePath);
@@ -530,8 +592,8 @@ export async function installWorkspaceSkill(input: {
       overwritten: targetExists && overwrite,
     };
   } finally {
-    if (checkoutDir) {
-      rmSync(checkoutDir, { recursive: true, force: true });
+    for (const tempDir of tempDirs) {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   }
 }

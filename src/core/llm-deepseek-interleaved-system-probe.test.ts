@@ -2,7 +2,7 @@
  * Real-API guard for DeepSeek's interleaved-directive contract (the basis for
  * systemMessagePolicy: 'interleaved-as-user' on the deepseek provider).
  *
- * The exact shape under test is what a MOZI tool loop sends after #727:
+ * The exact shape under test is what a MOZI tool loop sends after that fix:
  *
  *   system(stable) → user → assistant(tool_calls) → tool → system(kernel directive) → continuation
  *

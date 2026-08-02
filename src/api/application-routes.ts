@@ -7,9 +7,9 @@
 
 import { execFile } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, type Stats } from 'node:fs';
+import { copyFileSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, type Stats } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { z } from 'zod';
@@ -165,11 +165,13 @@ import { applySessionPermissionLevel } from '../security/session-permissions.js'
 import { grantProjectRoot, listFsRoots, revokeProjectRoot } from '../tools/fs-root-grants.js';
 import {
   ensureToolWorkspaceDir,
+  expandHome,
   getOutputDir,
   getWorkspaceAllowedRoots,
   isPathInsideRoot,
   resolvePersistedRuntimePath,
 } from '../tools/workspace-policy.js';
+import { isSkillArchivePath } from '../skills/skill-archive.js';
 import { classifyFileArtifactKind, mimeForFilePath } from '../artifacts/file-artifacts.js';
 import { deliverableRegistry } from '../store/deliverables.js';
 import { deliverableVersionStore } from '../store/deliverable-versions.js';
@@ -377,6 +379,11 @@ const SkillContentUpdateBodySchema = z.object({
 
 const SkillStateBodySchema = z.object({
   enabled: z.boolean(),
+}).strict();
+
+const SkillInstallBodySchema = z.object({
+  source_path: z.string().min(1, 'source_path is required'),
+  overwrite: z.boolean().optional(),
 }).strict();
 
 const DUMMY_PASSWORD_HASH = 'scrypt$16384$8$1$bW96aS1sb2NhbC1hdXRoIQ==$9mWZenXdqdUZEQy5lVqu2rUOf7JtDazXO9DU+m3QgsV81SZlvsZC9/TT1STf6TeVQKiWBIAWqy9dOdlZPGVbMA==';
@@ -3355,7 +3362,10 @@ export async function registerApiRoutes(
   app.get('/api/skills', async (_request, reply) => {
     try {
       const { listRuntimeSkills } = await import('../skills/workspace-manager.js');
-      const records = await listRuntimeSkills();
+      // Autogen drafts are included here and nowhere else: this page is the
+      // operator's review surface, and a draft nobody can see is a draft nobody
+      // can promote. `origin` travels with each record so the UI can mark them.
+      const records = await listRuntimeSkills({}, { includeAutogen: true });
       const skills = records.map(r => ({
         id: r.id,
         directory_name: r.directory_name,
@@ -3404,6 +3414,104 @@ export async function registerApiRoutes(
     try {
       const { updateWorkspaceSkillContent } = await import('../skills/workspace-manager.js');
       const skill = await updateWorkspaceSkillContent(id, parsed.data.content);
+      return reply.send({ success: true, skill: withSkillStatus(skill) });
+    } catch (err) {
+      return skillManagerErrorResponse(reply, err);
+    }
+  });
+
+  /**
+   * Install a skill package from the UI.
+   *
+   * Until this existed the only way to install a skill was to ask the Brain to
+   * call `install_skill`, and the Skills page could manage skills it gave no way
+   * to add. Accepts either a multipart upload of the package itself, or JSON
+   * `{ source_path }` naming a package the operator already put in the
+   * workspace.
+   */
+  app.post('/api/skills/install', async (request, reply) => {
+    const tenantContext = getRequestTenantContext(request as { tenantContext?: ApiTenantContext });
+    if (!tenantContext) return reply.code(401).send({ success: false, error: 'Not authenticated' });
+
+    const tempDir = mkdtempSync(join(tmpdir(), 'mozi-skill-upload-'));
+    try {
+      let sourcePath: string | null = null;
+      let overwrite = false;
+
+      if (request.isMultipart()) {
+        for await (const part of request.parts({ limits: { fileSize: uploadMaxBytes, files: 1, parts: 6 } })) {
+          if (part.type === 'field') {
+            if (part.fieldname === 'overwrite') overwrite = String(part.value) === 'true';
+            continue;
+          }
+          const filename = sanitizeUploadFilename(part.filename ?? 'skill.zip');
+          if (!isSkillArchivePath(filename)) {
+            await part.toBuffer().catch(() => undefined);
+            return reply.code(400).send({
+              success: false,
+              error: `Not a skill package: ${filename}. Upload a .skill, .zip, .tar.gz, .tgz or .tar file.`,
+            });
+          }
+          const destination = join(tempDir, filename);
+          await pipeline(part.file, createWriteStream(destination));
+          if (part.file.truncated) {
+            return reply.code(413).send({ success: false, error: 'Skill package exceeds the upload size limit' });
+          }
+          sourcePath = destination;
+        }
+      } else {
+        const parsed = SkillInstallBodySchema.safeParse(request.body);
+        if (!parsed.success) {
+          return reply.code(400).send({
+            success: false,
+            error: parsed.error.issues[0]?.message ?? 'Invalid skill install body',
+          });
+        }
+        const requested = resolve(expandHome(parsed.data.source_path));
+        const allowedRoots = allowedFsRootsForUser(tenantContext.user_id);
+        const realRequested = realpathOrNull(requested);
+        if (
+          !isPathAllowedForRoots(requested, allowedRoots)
+          && !(realRequested && isPathAllowedForRoots(realRequested, allowedRoots))
+        ) {
+          return reply.code(403).send({
+            success: false,
+            error: 'source_path is outside the paths MOZI is allowed to read',
+          });
+        }
+        sourcePath = requested;
+        overwrite = parsed.data.overwrite === true;
+      }
+
+      if (!sourcePath) {
+        return reply.code(400).send({ success: false, error: 'No skill package provided' });
+      }
+
+      const { installWorkspaceSkill } = await import('../skills/workspace-manager.js');
+      const { clearSkillDiscoveryCache } = await import('../skills/loader.js');
+      const result = await installWorkspaceSkill({ source: 'path', source_path: sourcePath, overwrite });
+      clearSkillDiscoveryCache();
+      return reply.send({
+        success: true,
+        overwritten: result.overwritten,
+        skill: withSkillStatus(result.installed),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn({ error: message }, 'Skill install failed');
+      // A rejected package is the operator's input problem, not a server fault.
+      return reply.code(400).send({ success: false, error: message });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  /** Promote a MOZI-authored draft (`origin: autogen`) into a usable skill. */
+  app.post('/api/skills/:id/promote', async (request, reply) => {
+    const { id } = request.params as { id: string };
+    try {
+      const { promoteAutogenSkill } = await import('../skills/workspace-manager.js');
+      const skill = await promoteAutogenSkill(id);
       return reply.send({ success: true, skill: withSkillStatus(skill) });
     } catch (err) {
       return skillManagerErrorResponse(reply, err);

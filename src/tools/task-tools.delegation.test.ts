@@ -32,7 +32,7 @@ function makeToolCall(args: Record<string, unknown>): ToolCall {
   };
 }
 
-function makeConfig(available = ['fake_coding_worker']): MoziConfig {
+function makeConfig(available = ['codex_cli']): MoziConfig {
   return {
     coding_worker: {
       routing: 'auto',
@@ -45,7 +45,7 @@ function makeHandle(jobId: string): WorkerHandle {
   return {
     id: 'run-fake-1',
     job_id: jobId,
-    adapter_id: 'fake_coding_worker',
+    adapter_id: 'codex_cli',
     transport: 'stdio',
     started_at: Date.now(),
   };
@@ -62,9 +62,9 @@ function makeStatus(state: WorkerStatus['state']): WorkerStatus {
 function makePreflight(status: WorkerPreflightReport['status'] = 'ready'): WorkerPreflightReport {
   const ok = status === 'ready';
   return {
-    adapter_id: 'fake_coding_worker',
-    command: null,
-    command_path: null,
+    adapter_id: 'codex_cli',
+    command: 'codex',
+    command_path: '/usr/local/bin/codex',
     auth_source: null,
     lane: 'code',
     sandbox_profile: 'workspace-write',
@@ -75,7 +75,7 @@ function makePreflight(status: WorkerPreflightReport['status'] = 'ready'): Worke
         { id: 'auth', ok: true, severity: 'hard', summary: 'Adapter-specific auth check not required' },
       ]
       : [
-        { id: 'command', ok: false, severity: 'hard', summary: 'Command fake-worker not found in PATH' },
+        { id: 'command', ok: false, severity: 'hard', summary: 'Command codex not found in PATH' },
       ],
     health: {
       status: 'healthy',
@@ -90,7 +90,7 @@ function makePreflight(status: WorkerPreflightReport['status'] = 'ready'): Worke
       summary: 'Live probe disabled',
     },
     generated_at: new Date().toISOString(),
-    summary: ok ? 'Managed worker ready' : 'Command fake-worker not found in PATH',
+    summary: ok ? 'Managed worker ready' : 'Command codex not found in PATH',
   };
 }
 
@@ -120,7 +120,7 @@ function makeFakeAdapter() {
 
   const adapter: WorkerAdapter = {
     metadata: {
-      id: 'fake_coding_worker',
+      id: 'codex_cli',
       display_name: 'Fake Coding Worker',
       kind: 'external_cli',
       supported_transports: ['stdio'],
@@ -212,20 +212,26 @@ describe('tools/delegate_coding_task', () => {
         worker: { adapter_id: string; runtime_label: string; run_id: string };
         result: { status: string; summary: string };
         verify_status: string;
+        verification: { changed_files: string[]; tests_run: string[]; test_status: string };
       };
       expect(parsed.job_id).toMatch(/^external_worker_/);
       expect(parsed.job_status).toBe('succeeded');
-      expect(parsed.worker.adapter_id).toBe('fake_coding_worker');
+      expect(parsed.worker.adapter_id).toBe('codex_cli');
       expect(parsed.worker.runtime_label).toBe('Fake Coding Worker');
       expect(parsed.result.status).toBe('success');
       expect(parsed.verify_status).toBe('passed');
+      expect(parsed.verification).toEqual(expect.objectContaining({
+        changed_files: [],
+        tests_run: [],
+        test_status: 'not_run',
+      }));
       expect(result.produced_files).toEqual(['/tmp/fake-worker-report.md']);
 
       const persisted = getExternalWorkerJob(parsed.job_id);
       expect(persisted).not.toBeNull();
       expect(persisted?.status).toBe('succeeded');
-      expect(persisted?.agent_id).toBe('coding_worker:fake_coding_worker');
-      expect(persisted?.adapter_id).toBe('fake_coding_worker');
+      expect(persisted?.agent_id).toBe('coding_worker:codex_cli');
+      expect(persisted?.adapter_id).toBe('codex_cli');
       expect(persisted?.active_run_id).toBe('run-fake-1');
       expect(persisted?.result_envelope?.status).toBe('completed');
       expect(persisted?.verify_report?.status).toBe('passed');
@@ -269,7 +275,7 @@ describe('tools/delegate_coding_task', () => {
 
     expect(result.is_error).toBe(true);
     expect(result.content).toContain('Delegation failed: worker not ready');
-    expect(result.content).toContain('Command fake-worker not found in PATH');
+    expect(result.content).toContain('Command codex not found in PATH');
     expect(dispatch).not.toHaveBeenCalled();
   });
 });

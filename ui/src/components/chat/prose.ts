@@ -54,7 +54,7 @@ const READING_PROSE_SHARED =
   "[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-ink/[0.08] [&_pre]:bg-[var(--code-bg)] [&_pre]:p-3.5 [&_pre]:font-mono [&_pre]:text-[0.85em] " +
   "[&_code]:mx-[0.25em] [&_code]:inline [&_code]:rounded-[0.25em] [&_code]:border [&_code]:border-ink/[0.08] [&_code]:bg-ink/[0.04] [&_code]:px-[0.4em] [&_code]:py-[0.2em] [&_code]:font-mono [&_code]:text-[0.875em] [&_code]:leading-none [&_code]:text-code " +
   "[&_pre_code]:m-0 [&_pre_code]:border-0 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:text-[1em] [&_pre_code]:[line-height:inherit] " +
-  "[&_p]:my-[0.25em] [&_p]:[line-height:inherit] [&_p]:tracking-[0.02em] [&_p:not(:first-child)]:mt-[0.35em] [&_p:not(:last-child)]:mb-[0.35em] " +
+  "[&_p]:my-1 [&_p]:[line-height:inherit] [&_p]:tracking-[0.02em] [&_p:not(:first-child)]:mt-[0.5em] [&_p:not(:last-child)]:mb-[0.5em] " +
   "[&_ul]:ml-[1em] [&_ol]:ml-[1em] [&_ul]:list-none [&_ol]:list-decimal [&_ul]:pl-0 [&_ol]:pl-0 " +
   "[&_li]:my-[0.33em] [&_ul>li]:relative [&_ul>li]:ml-[1em] [&_ol>li]:ml-[1em] [&_ul>li]:before:absolute [&_ul>li]:before:-ml-[1em] [&_ul>li]:before:opacity-50 [&_ul>li]:before:content-['-'] " +
   "[&_a]:text-link hover:[&_a]:text-link-hover " +
@@ -69,17 +69,17 @@ const READING_PROSE_SHARED =
   "[&_h1:focus]:outline-none [&_h2:focus]:outline-none [&_h3:focus]:outline-none [&_h4:focus]:outline-none [&_h5:focus]:outline-none [&_h6:focus]:outline-none";
 
 export const CHAT_ANSWER_PROSE_CLASS =
-  `text-[13.5px] leading-[1.5] text-ink/[0.88] tracking-[-0.01em] ${READING_PROSE_SHARED} ` +
-  "[&_h1]:my-[10px] [&_h2]:my-[8px] [&_h3]:my-[6px] [&_h4]:my-[6px] [&_h5]:my-[6px] [&_h6]:my-[6px] " +
-  "[&_h1]:text-[17px] [&_h2]:text-[15.5px] [&_h3]:text-[14.5px] [&_h4]:text-[13.5px] [&_h5]:text-[13px] [&_h6]:text-[13px] " +
-  "[&_ul]:my-[0.3em] [&_ol]:my-[0.3em] [&_ul]:!list-disc [&_ul>li]:before:hidden [&_li]:marker:text-ink/40 " +
-  "[&_blockquote]:my-[0.3em] [&_hr]:my-[1em] [&_.markdown-table-frame]:my-[0.3em] [&_img]:my-[0.3em]";
+  `text-[14px] leading-[1.6] text-ink/[0.86] ${READING_PROSE_SHARED} ` +
+  "[&_h1]:my-[14px] [&_h2]:my-[14px] [&_h3]:my-[14px] [&_h4]:my-[14px] [&_h5]:my-[14px] [&_h6]:my-[14px] " +
+  "[&_h1]:text-[19.25px] [&_h2]:text-[17.5px] [&_h3]:text-[15.75px] [&_h4]:text-[14.875px] [&_h5]:text-[14px] [&_h6]:text-[14px] " +
+  "[&_ul]:my-[0.5em] [&_ol]:my-[0.5em] [&_ul]:!list-disc [&_ul>li]:before:hidden [&_li]:marker:text-ink/45 " +
+  "[&_blockquote]:my-[0.5em] [&_hr]:my-[1.5em] [&_.markdown-table-frame]:my-[0.5em] [&_img]:my-[0.5em]";
 
 export const DOCUMENT_PROSE_CLASS =
-  `text-[14px] leading-[1.55] text-ink/[0.88] tracking-[-0.01em] ${READING_PROSE_SHARED} ` +
-  "[&_h1]:my-[12px] [&_h2]:my-[10px] [&_h3]:my-[8px] [&_h4]:my-[8px] [&_h5]:my-[8px] [&_h6]:my-[8px] " +
-  "[&_h1]:text-[26px] [&_h2]:text-[21px] [&_h3]:text-[18px] [&_h4]:text-[15.5px] [&_h5]:text-[14px] [&_h6]:text-[14px] " +
-  "[&_table]:!w-full [&_ul]:my-[0.5em] [&_ol]:my-[0.5em] [&_blockquote]:my-[0.5em] [&_hr]:my-[1.5em] [&_.markdown-table-frame]:my-[0.5em] [&_img]:my-[0.5em]";
+  `text-[15px] leading-[1.7] text-ink/[0.86] ${READING_PROSE_SHARED} ` +
+  "[&_h1]:my-[15px] [&_h2]:my-[15px] [&_h3]:my-[15px] [&_h4]:my-[15px] [&_h5]:my-[15px] [&_h6]:my-[15px] " +
+  "[&_h1]:text-[30px] [&_h2]:text-[24px] [&_h3]:text-[20px] [&_h4]:text-[17px] [&_h5]:text-[15px] [&_h6]:text-[15px] " +
+  "[&_table]:!w-full [&_ul]:my-[0.85em] [&_ol]:my-[0.85em] [&_blockquote]:my-[0.85em] [&_hr]:my-[2.25em] [&_.markdown-table-frame]:my-[0.85em] [&_img]:my-[0.85em]";
 
 /**
  * Subordinate variant for PROCESS text inside the turn fold (查看处理过程).

@@ -71,6 +71,15 @@ export const ExternalWorkerTestStatusSchema = z.enum([
 ]);
 export type ExternalWorkerTestStatus = z.infer<typeof ExternalWorkerTestStatusSchema>;
 
+export const ExternalWorkerTestResultSchema = z.object({
+  command: z.string(),
+  exit_code: z.number().int(),
+  timed_out: z.boolean(),
+  stdout_excerpt: z.string(),
+  stderr_excerpt: z.string(),
+});
+export type ExternalWorkerTestResult = z.infer<typeof ExternalWorkerTestResultSchema>;
+
 export const ExternalWorkerResultEnvelopeSchema = z.object({
   schema_version: z.literal(EXTERNAL_WORKER_SCHEMA_VERSION).default(EXTERNAL_WORKER_SCHEMA_VERSION),
   job_id: z.string(),
@@ -81,7 +90,10 @@ export const ExternalWorkerResultEnvelopeSchema = z.object({
   output: z.array(z.string()).default([]),
   changed_files: z.array(z.string()).default([]),
   tests_run: z.array(z.string()).default([]),
+  test_results: z.array(ExternalWorkerTestResultSchema).default([]),
   test_status: ExternalWorkerTestStatusSchema.default('not_run'),
+  scope_violations: z.array(z.string()).default([]),
+  verification_errors: z.array(z.string()).default([]),
   artifacts: z.array(z.string()).default([]),
   blocker: z.string().nullable().default(null),
   failure_category: ExternalWorkerFailureCategorySchema.nullable().default(null),
@@ -309,6 +321,12 @@ export function buildExternalWorkerResultEnvelope(input: {
   stdout?: string | undefined;
   stderr?: string | undefined;
   failure_category?: ExternalWorkerFailureCategory | null;
+  changed_files?: string[];
+  tests_run?: string[];
+  test_results?: ExternalWorkerTestResult[];
+  test_status?: ExternalWorkerTestStatus;
+  scope_violations?: string[];
+  verification_errors?: string[];
 }): ExternalWorkerResultEnvelope {
   const resultStatus: ExternalWorkerResultStatus =
     input.result.status === 'success'
@@ -326,8 +344,12 @@ export function buildExternalWorkerResultEnvelope(input: {
     status: resultStatus,
     summary: input.result.summary,
     output: input.result.output,
-    tests_run: [],
-    test_status: 'not_run',
+    changed_files: input.changed_files ?? [],
+    tests_run: input.tests_run ?? [],
+    test_results: input.test_results ?? [],
+    test_status: input.test_status ?? 'not_run',
+    scope_violations: input.scope_violations ?? [],
+    verification_errors: input.verification_errors ?? [],
     artifacts: input.artifacts ?? [],
     blocker: resultStatus === 'failed' || resultStatus === 'cancelled' ? input.result.summary : null,
     failure_category: input.failure_category ?? null,
@@ -392,18 +414,19 @@ export function createSynchronousVerifyReport(job: ExternalWorkerJob): ExternalW
   const acceptanceCriteriaMissing = acceptanceCriteria.filter((criterion) => !acceptanceCriteriaMet.includes(criterion));
 
   const executedTests = result.tests_run;
-  const allTestsObserved = requiredTests.every((required) => executedTests.some((executed) => executed.includes(required)));
+  const allTestsObserved = requiredTests.every((required) => executedTests.includes(required));
   const testStatus = requiredTests.length === 0
     ? 'not_run'
-    : allTestsObserved
-      ? 'passed'
-      : 'failed';
+    : result.test_status;
+  const testsPassed = requiredTests.length === 0
+    || (allTestsObserved && testStatus === 'passed');
+  const scopePassed = result.scope_violations.length === 0 && result.verification_errors.length === 0;
 
   const artifactCheck = result.artifacts.length > 0 || result.changed_files.length > 0 || evidence.length > 0
     ? 'passed'
     : 'failed';
 
-  if (requiredTests.length === 0 && acceptanceCriteria.length === 0) {
+  if (requiredTests.length === 0 && acceptanceCriteria.length === 0 && scopePassed) {
     return ExternalWorkerVerifyReportSchema.parse({
       job_id: job.id,
       status: 'passed',
@@ -421,19 +444,27 @@ export function createSynchronousVerifyReport(job: ExternalWorkerJob): ExternalW
 
   const notes: string[] = [];
   if (requiredTests.length > 0 && !allTestsObserved) {
-    notes.push('Required tests were configured but the managed worker result did not report them as executed.');
+    notes.push('Required tests were configured but the runtime did not execute all of them.');
+  } else if (requiredTests.length > 0 && testStatus !== 'passed') {
+    notes.push('At least one runtime-executed required test failed.');
+  }
+  if (result.scope_violations.length > 0) {
+    notes.push(`Changed files outside allowed_scope: ${result.scope_violations.join(', ')}`);
+  }
+  if (result.verification_errors.length > 0) {
+    notes.push(...result.verification_errors);
   }
   if (acceptanceCriteriaMissing.length > 0) {
     notes.push('Some acceptance criteria were not evidenced by the managed worker summary/output.');
   }
 
-  const passed = acceptanceCriteriaMissing.length === 0 && (requiredTests.length === 0 || allTestsObserved) && artifactCheck === 'passed';
+  const passed = acceptanceCriteriaMissing.length === 0 && testsPassed && scopePassed && artifactCheck === 'passed';
   return ExternalWorkerVerifyReportSchema.parse({
     job_id: job.id,
     status: passed ? 'passed' : 'failed',
     summary: passed
       ? 'Verification passed.'
-      : 'Verification failed. Managed worker output did not satisfy the configured acceptance requirements.',
+      : 'Verification failed. Runtime evidence did not satisfy the configured acceptance requirements.',
     acceptance_criteria_met: acceptanceCriteriaMet,
     acceptance_criteria_missing: acceptanceCriteriaMissing,
     tests_checked: requiredTests,

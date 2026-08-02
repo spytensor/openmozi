@@ -31,6 +31,8 @@ export interface ToolResult {
   skillMissingBins?: string[];
   skillMissingEnv?: string[];
   skillLoadError?: string;
+  /** Full tool schemas the model selected for the remainder of this loop. */
+  activatedToolNames?: string[];
   /** Web sources this call consulted, for the UI source list (search/fetch tools). */
   sources?: ToolSourceRef[];
   /** Optional file path to send to the user (e.g. from write_file) */
@@ -100,6 +102,8 @@ export interface ToolContext {
   subagentRuntimeSource?: string;
   subagentSessionKey?: string;
   abortSignal?: AbortSignal;
+  /** Turn-bound readiness snapshot used by activate_tools. */
+  availableToolNames?: string[];
   /** Active granted project/workspace root for turn-scoped file artifact scans.
    *  When set, filesystem WRITES are restricted to this root (+ output dir and
    *  any per-session scope grants); reads stay unrestricted. */

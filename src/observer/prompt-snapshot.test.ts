@@ -10,7 +10,7 @@ import {
   pruneOldSnapshots,
   redactSnapshot,
   resetPromptSnapshotTableFlag,
-  updatePromptSnapshotAdmission,
+  updatePromptSnapshotTools,
   updatePromptSnapshotVerifier,
 } from './prompt-snapshot.js';
 
@@ -130,9 +130,7 @@ describe('observer/prompt-snapshot', () => {
     expect(snapshot.verifier.verify_required).toBe(true);
     expect(snapshot.runtime_meta.message_count).toBe(12);
     expect(snapshot.runtime_meta.exposed_tool_count).toBe(2);
-    expect(snapshot.runtime_meta.task_profile).toBe('general');
-    expect(snapshot.runtime_meta.runtime_admission).toBeNull();
-    expect(snapshot.runtime_meta.admission_status).toBe('not_required');
+    expect(snapshot.runtime_meta.task_profile).toBe('model_driven');
   });
 
   it('handles null gate decision as not_required', () => {
@@ -238,40 +236,44 @@ describe('observer/prompt-snapshot', () => {
     });
   });
 
-  it('persists the runtime admission requirement and terminal outcome', () => {
-    const admissionTraceId = 'trace-snap-admission';
+  it('persists schemas activated during the model loop', () => {
+    const activationTraceId = 'trace-snap-tools';
     startTurnTrace({
-      trace_id: admissionTraceId,
-      turn_id: 'turn-snap-admission',
+      trace_id: activationTraceId,
+      turn_id: 'turn-snap-tools',
       tenant_id: 'default',
-      chat_id: 'chat-snap-admission',
+      chat_id: 'chat-snap-tools',
       model: 'deepseek-v4-pro',
     });
     persistPromptSnapshot(capturePromptSnapshot({
-      trace_id: admissionTraceId,
+      trace_id: activationTraceId,
       tenant_id: 'default',
-      chat_id: 'chat-snap-admission',
+      chat_id: 'chat-snap-tools',
       model: 'deepseek-v4-pro',
       slotBreakdown: [],
       totalBudget: 4000,
       systemSlotBudget: 2400,
       historyTokenBudget: 1600,
-      tools: [
-        { name: 'use_skill', source: 'builtin' },
-        { name: 'decompose_task', source: 'builtin' },
-      ],
+      tools: [{ name: 'activate_tools', source: 'builtin' }],
       gateDecision: null,
       messageCount: 2,
       systemMessageCount: 1,
-      runtimeAdmission: 'durable_plan',
+      toolSchemaTokensEstimate: 120,
     }));
 
-    expect(getPromptSnapshot(admissionTraceId)?.runtime_meta.admission_status).toBe('required');
-    updatePromptSnapshotAdmission(admissionTraceId, 'default', 'blocked');
-    expect(getPromptSnapshot(admissionTraceId)?.runtime_meta).toMatchObject({
-      runtime_admission: 'durable_plan',
-      admission_status: 'blocked',
+    updatePromptSnapshotTools(
+      activationTraceId,
+      'default',
+      [
+        { name: 'activate_tools', source: 'builtin' },
+        { name: 'web_search', source: 'builtin' },
+      ],
+      640,
+    );
+    expect(getPromptSnapshot(activationTraceId)?.runtime_meta).toMatchObject({
       exposed_tool_count: 2,
+      tool_schema_tokens_estimate: 640,
+      task_profile: 'model_driven',
     });
   });
 

@@ -3,6 +3,7 @@ export const PROMPT_SECTION_SEPARATOR = '\n\n---\n\n';
 export const AVAILABLE_TOOLS_SECTION_HEADING = '## Available Tools';
 export const AVAILABLE_TOOLS_SOURCE_INSTRUCTION = 'Use these tools when the user asks.';
 export const AVAILABLE_TOOLS_SHAPED_INSTRUCTION = 'Use only these currently exposed tools.';
+export const TOOL_CATALOG_SECTION_HEADING = '## Tool Catalog';
 export const RUNTIME_CAPABILITY_SECTION_HEADING = '## Runtime Capability Contract (Authoritative)';
 
 export function formatAvailableToolsSection(

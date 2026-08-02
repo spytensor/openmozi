@@ -28,7 +28,7 @@ const logger = pino({ name: 'mozi:mcp:tools' });
  * set handed to a model must not change *within* a turn: the model would be
  * offered a tool that vanishes before it calls it, and the tool array would be
  * rewritten between iterations of a single tool loop, invalidating the request
- * prefix mid-turn (the #727 prompt-cache incident class).
+ * prefix mid-turn, which is the shape of a past prompt-cache collapse here.
  *
  * So the live state is published into a snapshot at turn boundaries, and every
  * read within the turn sees the same set.

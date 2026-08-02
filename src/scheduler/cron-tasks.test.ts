@@ -103,6 +103,13 @@ describe('scheduler/cron-tasks background execution', () => {
     })).toThrow(/not allowed/);
   });
 
+  it('rejects managed Brain schedules without a workload prompt', () => {
+    expect(() => addCronTask({
+      chatId: 'chat-cron', scheduleKind: 'every', scheduleValue: '60000',
+      handlerType: 'managed_brain', description: 'Missing workload',
+    })).toThrow(/handlerParams\.prompt/);
+  });
+
   it('enqueues managed Brain work with persisted identity and bounded execution time', () => {
     const cron = addCronTask({
       chatId: 'local-user:sess-market',

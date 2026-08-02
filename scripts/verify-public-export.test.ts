@@ -1,8 +1,42 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findCommitMessageViolations, findPublicExportViolations } from './verify-public-export.mjs';
+import {
+  filterSourceExportFiles,
+  findCommitMessageViolations,
+  findPublicExportViolations,
+} from './verify-public-export.mjs';
 
 describe('verify-public-export', () => {
+  it('uses the export path and content exclusions in source-repository mode', () => {
+    const marker = `<${['claude', 'mem', 'context'].join('-')}>`;
+    const content = new Map([
+      ['README.md', '# OpenMozi'],
+      ['IMPLEMENTATION.md', 'private design'],
+      ['src/CLAUDE.md', marker],
+    ]);
+
+    expect(filterSourceExportFiles(
+      [...content.keys()],
+      { exclude: ['IMPLEMENTATION.md'], excludeContaining: [marker] },
+      (path) => content.get(path) ?? '',
+    )).toEqual(['README.md']);
+  });
+
+  it('blocks per-directory context files written by local assistant tooling', () => {
+    // 40 of these reached the public repository before anything checked. They
+    // are ordinary tracked markdown in ordinary paths — only their content, a
+    // table of session ids and session titles from the operator's machine,
+    // gives them away. The marker is assembled from fragments so neither the
+    // gate nor this test matches itself.
+    const marker = `<${['claude', 'mem', 'context'].join('-')}>`;
+    const body = `${marker}\n# Recent Activity\n\n| ID | Title |\n| #2642 | Some session |\n`;
+    expect(findPublicExportViolations(['src/CLAUDE.md'], () => body)).toEqual([
+      'src/CLAUDE.md: local assistant session context',
+    ]);
+    // A hand-written CLAUDE.md carrying real project instructions still ships.
+    expect(findPublicExportViolations(['CLAUDE.md'], () => '# Instructions\n\nBuild with pnpm.')).toEqual([]);
+  });
+
   it('blocks private paths, runtime data, and internal project names', () => {
     const files = ['docs/private.md', 'data.pre-v2.bak/runtime.log'];
     const ownerPath = `/Users/${['zhu', 'chaojie'].join('')}/codes/project`;

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   ResultEnvelopeSchema,
   TaskBriefSchema,
@@ -54,6 +57,51 @@ const task = TaskBriefSchema.parse({
 
 describe('workers/dispatch', () => {
   let tmpDir: string;
+
+  function createGitProject(name: string): string {
+    const projectDir = join(tmpDir, name);
+    mkdirSync(join(projectDir, 'src'), { recursive: true });
+    writeFileSync(join(projectDir, 'src/index.js'), 'export const value = 1;\n');
+    execFileSync('git', ['init', projectDir], { stdio: 'ignore' });
+    execFileSync('git', ['-C', projectDir, 'add', '.']);
+    execFileSync('git', [
+      '-C', projectDir,
+      '-c', 'user.name=MOZI Test',
+      '-c', 'user.email=mozi-test@example.invalid',
+      'commit', '-m', 'initial',
+    ], { stdio: 'ignore' });
+    return projectDir;
+  }
+
+  function makeWritingAdapter(write: () => void): WorkerAdapter {
+    return {
+      metadata: {
+        id: 'fake_adapter',
+        display_name: 'Fake Worker',
+        kind: 'external_cli',
+        supported_transports: ['stdio'],
+      },
+      supportsTransport: () => true,
+      launch: vi.fn().mockImplementation(async () => {
+        write();
+        return { handle: makeHandle(), status: makeStatus('completed') };
+      }),
+      poll: vi.fn().mockResolvedValue(makeStatus('completed')),
+      cancel: vi.fn(),
+      collectResult: vi.fn().mockResolvedValue({
+        envelope: ResultEnvelopeSchema.parse({
+          task_id: 'task-1',
+          status: 'success',
+          output: ['done'],
+          summary: 'done',
+          cost: { tokens: 0, tool_calls: 0, elapsed_time: 25 },
+          issues: [],
+        }),
+        artifacts: [],
+        runtime_label: 'Fake Worker',
+      }),
+    };
+  }
 
   beforeEach(() => {
     const db = setupTestDb();
@@ -138,6 +186,99 @@ describe('workers/dispatch', () => {
     expect(persisted?.runtime_label).toBe('Fake Worker');
     expect(persisted?.verify_report?.status).toBe('passed');
     expect(persisted?.result_envelope?.status).toBe('completed');
+  });
+
+  it('records changed files and executes required tests as runtime-owned evidence', async () => {
+    const projectDir = createGitProject('verified-worker');
+    const command = 'node -e "const fs=require(\'fs\');if(!fs.readFileSync(\'src/index.js\',\'utf8\').includes(\'2\'))process.exit(1)"';
+    const adapter = makeWritingAdapter(() => {
+      writeFileSync(join(projectDir, 'src/index.js'), 'export const value = 2;\n');
+    });
+    const scopedTask = TaskBriefSchema.parse({
+      ...task,
+      constraints: { ...task.constraints, allowed_tools: ['filesystem', 'shell', 'git'] },
+    });
+
+    const result = await dispatchManagedWorkerTask({
+      job_id: 'job-runtime-evidence',
+      agent_id: 'agent-1',
+      tenant_id: 'default',
+      task: scopedTask,
+      system_prompt: 'You are a worker.',
+      worker: { adapter: 'fake_adapter', transport: 'stdio', cwd: projectDir, env: {}, metadata: {} },
+      timeout_ms: 10_000,
+      metadata: { allowed_scope: ['src'], required_tests: [command] },
+    }, new WorkerAdapterRegistry([adapter]), 0);
+
+    const persisted = getExternalWorkerJob('job-runtime-evidence');
+    expect(result.verify_status, JSON.stringify({
+      result: persisted?.result_envelope,
+      verify: persisted?.verify_report,
+    })).toBe('passed');
+    expect(persisted?.status).toBe('succeeded');
+    expect(persisted?.result_envelope?.changed_files).toEqual(['src/index.js']);
+    expect(persisted?.result_envelope?.tests_run).toEqual([command]);
+    expect(persisted?.result_envelope?.test_status).toBe('passed');
+    expect(persisted?.result_envelope?.test_results[0]).toMatchObject({
+      command,
+      exit_code: 0,
+      timed_out: false,
+    });
+  });
+
+  it('fails verification when a runtime-executed required test fails', async () => {
+    const projectDir = createGitProject('failed-test-worker');
+    const command = 'node -e "process.exit(7)"';
+    const adapter = makeWritingAdapter(() => {
+      writeFileSync(join(projectDir, 'src/index.js'), 'export const value = 2;\n');
+    });
+    const scopedTask = TaskBriefSchema.parse({
+      ...task,
+      constraints: { ...task.constraints, allowed_tools: ['filesystem', 'shell', 'git'] },
+    });
+
+    const result = await dispatchManagedWorkerTask({
+      job_id: 'job-runtime-test-failure',
+      agent_id: 'agent-1',
+      tenant_id: 'default',
+      task: scopedTask,
+      system_prompt: 'You are a worker.',
+      worker: { adapter: 'fake_adapter', transport: 'stdio', cwd: projectDir, env: {}, metadata: {} },
+      timeout_ms: 10_000,
+      metadata: { allowed_scope: ['src'], required_tests: [command] },
+    }, new WorkerAdapterRegistry([adapter]), 0);
+
+    expect(result.verify_status).toBe('failed');
+    const persisted = getExternalWorkerJob('job-runtime-test-failure');
+    expect(persisted?.status).toBe('failed');
+    expect(persisted?.failure_category).toBe('verify_failed');
+    expect(persisted?.result_envelope?.test_status).toBe('failed');
+    expect(persisted?.result_envelope?.test_results[0]?.exit_code).toBe(7);
+  });
+
+  it('fails verification when the worker changes a file outside allowed_scope', async () => {
+    const projectDir = createGitProject('out-of-scope-worker');
+    const adapter = makeWritingAdapter(() => {
+      writeFileSync(join(projectDir, 'README.md'), 'outside scope\n');
+    });
+
+    const result = await dispatchManagedWorkerTask({
+      job_id: 'job-runtime-scope-failure',
+      agent_id: 'agent-1',
+      tenant_id: 'default',
+      task,
+      system_prompt: 'You are a worker.',
+      worker: { adapter: 'fake_adapter', transport: 'stdio', cwd: projectDir, env: {}, metadata: {} },
+      timeout_ms: 10_000,
+      metadata: { allowed_scope: ['src'] },
+    }, new WorkerAdapterRegistry([adapter]), 0);
+
+    expect(result.verify_status).toBe('failed');
+    const persisted = getExternalWorkerJob('job-runtime-scope-failure');
+    expect(persisted?.status).toBe('failed');
+    expect(persisted?.result_envelope?.changed_files).toEqual(['README.md']);
+    expect(persisted?.result_envelope?.scope_violations).toEqual(['README.md']);
+    expect(persisted?.verify_report?.notes.join('\n')).toContain('outside allowed_scope');
   });
 
   it('uses adapter waitForCompletion when the adapter exposes it', async () => {

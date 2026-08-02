@@ -44,6 +44,7 @@ import { saveTimelineItem } from '../memory/session-timeline.js';
 import type { ToolContext } from '../tools/types.js';
 import { buildExecutionToolContext } from '../tools/execution-context.js';
 import {
+  activateToolsForExecution,
   shapePromptMessagesForExecution,
   shapeToolsForExecution,
   type ToolShapingResult,
@@ -69,19 +70,11 @@ export function normalizeNonNegativeInt(value: unknown, fallback: number, min = 
   return Math.max(min, Math.floor(numeric));
 }
 
-/** Apply the same model-aware tool shaping policy to a durable DAG step. */
+/** Apply the same model-driven progressive tool surface to a durable DAG step. */
 export function shapeDagStepTools(
-  task: Pick<TaskRecord, 'title' | 'objective'>,
-  client: Pick<LLMClient, 'provider'>,
-  model: string | undefined,
   tools = getAllRegisteredTools(),
 ): ToolShapingResult {
-  return shapeToolsForExecution({
-    tools,
-    userText: `${task.title}\n${task.objective}`,
-    provider: client.provider,
-    model,
-  });
+  return shapeToolsForExecution({ tools });
 }
 
 export type TaskLoopStopReason = 'loop_timeout' | 'repeated_tool_failures' | 'loop_detected' | 'max_iterations' | 'runtime_guard';
@@ -416,12 +409,8 @@ export async function executeSingleTask(
     { role: 'user', content: objective },
   ];
 
-  const toolShaping = shapeDagStepTools(
-    task,
-    client,
-    baseToolContext?.executionModel?.model,
-    getAllRegisteredTools(task.tenant_id),
-  );
+  const registeredTools = getAllRegisteredTools(task.tenant_id);
+  const toolShaping = shapeDagStepTools(registeredTools);
   loopMessages.splice(0, loopMessages.length, ...shapePromptMessagesForExecution(loopMessages, toolShaping, { childSurface: true }));
   const availableTools = toolShaping.tools;
   logger.info({
@@ -447,6 +436,7 @@ export async function executeSingleTask(
     agentId: task.assigned_agent || task.id,
     abortSignal: taskAbortSignal,
     systemPrompt,
+    availableToolNames: registeredTools.map(tool => tool.function.name),
   });
 
   // Surface files produced by a plan STEP as openable artifact cards. The durable
@@ -606,6 +596,17 @@ export async function executeSingleTask(
     executionKernel.recordActivity();
 
     if (response.tool_calls && response.tool_calls.length > 0) {
+      const activeNames = new Set(availableTools.map(tool => tool.function.name));
+      const inactiveTools = response.tool_calls
+        .map(call => call.function.name)
+        .filter(name => !activeNames.has(name));
+      if (inactiveTools.length > 0) {
+        loopMessages.push(createKernelSystemMessage(
+          `[Progressive tool loading] These tools are not active: ${inactiveTools.join(', ')}. Call activate_tools with exact catalog names first, then call them on the next model turn. No tool in this batch was executed.`,
+        ));
+        logger.warn({ taskId: task.id, inactiveTools }, 'Rejected inactive DAG-step tool call before execution');
+        continue;
+      }
       loopMessages.push({
         role: 'assistant',
         content: response.content || '',
@@ -705,6 +706,22 @@ export async function executeSingleTask(
           tool_call_id: result.tool_call_id,
           tool_name: result.tool_name,
         });
+      }
+
+      for (const result of results) {
+        if (result.is_error || !result.activatedToolNames?.length) continue;
+        const activated = activateToolsForExecution(
+          toolShaping,
+          registeredTools,
+          result.activatedToolNames,
+        );
+        if (activated.length === 0) continue;
+        loopMessages.splice(
+          0,
+          loopMessages.length,
+          ...shapePromptMessagesForExecution(loopMessages, toolShaping, { childSurface: true }),
+        );
+        logger.info({ taskId: task.id, activated }, 'Activated deferred DAG-step tools');
       }
 
       for (const result of results) {

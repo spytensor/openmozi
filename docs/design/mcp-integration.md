@@ -82,7 +82,7 @@ only trustworthy source.
 on config/env/host state so the offered tool set stays stable within a session
 and the provider-side prefix cache survives. MCP breaks this if tools appear
 and disappear as servers connect, reconnect or die — every change rewrites the
-tool array and invalidates the cache (the #727 incident class).
+tool array and invalidates the cache — the shape of a past cache collapse here.
 
 **Live membership, snapshotted at turn boundaries** (operator decision,
 2026-07-25). Tools appear when a server connects and disappear when it drops,

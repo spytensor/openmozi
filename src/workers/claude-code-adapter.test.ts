@@ -128,19 +128,32 @@ describe('workers/claude-code-adapter', () => {
 
   it('launches Claude Code via the generic adapter contract and collects a success result', async () => {
     const adapter = new ClaudeCodeWorkerAdapter();
-    const launch = await adapter.launch(makeRequest());
+    const launch = await adapter.launch(makeRequest({
+      metadata: {
+        allowed_scope: ['src/workers'],
+        required_tests: ['pnpm vitest run src/workers/claude-code-adapter.test.ts'],
+      },
+    }));
 
     expect(hoisted.calls).toHaveLength(1);
     expect(hoisted.calls[0]?.command).toBe('claude');
     expect(hoisted.calls[0]?.args).toContain('-p');
     expect(hoisted.calls[0]?.args).toContain('--output-format');
     expect(hoisted.calls[0]?.args).toContain('json');
+    expect(hoisted.calls[0]?.args).toContain('--setting-sources');
+    expect(hoisted.calls[0]?.args).toContain('project,local');
+    expect(hoisted.calls[0]?.args).toContain('--permission-mode');
+    expect(hoisted.calls[0]?.args).toContain('dontAsk');
+    expect(hoisted.calls[0]?.args).toContain('--allowedTools');
+    expect(hoisted.calls[0]?.args).toContain('Read,Glob,Grep,Edit,Write');
     expect(hoisted.calls[0]?.args).toContain('--model');
     expect(hoisted.calls[0]?.args).toContain('claude-sonnet-4-6');
     expect(hoisted.calls[0]?.args).toContain('--append-system-prompt');
     const systemPromptIndex = hoisted.calls[0]!.args.indexOf('--append-system-prompt');
     expect(hoisted.calls[0]?.args[systemPromptIndex + 1]).toBe('You are a controlled worker.');
     expect(hoisted.calls[0]?.args.join(' ')).toContain('Task ID: task-1');
+    expect(hoisted.calls[0]?.args.join(' ')).toContain('Allowed scope: src/workers');
+    expect(hoisted.calls[0]?.args.join(' ')).toContain('Required tests: pnpm vitest run');
 
     const status = await adapter.poll(launch.handle);
     const result = await adapter.collectResult(launch.handle);

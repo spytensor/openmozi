@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { hasPrivateMarker, isExcluded } from './export-public.mjs';
 
 const forbiddenPathPatterns = [
   /(^|\/)data\.pre-[^/]+\//i,
@@ -32,6 +33,17 @@ const forbiddenTextPatterns = [
   { label: 'private repository SSH remote', pattern: new RegExp(`git@github\\.com:spytensor/Mozi(?:\\.git|\\b)`, 'i') },
   { label: 'private repository API URL', pattern: new RegExp(`api\\.github\\.com/repos/spytensor/Mozi(?:/|\\b)`, 'i') },
   { label: 'exposed Telegram bot token', pattern: /\b\d{8,12}:[A-Za-z0-9_-]{30,}\b/ },
+  // Local assistant tooling writes per-directory scratch files holding session
+  // ids and session titles from the operator's own machine. 43 of them reached
+  // the public repository before anything checked for this, because they are
+  // ordinary tracked files in ordinary paths — only their content gives them
+  // away. The exporter drops them; this is the backstop for when it does not.
+  {
+    label: 'local assistant session context',
+    // Assembled from fragments for the same reason as the patterns below: a
+    // literal here would make this file match itself on every scan.
+    pattern: new RegExp(`<${['claude', 'mem', 'context'].join('-')}>`, 'i'),
+  },
   // The published tree must not describe itself in terms of the upstream one:
   // that project's version numbers and commit shas expose its release cadence
   // and mean nothing to a reader here, who owns a separate version line.
@@ -104,6 +116,19 @@ function trackedFiles() {
     .filter(Boolean);
 }
 
+export function filterSourceExportFiles(files, config, readFile = (path) => readFileSync(path, 'utf8')) {
+  const { exclude = [], excludeContaining = [] } = config;
+  return files.filter((path) => {
+    if (isExcluded(path, exclude)) return false;
+    if (excludeContaining.length === 0) return true;
+    try {
+      return !hasPrivateMarker(readFile(path), excludeContaining);
+    } catch {
+      return true;
+    }
+  });
+}
+
 /**
  * Commit messages are published just as loudly as file contents, and nothing
  * used to check them: the leak that motivated this scan lived entirely in a
@@ -151,11 +176,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   let files = trackedFiles().filter((path) => existsSync(path));
   const configFlag = process.argv.indexOf('--exclude-config');
   if (configFlag !== -1) {
-    // Same matcher the export uses, so the gate's file set can never drift
-    // from what export-public.mjs actually publishes.
-    const { isExcluded } = await import('./export-public.mjs');
-    const { exclude = [] } = JSON.parse(readFileSync(process.argv[configFlag + 1], 'utf8'));
-    files = files.filter((path) => !isExcluded(path, exclude));
+    // Same path and content matchers the export uses, so the gate verifies the
+    // exact file set export-public.mjs would publish.
+    const config = JSON.parse(readFileSync(process.argv[configFlag + 1], 'utf8'));
+    files = filterSourceExportFiles(files, config);
   }
   const violations = findPublicExportViolations(files);
   // `--skip-commit-scan` exists for the source repository, whose own history

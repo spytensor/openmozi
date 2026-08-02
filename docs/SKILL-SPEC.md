@@ -109,7 +109,30 @@ Skill activation follows one authoritative path:
 3. Run `reload_skills` or restart MOZI
 4. Verify with `list_runtime_skills`
 
-Or use the `skill-creator` bundled skill for guided creation.
+The Brain does not know the workspace path, so it writes the skill folder
+wherever it can and calls `install_skill { source: "path", source_path: ... }`,
+which copies it into the workspace skill directory and reloads the catalog.
+The `skill-authoring` bundled skill carries that procedure.
+
+## Installing a Skill Package
+
+Skills are distributed as archives — `.skill` (a zip, what
+`skills/skill-creator/scripts/package_skill.py` emits), `.zip`, `.tar.gz`,
+`.tgz`, `.tar`. Three routes, all landing in the workspace skill directory:
+
+- **Skills page** — "Install package", or drop the archive onto the page
+  (`POST /api/skills/install`).
+- **Brain** — `install_skill { source: "path", source_path: "<archive>" }`.
+  The archive is passed as-is; unpacking it first is unnecessary.
+- **Git** — `install_skill { source: "git", repo_url: "https://..." }`.
+
+`SKILL.md` is located at the archive root, inside a single wrapper directory, or
+inside a single nested `.skill`. An archive holding two skills is rejected
+rather than guessed at.
+
+Note: `skill-creator` is Anthropic's vendored asset. Its eval loop shells out to
+`claude -p` and writes `.claude/commands/`, neither of which exists in this
+runtime — use `skill-authoring` for anything that must end up installed here.
 
 ## Best Practices
 

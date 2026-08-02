@@ -26,7 +26,7 @@ export {
   validateSkillTool, reloadSkillsTool,
 } from './skill-tools.js';
 export {
-  createToolTool, restartSelfTool, proactiveControlTool, sendProgressReportTool,
+  createToolTool, restartSelfTool, proactiveControlTool, sendProgressReportTool, activateToolsTool,
 } from './runtime-tools.js';
 export {
   connectorExecuteTool, readContextTool, writeContextTool,

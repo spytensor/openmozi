@@ -7,7 +7,6 @@ import { addReminder, cancelReminder, listReminders } from '../scheduler/reminde
 import type { ToolDefinition } from '../core/llm.js';
 import type { ToolResult, ToolContext } from './types.js';
 import { asRecord } from './tool-utils.js';
-import { resolveSchedulerControlAction } from '../core/durable-plan-admission.js';
 
 const logger = pino({ name: 'mozi:tools:system' });
 
@@ -359,10 +358,9 @@ export async function executeIntegrationTool(
       }
       const reminders = listReminders(context.tenantId ?? 'default')
         .filter(reminder => reminder.chat_id === context.chatId);
-      const endsTurn = resolveSchedulerControlAction(context.userPrompt ?? '') === 'list';
       if (reminders.length === 0) {
         const content = 'No reminders in this conversation.';
-        return { tool_call_id: id, content, is_error: false, ...(endsTurn ? { ends_turn: true, ends_turn_message: content } : {}) };
+        return { tool_call_id: id, content, is_error: false };
       }
       const content = reminders.map(reminder =>
         `- ${reminder.id}: [${reminder.status}] ${reminder.fire_at} — ${reminder.message}`
@@ -371,7 +369,6 @@ export async function executeIntegrationTool(
         tool_call_id: id,
         content,
         is_error: false,
-        ...(endsTurn ? { ends_turn: true, ends_turn_message: content } : {}),
       };
     }
 

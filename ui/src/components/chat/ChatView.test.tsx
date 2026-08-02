@@ -873,6 +873,70 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
     expect(within(fold).getByTestId("execution-technical-summary")).toBeInTheDocument();
   });
 
+  it("renders one failed process fold for a foreground plan and its failed background turn", () => {
+    const planId = "plan-verification-failed";
+    const foregroundTurnId = "turn_foreground_plan";
+    const backgroundTurnId = `turn_bg_${planId}`;
+    const timeline: TimelineItem[] = [
+      idMessage("user", "Build the buyer's guide", foregroundTurnId, 1),
+      {
+        type: "plan_started", timestamp: 2, turnId: foregroundTurnId, seq: 2,
+        data: {
+          plan_id: planId,
+          goal: "Build the buyer's guide",
+          phases: [{ taskId: "research", title: "Research providers", dependsOn: [] }],
+          timestamp: 2,
+          turnId: foregroundTurnId,
+          seq: 2,
+        },
+      },
+      idTool(foregroundTurnId, "admit-plan", 3),
+      idMessage("assistant", "The plan is running in the background.", foregroundTurnId, 4),
+      {
+        type: "task_update", timestamp: 5, turnId: backgroundTurnId, seq: 1,
+        data: {
+          id: "research-complete",
+          task_id: "research",
+          title: "Research providers",
+          status: "completed",
+          timestamp: 5,
+          turnId: backgroundTurnId,
+          seq: 1,
+        },
+      },
+      idTool(backgroundTurnId, "write-guide", 2, { tool: "file_write" }),
+      {
+        type: "artifact", timestamp: 7, turnId: backgroundTurnId, seq: 3,
+        data: { id: "notes", plugin_id: "document_v1", title: "Research notes", status: "completed", data: { role: "workspace", markdown: "notes" }, timestamp: 7, turnId: backgroundTurnId },
+      },
+      {
+        type: "artifact", timestamp: 8, turnId: backgroundTurnId, seq: 4,
+        data: { id: "guide", plugin_id: "document_v1", title: "Buyer's guide", status: "completed", data: { role: "primary", markdown: "guide" }, timestamp: 8, turnId: backgroundTurnId },
+      },
+      idMessage("assistant", "The result failed verification.", backgroundTurnId, 5),
+    ];
+
+    renderChat(timeline, {
+      timelineCapabilities: CAPS,
+      turns: [
+        { turnId: foregroundTurnId, sessionId: "s", chatId: "c", origin: "user", status: "completed", seqHighWater: 4, startedAt: 1, locale: "en" },
+        { turnId: backgroundTurnId, sessionId: "s", chatId: "c", origin: "background", status: "failed", seqHighWater: 5, startedAt: 2, locale: "en" },
+      ],
+    });
+
+    expect(screen.getAllByTestId("turn-fold-summary")).toHaveLength(1);
+    expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
+    expect(screen.getByTestId("turn-fold-issue-dot")).toBeInTheDocument();
+    expect(screen.queryByTestId("turn-fold-done-dot")).not.toBeInTheDocument();
+    expect(screen.getByText("The result failed verification.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("turn-fold-summary"));
+    const fold = screen.getByTestId("turn-fold-content");
+    expect(within(fold).getByText("Research providers")).toBeInTheDocument();
+    expect(within(fold).getAllByTestId("execution-block-embedded")).toHaveLength(1);
+    expect(within(fold).getByTestId("chat-view-all-artifacts")).toHaveTextContent("View all artifacts (2)");
+  });
+
   it("keeps legacy (uncapable) sessions on the frozen renderer", () => {
     // No capability advertised → frozen path; still renders the conversation.
     renderChat(

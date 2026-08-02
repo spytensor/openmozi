@@ -2,7 +2,6 @@ import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, extname, isAbsolute, resolve } from 'node:path';
 import { z } from 'zod';
 import type { LLMClient } from './llm.js';
-import { isSchedulerControlRequest } from './durable-plan-admission.js';
 import type { TaskRecord } from '../store/task-dag.js';
 import { loadTaskResult, loadTaskTranscript } from '../tasks/workspace.js';
 import { defaultChatOptionsForSurface } from './llm-surface.js';
@@ -345,14 +344,6 @@ function deterministicFindings(
     }
     if (artifact.placeholders.length > 0) {
       findings.push(`Artifact "${artifact.title}" still contains unresolved placeholders: ${artifact.placeholders.join(', ')}`);
-    }
-  }
-  if (isSchedulerControlRequest(request)) {
-    const schedulerEvidence = material.flatMap(step => step.evidence).filter(item =>
-      !item.isError && item.tool === 'set_cron_task' && /(?:ID[:：]\s*cron_|task created \(ID: cron_)/i.test(item.content)
-    );
-    if (schedulerEvidence.length === 0) {
-      findings.push('No successful MOZI set_cron_task receipt with a persisted cron ID was found; host scheduler state and worker prose are not accepted.');
     }
   }
   return findings;

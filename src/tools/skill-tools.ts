@@ -71,14 +71,14 @@ export const installSkillTool: ToolDefinition = {
   type: 'function',
   function: {
     name: 'install_skill',
-    description: 'Install a skill into the workspace skill directory from a bundled runtime skill, a local path containing SKILL.md, or an https git repository. Use this when a task needs a reusable skill asset, not just an ad-hoc prompt.',
+    description: 'Install a skill into the workspace skill directory. To install a skill package a user supplied (.skill/.zip/.tar.gz, or an unpacked folder), use source="path" with source_path set to that file or folder — do NOT use source="bundled", which only reinstalls skills already shipped with MOZI. Use this when a task needs a reusable skill asset, not just an ad-hoc prompt.',
     parameters: {
       type: 'object',
       properties: {
         source: {
           type: 'string',
           enum: ['bundled', 'path', 'git'],
-          description: 'Install from a bundled bootstrap skill, a local filesystem path, or an https git repository',
+          description: 'Install from a bundled bootstrap skill (needs skill_id), a local filesystem path or skill package (needs source_path), or an https git repository (needs repo_url)',
         },
         skill_id: {
           type: 'string',
@@ -86,7 +86,7 @@ export const installSkillTool: ToolDefinition = {
         },
         source_path: {
           type: 'string',
-          description: 'Local directory or SKILL.md path (required when source=path)',
+          description: 'Required when source=path. A directory containing SKILL.md, a SKILL.md file, or a skill package archive (.skill, .zip, .tar.gz, .tgz, .tar) — archives are unpacked automatically, including one nested .skill inside a zip, so pass the archive directly instead of unpacking it yourself.',
         },
         repo_url: {
           type: 'string',

@@ -155,6 +155,82 @@ describe("SkillsView", () => {
     expect(screen.getByText("Workspace research helper")).toBeInTheDocument();
   });
 
+  /**
+   * The page could manage skills but had no way to add one — the only install
+   * path was asking the Brain to call `install_skill`.
+   */
+  it("installs a skill package and shows the installed skill", async () => {
+    const installedSkill = {
+      id: "workspace:sector-chip-rating",
+      directory_name: "sector-chip-rating",
+      name: "sector-chip-rating",
+      description: "Rate A-share sector chip structure",
+      version: "1.0.0",
+      category: "finance",
+      status: "active",
+      enabled: true,
+      source: "workspace",
+      eligible: true,
+      missing_bins: [],
+      missing_env: [],
+      user_invocable: true,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, overwritten: false, skill: installedSkill }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    // Empty before the install, listing the new skill on the refresh after it.
+    getMock.mockImplementation(async (path: string) => {
+      if (path !== "/api/skills") return { data: null, error: "not found" };
+      return { data: { skills: fetchMock.mock.calls.length === 0 ? [] : [installedSkill] }, error: null };
+    });
+
+    renderWithLocale(<SkillsView />);
+    await waitFor(() => expect(screen.getByText("Install package")).toBeInTheDocument());
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input.accept).toContain(".skill");
+    const file = new File(["zip-bytes"], "INVESMENT-SKILL.zip", { type: "application/zip" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    fireEvent.change(input);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/skills/install",
+      expect.objectContaining({ method: "POST", credentials: "include" }),
+    ));
+    const body = fetchMock.mock.calls[0]![1].body as FormData;
+    expect((body.get("file") as File).name).toBe("INVESMENT-SKILL.zip");
+
+    // The list refreshes, and the operator is told the skill is usable.
+    expect(await screen.findByText(/Installed .* It is ready to use\./)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Rate A-share sector chip structure")).toBeInTheDocument());
+
+    vi.unstubAllGlobals();
+  });
+
+  it("surfaces the runtime's reason when a package is rejected", async () => {
+    getMock.mockResolvedValue({ data: { skills: [] }, error: null });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ success: false, error: "No SKILL.md found inside junk.zip." }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithLocale(<SkillsView />);
+    await waitFor(() => expect(screen.getByText("Install package")).toBeInTheDocument());
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      value: [new File(["x"], "junk.zip", { type: "application/zip" })],
+      configurable: true,
+    });
+    fireEvent.change(input);
+
+    expect(await screen.findByText("No SKILL.md found inside junk.zip.")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it("edits workspace SKILL.md and toggles workspace state", async () => {
     const initialContent = `---
 name: custom-skill

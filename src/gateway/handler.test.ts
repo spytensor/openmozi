@@ -875,7 +875,7 @@ describe('turn telemetry wiring (live path)', () => {
         tool_calls: [{
           id: 'tc_telemetry_span',
           type: 'function',
-          function: { name: 'unknown_tool', arguments: '{"probe":true}' },
+          function: { name: 'get_capabilities', arguments: '{}' },
         }],
         usage: { input_tokens: 100, output_tokens: 20, cache_read_tokens: 80 },
         model: 'mock-model',
@@ -922,15 +922,15 @@ describe('turn telemetry wiring (live path)', () => {
     expect(trace!.llm_output_tokens).toBe(50);
     expect(trace!.cache_read_tokens).toBe(200);
     expect(trace!.tool_call_count).toBe(1);
-    expect(trace!.tool_failure_count).toBe(1);
+    expect(trace!.tool_failure_count).toBe(0);
     expect(trace!.verify_status).toBe('not_required');
     expect(trace!.verify_summary).toContain('No tracked mutations');
     expect(trace!.ended_at).toBeTruthy();
 
     const spans = db.prepare('SELECT * FROM tool_spans WHERE trace_id = ?').all(trace!.trace_id) as Array<Record<string, unknown>>;
     expect(spans).toHaveLength(1);
-    expect(spans[0].tool_name).toBe('unknown_tool');
-    expect(spans[0].status).toBe('error');
+    expect(spans[0].tool_name).toBe('get_capabilities');
+    expect(spans[0].status).toBe('success');
 
     const snapshotRow = db.prepare('SELECT snapshot FROM prompt_snapshots WHERE trace_id = ?').get(trace!.trace_id) as { snapshot: string } | undefined;
     expect(snapshotRow).toBeDefined();
@@ -942,25 +942,31 @@ describe('turn telemetry wiring (live path)', () => {
     expect(snapshot.verifier.summary).toContain('No tracked mutations');
   });
 
-  it('records the enforced admission tool surface and a fail-closed outcome truthfully', async () => {
-    const chatId = 'durable_admission_trace_chat';
+  it('lets the selected model answer a complex request directly and records the progressive bootstrap', async () => {
+    const chatId = 'model_driven_complex_trace_chat';
     const client = makeMockClient('I will build and deliver everything inline.');
     const prompt = 'Build a production-ready SaaS application with authentication, billing, organization roles, an admin dashboard, audit logs, automated tests, Docker packaging, deployment configuration, and operator documentation.';
 
     const response = await handleMessage(makeMsg(prompt, chatId), 'sys', client);
 
-    expect(response).toContain('runtime blocked inline execution');
+    expect(response).toBe('I will build and deliver everything inline.');
     const db = getDb();
     const trace = db.prepare('SELECT * FROM turn_traces WHERE chat_id = ?').get(chatId) as Record<string, unknown>;
-    expect(trace.status).toBe('failed');
+    expect(trace.status).toBe('success');
     const snapshotRow = db.prepare('SELECT snapshot FROM prompt_snapshots WHERE trace_id = ?').get(trace.trace_id) as { snapshot: string };
     const snapshot = JSON.parse(snapshotRow.snapshot);
-    expect(new Set(snapshot.tools.map((tool: { name: string }) => tool.name))).toEqual(new Set(['use_skill', 'decompose_task']));
-    expect(snapshot.runtime_meta.runtime_admission).toBe('durable_plan');
-    expect(snapshot.runtime_meta.admission_status).toBe('blocked');
+    expect(new Set(snapshot.tools.map((tool: { name: string }) => tool.name))).toEqual(new Set([
+      'get_capabilities',
+      'activate_tools',
+      'use_skill',
+      'decompose_task',
+    ]));
+    expect(snapshot.runtime_meta.task_profile).toBe('model_driven');
+    expect(snapshot.runtime_meta).not.toHaveProperty('runtime_admission');
+    expect(snapshot.runtime_meta).not.toHaveProperty('admission_status');
   });
 
-  it('routes a complex current-plan continuation to plan controls without re-decomposing', async () => {
+  it('keeps planning and tool discovery visible when a current plan exists', async () => {
     const chatId = 'existing_plan_control_chat';
     const created = createPlanTasks({
       goal: 'Existing report plan',
@@ -985,9 +991,8 @@ describe('turn telemetry wiring (live path)', () => {
     const trace = db.prepare('SELECT * FROM turn_traces WHERE chat_id = ? ORDER BY started_at DESC').get(chatId) as Record<string, unknown>;
     const snapshotRow = db.prepare('SELECT snapshot FROM prompt_snapshots WHERE trace_id = ?').get(trace.trace_id) as { snapshot: string };
     const snapshot = JSON.parse(snapshotRow.snapshot);
-    expect(snapshot.runtime_meta.runtime_admission).toBe('plan_control');
-    expect(snapshot.runtime_meta.admission_status).toBe('accepted');
-    expect(snapshot.tools.map((tool: { name: string }) => tool.name)).not.toContain('decompose_task');
-    expect(snapshot.tools.map((tool: { name: string }) => tool.name)).toContain('repair_task');
+    expect(snapshot.tools.map((tool: { name: string }) => tool.name)).toContain('decompose_task');
+    expect(snapshot.tools.map((tool: { name: string }) => tool.name)).toContain('activate_tools');
+    expect(snapshot.tools.map((tool: { name: string }) => tool.name)).not.toContain('repair_task');
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -24,6 +24,7 @@ import {
   Presentation,
   Save,
   Search,
+  Upload,
   Settings2,
   Sheet,
   Shield,
@@ -171,7 +172,22 @@ export default function SkillsView() {
   const [editorContent, setEditorContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [stateSaving, setStateSaving] = useState(false);
+  const [promoting, setPromoting] = useState(false);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [installedName, setInstalledName] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Nested dragenter/dragleave pairs fire per child element; count them so the
+  // highlight does not flicker while the pointer crosses the cards.
+  const dragDepth = useRef(0);
+
+  const loadSkills = useCallback(async (): Promise<void> => {
+    const { data } = await get<{ skills: SkillInfo[] }>("/api/skills");
+    setSkills(data?.skills ?? []);
+    setLoading(false);
+  }, [get]);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,6 +271,63 @@ export default function SkillsView() {
     )));
   }
 
+  /**
+   * Install a skill package the user hands over (.skill/.zip/.tar.gz).
+   *
+   * `useApi` only speaks JSON, so this posts the multipart body directly, the
+   * same way FilesView uploads.
+   */
+  async function installSkillPackage(file: File): Promise<void> {
+    setInstalling(true);
+    setInstallError(null);
+    setInstalledName(null);
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const response = await fetch("/api/skills/install", {
+        method: "POST",
+        credentials: "include",
+        body: form,
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string; skill?: SkillInfo };
+      if (!response.ok || !data.skill) {
+        setInstallError(data.error || t("skills.install.error"));
+        return;
+      }
+      setInstalledName(displaySkillCopy(data.skill, t).name);
+      await loadSkills();
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : t("skills.install.error"));
+    } finally {
+      setInstalling(false);
+    }
+  }
+
+  function handleDrop(event: React.DragEvent): void {
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) void installSkillPackage(file);
+  }
+
+  async function promoteDraftSkill(): Promise<void> {
+    if (!detail) return;
+    setPromoting(true);
+    setMutationError(null);
+    const { data, error } = await post<{ skill: SkillDetail }>(
+      `/api/skills/${encodeURIComponent(detail.id ?? skillStableId(detail))}/promote`,
+    );
+    setPromoting(false);
+    if (error || !data?.skill) {
+      setMutationError(error || t("skills.draft.error"));
+      return;
+    }
+    setDetail(data.skill);
+    setEditorContent(data.skill.content);
+    mergeSkillRecord(data.skill);
+  }
+
   async function saveWorkspaceSkill(): Promise<void> {
     if (!detail || detail.source !== "workspace") return;
     setSaving(true);
@@ -299,6 +372,25 @@ export default function SkillsView() {
 
   return (
     <WorkspacePage contentClassName="max-w-[1180px]">
+      <div
+        onDragEnter={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          dragDepth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes("Files")) event.preventDefault();
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
+        onDrop={handleDrop}
+        className={cn(
+          "flex flex-col gap-5 rounded-lg transition-colors",
+          dragging && "outline outline-1 outline-offset-4 outline-[var(--accent)]",
+        )}
+      >
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-[12px] text-ink/35">
@@ -309,6 +401,28 @@ export default function SkillsView() {
           <p className="mt-1 max-w-[700px] text-[12.5px] leading-5 text-ink/40">{t("skills.description")}</p>
         </div>
         <div className="flex min-w-[260px] flex-1 items-center gap-2 sm:max-w-[420px]">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".skill,.zip,.tar.gz,.tgz,.tar"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void installSkillPackage(file);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={installing}
+            className="btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[12.5px] disabled:opacity-40"
+          >
+            {installing
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Upload className="h-3.5 w-3.5" />}
+            {installing ? t("skills.install.installing") : t("skills.install.action")}
+          </button>
           <div className="relative flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink/30" />
             <input
@@ -329,6 +443,19 @@ export default function SkillsView() {
           </div>
         </div>
       </header>
+
+      {(installError || installedName || dragging) && (
+        <p
+          className="text-[12.5px]"
+          style={{ color: installError ? "var(--status-error)" : "var(--text-secondary)" }}
+        >
+          {installError
+            ? installError
+            : installedName
+              ? t("skills.install.installed", { name: installedName })
+              : t("skills.install.drop")}
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <FilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>{t("skills.filter.all")}</FilterButton>
@@ -372,12 +499,15 @@ export default function SkillsView() {
           mutationError={mutationError}
           saving={saving}
           stateSaving={stateSaving}
+          promoting={promoting}
           onEditorChange={setEditorContent}
           onClose={() => setSelectedSkillId(null)}
           onSave={saveWorkspaceSkill}
           onToggleState={toggleWorkspaceSkill}
+          onPromote={promoteDraftSkill}
         />
       ) : null}
+      </div>
     </WorkspacePage>
   );
 }
@@ -594,6 +724,7 @@ function SkillCard({ skill, onOpen }: { skill: SkillInfo; onOpen: () => void }) 
                 </Badge>
               ) : null}
               {skill.source === "workspace" ? <Badge tone="muted">{t("skills.source.workspace")}</Badge> : null}
+              {skill.origin === "autogen" ? <Badge tone="warning">{t("skills.draft.badge")}</Badge> : null}
             </div>
           </div>
           {/* No category footer chip: the card already sits under its
@@ -614,10 +745,12 @@ function SkillDetailDrawer({
   mutationError,
   saving,
   stateSaving,
+  promoting,
   onEditorChange,
   onClose,
   onSave,
   onToggleState,
+  onPromote,
 }: {
   detail: SkillDetail | null;
   loading: boolean;
@@ -626,10 +759,12 @@ function SkillDetailDrawer({
   mutationError: string | null;
   saving: boolean;
   stateSaving: boolean;
+  promoting: boolean;
   onEditorChange: (content: string) => void;
   onClose: () => void;
   onSave: () => void;
   onToggleState: () => void;
+  onPromote: () => void;
 }) {
   const { t } = useLocale();
   const normalizedDetail = detail ? { ...detail, status: detail.enabled === false ? "disabled" as const : "active" as const } : null;
@@ -638,6 +773,9 @@ function SkillDetailDrawer({
   const StatusIcon = status?.icon;
   const canEdit = normalizedDetail?.source === "workspace";
   const isEnabled = normalizedDetail ? normalizedDetail.enabled !== false : false;
+  // A skill MOZI wrote for itself mid-task: usable by the runtime, but not
+  // invocable by name until the operator promotes it.
+  const isDraft = normalizedDetail?.origin === "autogen";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/35" role="dialog" aria-modal="true">
@@ -656,8 +794,23 @@ function SkillDetailDrawer({
                 ) : null}
                 {normalizedDetail ? <Badge tone="muted">{sourceLabel(normalizedDetail, t)}</Badge> : null}
                 {normalizedDetail?.source === "bundled" ? <Badge tone="muted">{t("skills.detail.readOnly")}</Badge> : null}
+                {isDraft ? <Badge tone="warning">{t("skills.draft.badge")}</Badge> : null}
               </div>
               {display ? <p className="mt-2 max-w-[720px] text-[12.5px] leading-5 text-ink/45">{display.description}</p> : null}
+              {isDraft ? (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <p className="max-w-[560px] text-[12.5px] leading-5 text-ink/45">{t("skills.draft.explain")}</p>
+                  <button
+                    type="button"
+                    onClick={onPromote}
+                    disabled={promoting}
+                    className="btn-primary flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[12.5px] disabled:opacity-40"
+                  >
+                    {promoting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {t("skills.draft.promote")}
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
           <button

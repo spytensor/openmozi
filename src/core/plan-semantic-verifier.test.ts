@@ -493,7 +493,7 @@ describe('plan semantic verifier', () => {
     expect(client.chat).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects scheduler completion without a persisted MOZI receipt and preserves model findings', async () => {
+  it('preserves model findings when scheduler completion is not evidenced', async () => {
     const step = create({
       tenant_id: 'default', title: 'Create schedule', objective: 'Create the recurring task',
       done_criteria: 'A MOZI cron task id is persisted',
@@ -515,7 +515,6 @@ describe('plan semantic verifier', () => {
     });
 
     expect(report).toMatchObject({ passed: false, verdict: 'failed' });
-    expect(report.findings.join('\n')).toContain('No successful MOZI set_cron_task receipt');
     expect(report.findings.join('\n')).toContain('No next-run time');
     expect(client.chat).toHaveBeenCalledTimes(1);
   });

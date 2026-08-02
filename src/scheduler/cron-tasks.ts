@@ -162,6 +162,10 @@ export function addCronTask(opts: AddCronTaskOptions): CronTask {
   if (!isScheduledHandlerType(opts.handlerType)) {
     throw new Error(`Handler "${opts.handlerType}" is not allowed for scheduled execution`);
   }
+  if (opts.handlerType === 'managed_brain'
+    && (typeof opts.handlerParams?.prompt !== 'string' || !opts.handlerParams.prompt.trim())) {
+    throw new Error('Managed scheduled execution requires handlerParams.prompt');
+  }
   if (!isValidSchedule(opts.scheduleKind, opts.scheduleValue, opts.timezone)) {
     throw new Error(`Invalid or non-future schedule: ${opts.scheduleKind} "${opts.scheduleValue}"`);
   }

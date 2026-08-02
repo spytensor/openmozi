@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTempDir, removeTempDir } from '../test-helpers.js';
 import {
@@ -7,6 +8,7 @@ import {
   getRuntimeSkillDetail,
   installWorkspaceSkill,
   listRuntimeSkills,
+  promoteAutogenSkill,
   setWorkspaceSkillState,
   updateWorkspaceSkillContent,
   validateRuntimeSkill,
@@ -70,6 +72,126 @@ describe('skills/workspace-manager', () => {
     expect(result.installed.enabled).toBe(true);
     expect(result.installed.eligible).toBe(true);
     delete process.env.A_KEY;
+  });
+
+  /**
+   * A user handing over "the skill I made" hands over an archive, not a
+   * directory — `.skill` is what this repo's own packager emits. Installing it
+   * must not require the operator to unpack anything first.
+   */
+  it('installs a skill straight from a .zip package', async () => {
+    const stageDir = createTempDir();
+    const archiveDir = createTempDir();
+    const localWorkspaceDir = createTempDir();
+    try {
+      const packagedSkillDir = join(stageDir, 'packaged-skill');
+      mkdirSync(packagedSkillDir, { recursive: true });
+      writeFileSync(join(packagedSkillDir, 'SKILL.md'), `---
+name: Packaged Skill
+description: Installed from an archive
+---
+
+Run the packaged workflow.
+`);
+      const archivePath = join(archiveDir, 'packaged-skill.zip');
+      execFileSync('zip', ['-q', '-r', archivePath, 'packaged-skill'], { cwd: stageDir, stdio: 'pipe' });
+
+      const result = await installWorkspaceSkill({
+        source: 'path',
+        source_path: archivePath,
+        bundledDir,
+        workspaceDir: localWorkspaceDir,
+      });
+
+      expect(result.installed.name).toBe('Packaged Skill');
+      expect(result.installed.source).toBe('workspace');
+      expect(result.installed.eligible).toBe(true);
+      // The installed copy must survive the temp-dir cleanup that runs in the
+      // installer's `finally`.
+      expect(existsSync(join(localWorkspaceDir, 'packaged-skill', 'SKILL.md'))).toBe(true);
+    } finally {
+      removeTempDir(stageDir);
+      removeTempDir(archiveDir);
+      removeTempDir(localWorkspaceDir);
+    }
+  });
+
+  it('rejects a non-archive file as a skill source', async () => {
+    const stageDir = createTempDir();
+    try {
+      const notASkill = join(stageDir, 'holdings.xlsx');
+      writeFileSync(notASkill, 'not a skill');
+      await expect(installWorkspaceSkill({
+        source: 'path',
+        source_path: notASkill,
+        bundledDir,
+        workspaceDir,
+      })).rejects.toThrow(/Not a skill source/);
+    } finally {
+      removeTempDir(stageDir);
+    }
+  });
+
+  /**
+   * `propose_skill` writes drafts that `listRuntimeSkills` hides "until an
+   * operator has reviewed and promoted them" — and until now no promotion path
+   * existed anywhere in the codebase, so a draft could only stay a draft.
+   */
+  describe('promoting an autogen draft', () => {
+    const draftContent = `---
+name: autogen-weekly-brief
+description: Drafted by MOZI mid-task
+version: 0.1.0
+category: utility
+user-invocable: false
+origin: autogen
+metadata:
+  sandbox_profile: read-only
+---
+
+# Weekly brief
+
+1. Read the ledger.
+`;
+
+    it('flips user-invocable, drops the autogen origin, and keeps the body', async () => {
+      const localWorkspaceDir = createTempDir();
+      try {
+        const draftDir = join(localWorkspaceDir, 'autogen-weekly-brief');
+        mkdirSync(draftDir, { recursive: true });
+        writeFileSync(join(draftDir, 'SKILL.md'), draftContent);
+
+        const hiddenByDefault = await listRuntimeSkills({ bundledDir, workspaceDir: localWorkspaceDir });
+        expect(hiddenByDefault.some((skill) => skill.name === 'autogen-weekly-brief')).toBe(false);
+
+        const promoted = await promoteAutogenSkill('workspace:autogen-weekly-brief', {
+          bundledDir,
+          workspaceDir: localWorkspaceDir,
+        });
+
+        expect(promoted.user_invocable).toBe(true);
+        expect(promoted.origin).toBeUndefined();
+        expect(promoted.content).toContain('# Weekly brief');
+        expect(promoted.content).toContain('1. Read the ledger.');
+        // Untouched frontmatter survives the rewrite.
+        expect(promoted.frontmatter.metadata?.sandbox_profile).toBe('read-only');
+
+        const listed = await listRuntimeSkills({ bundledDir, workspaceDir: localWorkspaceDir });
+        expect(listed.some((skill) => skill.name === 'autogen-weekly-brief')).toBe(true);
+      } finally {
+        removeTempDir(localWorkspaceDir);
+      }
+    });
+
+    it('refuses to promote a skill that is not a draft', async () => {
+      await expect(promoteAutogenSkill('workspace:skill-b', { bundledDir, workspaceDir }))
+        .rejects.toThrow(/Only autogen drafts/);
+    });
+
+    it('refuses to promote a bundled skill', async () => {
+      await expect(promoteAutogenSkill('bundled:skill-a', { bundledDir, workspaceDir }))
+        .rejects.toThrow(/read-only/);
+    });
   });
 
   it('can disable and re-enable a workspace skill', async () => {

@@ -44,6 +44,66 @@ function exampleForTool(tool: ToolDefinition): string {
   return JSON.stringify(buildExampleFromSchema(tool.function.parameters));
 }
 
+const MAX_ROSTER_PARAMETERS = 14;
+const MAX_ROSTER_CHARS = 900;
+const MAX_PARAMETER_DESCRIPTION_CHARS = 140;
+
+function describeParameter(name: string, schema: unknown, required: boolean): string {
+  const row = asPlainObject(schema) ?? {};
+  const facts: string[] = [];
+  if (typeof row.type === 'string') facts.push(row.type);
+  if (required) facts.push('required');
+  if (Array.isArray(row.enum) && row.enum.length > 0) {
+    facts.push(`one of: ${row.enum.map((value) => String(value)).join('|')}`);
+  }
+  const head = facts.length > 0 ? `${name} (${facts.join(', ')})` : name;
+  const description = typeof row.description === 'string' ? row.description.trim() : '';
+  if (!description) return head;
+  const trimmed = description.length > MAX_PARAMETER_DESCRIPTION_CHARS
+    ? `${description.slice(0, MAX_PARAMETER_DESCRIPTION_CHARS)}…`
+    : description;
+  return `${head} — ${trimmed}`;
+}
+
+/**
+ * List the tool's real parameters, not a minimal synthesized example.
+ *
+ * A synthesized example is actively harmful on a schema whose `required` list is
+ * a discriminator: `install_skill` requires only `source`, whose first enum
+ * value is `bundled`, so the example read `{"source":"bundled"}` — and a model
+ * repairing against it walked straight into the bundled branch and its
+ * *conditionally* required `skill_id`, never learning that `source_path` (the
+ * parameter it actually needed) exists. Confirmed 2026-07-27: five consecutive
+ * failed calls, no repair possible.
+ *
+ * The roster matters most exactly when the model is flying blind — tool shaping
+ * can hide a tool's schema from the request while `get_capabilities` still
+ * advertises its name, so the error message is the only place the parameters
+ * can come from.
+ */
+function parameterRoster(tool: ToolDefinition): string {
+  const schema = asPlainObject(tool.function.parameters) ?? {};
+  const properties = asPlainObject(schema.properties) ?? {};
+  const required = new Set(
+    Array.isArray(schema.required)
+      ? schema.required.filter((key): key is string => typeof key === 'string')
+      : [],
+  );
+  const names = Object.keys(properties);
+  if (names.length === 0) return 'This tool takes no parameters.';
+
+  const described = names
+    .slice(0, MAX_ROSTER_PARAMETERS)
+    .map((name) => describeParameter(name, properties[name], required.has(name)));
+  const omitted = names.length - described.length;
+
+  let roster = described.join('; ');
+  if (roster.length > MAX_ROSTER_CHARS) {
+    roster = `${roster.slice(0, MAX_ROSTER_CHARS)}…`;
+  }
+  return `Parameters: ${roster}${omitted > 0 ? `; (+${omitted} more)` : ''}`;
+}
+
 function compactAjvError(error: ErrorObject): string {
   const path = error.instancePath || '/';
   if (error.keyword === 'required') {
@@ -61,7 +121,7 @@ function validationFailure(tool: ToolDefinition, problems: string[]): ToolArgume
   const detail = problems.slice(0, MAX_ERROR_DETAILS).join('; ');
   return {
     ok: false,
-    message: `Error: Invalid arguments for tool "${tool.function.name}". ${detail}. Expected example: ${exampleForTool(tool)}`,
+    message: `Error: Invalid arguments for tool "${tool.function.name}". ${detail}. ${parameterRoster(tool)}`,
   };
 }
 

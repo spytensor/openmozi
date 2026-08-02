@@ -153,20 +153,12 @@ describe('managed Brain scheduled handler', () => {
     await expect(failure).resolves.not.toBeInstanceOf(PermanentBackgroundTaskError);
   });
 
-  it('leaves plan-never-created admission failure retryable and re-enters without a plan row', async () => {
-    const blocked = 'MOZI could not create the required durable plan, so the runtime blocked inline execution. No plan was started and no result is being claimed. Please retry.';
-    hoisted.handleMessage
-      .mockResolvedValueOnce(blocked)
-      .mockResolvedValueOnce('Completed after clean re-entry.');
+  it('accepts a verified inline result when the selected model does not create a plan', async () => {
+    hoisted.handleMessage.mockResolvedValueOnce('Completed inline without a detached plan.');
     const scheduled = task({ prompt: 'Generate today\'s detailed market analysis and verified PDF report.' });
 
-    const failure = managedBrainHandler(scheduled, new AbortController().signal)
-      .catch((error: unknown) => error);
-    await expect(failure).resolves.toBeInstanceOf(Error);
-    await expect(failure).resolves.not.toBeInstanceOf(PermanentBackgroundTaskError);
-
     await expect(managedBrainHandler(scheduled, new AbortController().signal))
-      .resolves.toBe('Completed after clean re-entry.');
+      .resolves.toBe('Completed inline without a detached plan.');
     expect(hoisted.mergeParams).not.toHaveBeenCalled();
     expect(hoisted.waitForPlanRun).not.toHaveBeenCalled();
   });

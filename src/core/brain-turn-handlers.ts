@@ -22,7 +22,11 @@ import {
   type UnifiedExecutionKernel,
 } from './unified-execution-kernel.js';
 import { buildRuntimeInterjection } from './runtime-interjection.js';
-import type { DurablePlanAdmissionState, RuntimeAdmission } from './durable-plan-admission.js';
+import {
+  activateToolsForExecution,
+  shapePromptMessagesForExecution,
+  type ToolShapingResult,
+} from '../tools/tool-shaping.js';
 
 const logger = pino({ name: 'mozi:brain-engine' });
 
@@ -53,9 +57,10 @@ export interface TurnParams {
   executionAbortSignal: AbortSignal;
   fileArtifactTracker?: TurnFileArtifactTracker;
   completionGateState: CompletionGateState;
-  /** Runtime-owned constrained tool surface for this turn, when any. */
-  runtimeAdmission?: RuntimeAdmission;
-  durablePlanAdmissionState?: DurablePlanAdmissionState;
+  toolShaping: ToolShapingResult;
+  /** Turn-bound readiness snapshot; activation may only select from this set. */
+  availableTools: ToolDefinition[];
+  onToolSurfaceChanged?: (tools: ToolDefinition[], schemaTokensEstimate: number) => void;
 }
 
 export interface TurnResult {
@@ -211,9 +216,30 @@ function shouldScanFileArtifactsAfterBatch(toolCalls: Array<{ function: { name: 
   return toolCalls.some(call => FILE_ARTIFACT_SCAN_BOUNDARY_TOOLS.has(call.function.name));
 }
 
-function admissionAllowsTool(params: TurnParams, toolName: string): boolean {
-  if (!params.runtimeAdmission) return true;
+function isToolActive(params: TurnParams, toolName: string): boolean {
   return (params.toolsDef ?? []).some(tool => tool.function.name === toolName);
+}
+
+function injectActivatedTools(
+  params: TurnParams,
+  result: { is_error?: boolean; activatedToolNames?: string[] },
+): void {
+  if (result.is_error || !result.activatedToolNames?.length) return;
+  const activated = activateToolsForExecution(
+    params.toolShaping,
+    params.availableTools,
+    result.activatedToolNames,
+  );
+  if (activated.length === 0) return;
+  params.loopMessages.splice(
+    0,
+    params.loopMessages.length,
+    ...shapePromptMessagesForExecution(params.loopMessages, params.toolShaping),
+  );
+  params.onToolSurfaceChanged?.(
+    params.toolShaping.tools,
+    params.toolShaping.schemaTokensEstimate,
+  );
 }
 
 async function handleToolCalls(
@@ -237,29 +263,22 @@ async function handleToolCalls(
     return { action: 'stop', responseText: '', stopReason: proposalDecision.stopReason, truncationContinuations: params.truncationContinuations };
   }
 
-  // Do not trust the provider to honor the advertised tool schema. A model or
-  // adapter can still return a call for a hidden tool; admission must reject it
-  // before progress events, artifact pre-open, permissions, or any side effect.
-  if (params.runtimeAdmission) {
-    const disallowedTools = toolCalls
-      .map(call => call.function.name)
-      .filter(name => !admissionAllowsTool(params, name));
-    if (disallowedTools.length > 0) {
-      const rejection = params.runtimeAdmission === 'plan_control'
-        ? '[Runtime admission rejected] One or more requested tools are unavailable while controlling an existing plan. Use the exposed plan-control tools; no rejected tool call was executed.'
-        : params.runtimeAdmission === 'scheduler_control'
-          ? '[Runtime admission rejected] One or more requested tools are unavailable while controlling a schedule. Use only the exposed MOZI scheduler tool; no rejected tool call was executed and no workload was started.'
-        : '[Runtime admission rejected] One or more requested tools are unavailable until a durable plan is created. Call decompose_task now; no rejected tool call was executed.';
-      loopMessages.push(createKernelSystemMessage(
-        rejection,
-      ));
-      logger.warn({
-        chatId,
-        iteration: i + 1,
-        disallowedTools,
-      }, 'Durable plan admission rejected hidden tool call before execution');
-      return { action: 'continue', responseText: '', truncationContinuations: params.truncationContinuations };
-    }
+  // Providers can hallucinate a catalogued but not-yet-active tool. Enforce
+  // the advertised schema boundary before progress events, permissions, or any
+  // side effect. The model must activate it in a separate call first.
+  const inactiveTools = toolCalls
+    .map(call => call.function.name)
+    .filter(name => !isToolActive(params, name));
+  if (inactiveTools.length > 0) {
+    loopMessages.push(createKernelSystemMessage(
+      `[Progressive tool loading] These tools are not active: ${inactiveTools.join(', ')}. Call activate_tools with exact catalog names first, then call them on the next model turn. No tool in this batch was executed.`,
+    ));
+    logger.warn({
+      chatId,
+      iteration: i + 1,
+      inactiveTools,
+    }, 'Rejected inactive tool call before execution');
+    return { action: 'continue', responseText: '', truncationContinuations: params.truncationContinuations };
   }
 
   const pendingToolResults = new Map<string, { id: string; function: { name: string } }>();
@@ -349,14 +368,6 @@ async function handleToolCalls(
     params.abortSignal,
     'Tool execution',
   );
-  const latestValidationFailure = [...results].reverse().find(result =>
-    result.tool_name === 'decompose_task'
-      && result.is_error
-      && asString(result.content).includes('Corrective hint: depends_on indices are 0-based;'),
-  );
-  if (latestValidationFailure && params.durablePlanAdmissionState) {
-    params.durablePlanAdmissionState.lastValidationError = asString(latestValidationFailure.content);
-  }
   throwIfAborted(params.abortSignal, 'Request cancelled');
   const toolElapsed = Date.now() - toolStart;
   recordCompletionGateBatch(
@@ -376,6 +387,7 @@ async function handleToolCalls(
   }
   for (const result of results) {
     injectLoadedActiveSkill(loopMessages, params.toolContext, result);
+    injectActivatedTools(params, result);
   }
 
   for (const result of results) {
@@ -533,8 +545,7 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
 
   let accumulated = '';
   const gateAtCallStart = evaluateCompletionGate(params.completionGateState);
-  const holdVisibleOutput = params.runtimeAdmission === 'durable_plan'
-    || gateAtCallStart.status === 'pending'
+  const holdVisibleOutput = gateAtCallStart.status === 'pending'
     || gateAtCallStart.status === 'failed';
   let finalResponse: ChatResponse | null = null;
   const liveArtifactInputs = createLiveArtifactInputTracker(params);
@@ -567,7 +578,7 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
         max_tokens: maxTokens,
         temperature,
         think,
-        tools: toolsDef,
+        tools: toolsDef ? [...toolsDef] : undefined,
         timeout_ms: effectiveCallTimeoutMs,
         execution_scope: 'interactive',
         abort_signal: params.executionAbortSignal,
@@ -599,13 +610,13 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
         }
       }
       if (chunk.type === 'tool_input_start') {
-        if (!admissionAllowsTool(params, chunk.toolName)) {
+        if (!isToolActive(params, chunk.toolName)) {
           logger.warn({
             chatId,
             iteration: i + 1,
             toolName: chunk.toolName,
             toolCallId: chunk.toolCallId,
-          }, 'Durable plan admission suppressed hidden streaming tool input');
+          }, 'Suppressed inactive streaming tool input');
           continue;
         }
         admittedStreamingToolCalls.add(chunk.toolCallId);
@@ -622,11 +633,11 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
         });
       }
       if (chunk.type === 'tool_input_delta') {
-        if (params.runtimeAdmission && !admittedStreamingToolCalls.has(chunk.toolCallId)) continue;
+        if (!admittedStreamingToolCalls.has(chunk.toolCallId)) continue;
         liveArtifactInputs.append(chunk.toolCallId, chunk.delta);
       }
       if (chunk.type === 'tool_input_end') {
-        if (params.runtimeAdmission && !admittedStreamingToolCalls.has(chunk.toolCallId)) continue;
+        if (!admittedStreamingToolCalls.has(chunk.toolCallId)) continue;
         liveArtifactInputs.end(chunk.toolCallId);
         admittedStreamingToolCalls.delete(chunk.toolCallId);
         emitProgress({
@@ -759,7 +770,7 @@ export async function executeNonStreamingTurn(params: TurnParams): Promise<TurnR
         max_tokens: maxTokens,
         temperature,
         think,
-        tools: toolsDef,
+        tools: toolsDef ? [...toolsDef] : undefined,
         timeout_ms: effectiveCallTimeoutMs,
         execution_scope: 'interactive',
         abort_signal: params.executionAbortSignal,

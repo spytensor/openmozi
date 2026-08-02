@@ -82,7 +82,7 @@ export const delegateCodingTaskTool: ToolDefinition = {
   type: 'function',
   function: {
     name: 'delegate_coding_task',
-    description: 'Delegate a concrete coding or code-review task to the managed external worker runtime. Use for substantial repository work that benefits from a real CLI worker. This tool creates a durable external_worker_jobs record and never silently falls back to in-process chat.',
+    description: 'Delegate a concrete coding or code-review task to the managed external worker runtime. Runtime configuration selects the healthy adapter; the returned worker.adapter_id and runtime_label are the source of truth. This tool creates a durable external_worker_jobs record and never silently falls back to in-process chat.',
     parameters: {
       type: 'object',
       properties: {
@@ -106,7 +106,7 @@ export const delegateCodingTaskTool: ToolDefinition = {
         required_tests: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Tests the worker should run and report when applicable.',
+          description: 'Exact test commands MOZI runtime must execute after the worker returns.',
         },
         allowed_scope: {
           type: 'array',
@@ -401,6 +401,13 @@ export async function executeDelegationTool(
         },
         verify_status: result.verify_status,
         verify_summary: result.verify_summary,
+        verification: {
+          changed_files: persisted?.result_envelope?.changed_files ?? [],
+          tests_run: persisted?.result_envelope?.tests_run ?? [],
+          test_status: persisted?.result_envelope?.test_status ?? 'not_run',
+          scope_violations: persisted?.result_envelope?.scope_violations ?? [],
+          notes: persisted?.verify_report?.notes ?? [],
+        },
       }, null, 2),
       is_error: false,
       produced_files: result.artifacts,

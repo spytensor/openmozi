@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -204,6 +205,166 @@ Edited body.
     } finally {
       await app.close();
     }
+  });
+
+  /**
+   * The Skills page could manage skills but gave no way to add one — the only
+   * install path was asking the Brain to call `install_skill`.
+   */
+  describe('installing a skill package', () => {
+    function packageSkill(): string {
+      const stageDir = mkdtempSync(join(tmpdir(), 'mozi-skills-stage-'));
+      writeSkill(join(stageDir, 'uploaded-skill'), `---
+name: uploaded-skill
+description: Installed through the API
+version: "1.0.0"
+category: utility
+user-invocable: true
+---
+
+# Uploaded
+
+Body from the package.
+`);
+      const archivePath = join(stageDir, 'uploaded-skill.zip');
+      execFileSync('zip', ['-q', '-r', archivePath, 'uploaded-skill'], { cwd: stageDir, stdio: 'pipe' });
+      return archivePath;
+    }
+
+    it('installs an uploaded .zip package', async () => {
+      const app = await makeApp();
+      const archivePath = packageSkill();
+      try {
+        const form = new FormData();
+        form.set('file', new Blob([readFileSync(archivePath)]), 'uploaded-skill.zip');
+        const response = await app.inject({ method: 'POST', url: '/api/skills/install', payload: form });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          success: true,
+          overwritten: false,
+          skill: { name: 'uploaded-skill', source: 'workspace', enabled: true },
+        });
+        expect(existsSync(join(moziHome, 'workspace', 'skills', 'uploaded-skill', 'SKILL.md'))).toBe(true);
+      } finally {
+        rmSync(archivePath, { recursive: true, force: true });
+        await app.close();
+      }
+    });
+
+    it('rejects an upload that is not a skill package', async () => {
+      const app = await makeApp();
+      try {
+        const form = new FormData();
+        form.set('file', new Blob(['col_a,col_b\n1,2\n']), 'holdings.csv');
+        const response = await app.inject({ method: 'POST', url: '/api/skills/install', payload: form });
+
+        expect(response.statusCode).toBe(400);
+        expect(response.json()).toMatchObject({ success: false });
+        expect((response.json() as { error: string }).error).toContain('Not a skill package');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('reports a package with no SKILL.md instead of installing junk', async () => {
+      const app = await makeApp();
+      const stageDir = mkdtempSync(join(tmpdir(), 'mozi-skills-junk-'));
+      try {
+        writeFileSync(join(stageDir, 'notes.txt'), 'nothing here', 'utf-8');
+        const archivePath = join(stageDir, 'junk.zip');
+        execFileSync('zip', ['-q', '-r', archivePath, 'notes.txt'], { cwd: stageDir, stdio: 'pipe' });
+
+        const form = new FormData();
+        form.set('file', new Blob([readFileSync(archivePath)]), 'junk.zip');
+        const response = await app.inject({ method: 'POST', url: '/api/skills/install', payload: form });
+
+        expect(response.statusCode).toBe(400);
+        expect((response.json() as { error: string }).error).toContain('No SKILL.md found');
+      } finally {
+        rmSync(stageDir, { recursive: true, force: true });
+        await app.close();
+      }
+    });
+
+    it('refuses a source_path outside the roots MOZI may read', async () => {
+      const app = await makeApp();
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/skills/install',
+          payload: { source_path: '/etc/hosts.zip' },
+        });
+        expect(response.statusCode).toBe(403);
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  describe('autogen drafts', () => {
+    beforeEach(() => {
+      writeSkill(join(moziHome, 'workspace', 'skills', 'autogen-weekly-brief'), `---
+name: autogen-weekly-brief
+description: Drafted by MOZI mid-task
+version: 0.1.0
+category: utility
+user-invocable: false
+origin: autogen
+---
+
+# Weekly brief
+`);
+      clearSkillDiscoveryCache();
+    });
+
+    it('lists drafts so the operator can see what MOZI wrote', async () => {
+      const app = await makeApp();
+      try {
+        const response = await app.inject({ method: 'GET', url: '/api/skills' });
+        const payload = response.json() as { skills: Array<{ name: string; origin?: string }> };
+        const draft = payload.skills.find((skill) => skill.name === 'autogen-weekly-brief');
+        expect(draft?.origin).toBe('autogen');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('promotes a draft into a user-invocable skill', async () => {
+      const app = await makeApp();
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/skills/workspace%3Aautogen-weekly-brief/promote',
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toMatchObject({
+          success: true,
+          skill: { user_invocable: true },
+        });
+        const onDisk = readFileSync(
+          join(moziHome, 'workspace', 'skills', 'autogen-weekly-brief', 'SKILL.md'),
+          'utf-8',
+        );
+        expect(onDisk).not.toContain('origin: autogen');
+        expect(onDisk).toContain('# Weekly brief');
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('refuses to promote a skill that is not a draft', async () => {
+      const app = await makeApp();
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/api/skills/workspace%3Aworkspace-skill/promote',
+        });
+        expect(response.statusCode).toBe(400);
+      } finally {
+        await app.close();
+      }
+    });
   });
 
   it('updates workspace enabled state', async () => {

@@ -214,6 +214,10 @@ describe('unified scheduler items', () => {
     // level — claiming one would imply a capability it does not have.
     expect(reminder).toMatchObject({ canPause: false, canRunNow: false, permissionLevel: null });
     expect(prompt).toMatchObject({ canPause: true, canRunNow: true, permissionLevel: 'L2_SHELL_EXEC' });
+    const storedPrompt = getDb().prepare(`
+      SELECT handler_params FROM cron_tasks WHERE tenant_id = ? AND description = ?
+    `).get('tenant-a', 'Summarise the week') as { handler_params: string };
+    expect(JSON.parse(storedPrompt.handler_params)).toEqual({ prompt: 'Summarise the week' });
     await app.close();
   });
 
@@ -274,4 +278,3 @@ describe('unified scheduler items', () => {
     await app.close();
   });
 });
-

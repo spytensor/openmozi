@@ -210,6 +210,7 @@ export function registerSchedulerRoutes(app: FastifyInstance): void {
         scheduleValue: body.scheduleValue,
         timezone: body.timezone,
         handlerType: 'managed_brain',
+        handlerParams: { prompt: text },
         description: text,
         deleteAfterRun: body.deleteAfterRun ?? body.scheduleKind === 'at',
         permissionLevel: creatingSession.permission_level,

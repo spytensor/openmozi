@@ -47,22 +47,16 @@ describe('DAG step model inheritance', () => {
     expect(hoisted.getClientForRole).toHaveBeenCalledWith('step', inheritedClient, { tenantId: 'default' });
   });
 
-  it('shapes the live DAG step tool surface by task, not by model', () => {
-    const financeTask = {
-      title: 'Bond-market quantitative framework',
-      objective: 'Analyze the finance market and create a report artifact',
-    };
-    const shaped = shapeDagStepTools(financeTask, overrideClient, 'deepseek-v4-pro', ALL_TOOLS);
+  it('uses the same progressive bootstrap surface for every DAG step model', () => {
+    const shaped = shapeDagStepTools(ALL_TOOLS);
     const names = shaped.tools.map((tool) => tool.function.name);
 
-    expect(shaped.taskProfile).toBe('report');
-    expect(names).toEqual(expect.arrayContaining(['create_artifact', 'write_file', 'shell_exec']));
-    expect(names).not.toEqual(expect.arrayContaining(['desktop_click', 'git_commit']));
+    expect(shaped.taskProfile).toBe('model_driven');
+    expect(new Set(names)).toEqual(new Set([
+      'get_capabilities', 'activate_tools', 'use_skill', 'decompose_task',
+    ]));
+    expect(shaped.toolCatalog).toContain('create_artifact:');
+    expect(shaped.toolCatalog).toContain('shell_exec:');
     expect(shaped.shapedCount).toBeLessThan(shaped.originalCount);
-
-    // The same step on a model nobody labelled weak resolves the same surface:
-    // narrowing follows the work, not the vendor.
-    const strong = shapeDagStepTools(financeTask, overrideClient, 'claude-opus-4-8', ALL_TOOLS);
-    expect(strong.tools.map((tool) => tool.function.name)).toEqual(names);
   });
 });

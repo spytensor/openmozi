@@ -7,6 +7,10 @@ describe("i18n", () => {
   it("translates shared UI keys by locale", () => {
     expect(translateMessage("en", "sidebar.newChat")).toBe("New chat");
     expect(translateMessage("zh-CN", "sidebar.newChat")).toBe("新会话");
+    expect(translateMessage("en", "sidebar.agents")).toBe("Agents");
+    expect(translateMessage("zh-CN", "sidebar.agents")).toBe("专家");
+    expect(translateMessage("zh-CN", "agents.title")).toBe("我的专家");
+    expect(translateMessage("zh-CN", "agents.create")).toBe("创建专家");
   });
 
   it("keeps the locale registry and new secondary-surface copy complete", () => {

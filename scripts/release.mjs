@@ -406,7 +406,11 @@ function buildMacReleaseAssets(version, channel, unsigned) {
   const distPath = resolve(ROOT, 'desktop', 'dist');
   rmSync(distPath, { recursive: true, force: true });
 
-  run('pnpm', ['verify:public-export']);
+  run(process.execPath, [
+    'scripts/verify-public-export.mjs',
+    '--exclude-config', 'scripts/public-export.config.json',
+    '--skip-commit-scan',
+  ]);
   const gitleaks = process.env.MOZI_GITLEAKS_BIN || 'gitleaks';
   run(gitleaks, ['dir', '.', '--no-banner', '--redact', '--exit-code', '1']);
 

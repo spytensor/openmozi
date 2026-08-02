@@ -9,7 +9,7 @@ import type { ChatMessage } from './llm-contracts.js';
  * Root cause: consolidateSystemMessages hoisted every system message into one
  * leading block for all providers except literal 'openai'. Once the execution
  * kernel started appending a system-role tool-truth directive after every tool
- * batch (#727), each LLM call in a loop rewrote the request head, so DeepSeek's
+ * batch, each LLM call in a loop rewrote the request head, so DeepSeek's
  * automatic prefix cache only ever matched the system block — hit rate fell
  * from 91.4% to ~22-33% overnight. These tests pin the fix: verified providers
  * preserve interleaved system messages, so request N is a strict prefix of

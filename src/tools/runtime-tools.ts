@@ -28,7 +28,6 @@ import {
   MAX_DYNAMIC_SCRIPT_SIZE_BYTES,
   DYNAMIC_TOOL_NAME_PATTERN,
 } from './tool-utils.js';
-import { resolveSchedulerControlAction } from '../core/durable-plan-admission.js';
 
 const logger = pino({ name: 'mozi:tools:system' });
 
@@ -244,8 +243,31 @@ export const getCapabilitiesTool: ToolDefinition = {
   },
 };
 
+export const activateToolsTool: ToolDefinition = {
+  type: 'function',
+  function: {
+    name: 'activate_tools',
+    description: 'Activate full schemas for model-selected tools for the remainder of this execution loop. Choose exact names from the Tool Catalog, call this first, then call the activated tools on the next model turn.',
+    parameters: {
+      type: 'object',
+      properties: {
+        names: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          uniqueItems: true,
+          description: 'Exact ready tool names from the Tool Catalog',
+        },
+      },
+      required: ['names'],
+      additionalProperties: false,
+    },
+  },
+};
+
 export const RUNTIME_TOOL_DEFINITIONS: ToolDefinition[] = [
   getCapabilitiesTool,
+  activateToolsTool,
   createToolTool,
   restartSelfTool,
   proactiveControlTool,
@@ -369,6 +391,45 @@ export async function executeRuntimeTool(
         tool_call_id: id,
         content: formatCapabilityPromptSection(manifest),
         is_error: false,
+      };
+    }
+    case 'activate_tools': {
+      const names = Array.isArray(args.names)
+        ? args.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+        : [];
+      if (names.length === 0) {
+        return {
+          tool_call_id: id,
+          tool_name: 'activate_tools',
+          content: 'Error: activate_tools requires at least one exact tool name',
+          is_error: true,
+        };
+      }
+      const readyNames = context?.availableToolNames;
+      if (!readyNames) {
+        return {
+          tool_call_id: id,
+          tool_name: 'activate_tools',
+          content: 'Error: activate_tools requires a managed progressive tool surface',
+          is_error: true,
+        };
+      }
+      const ready = new Set(readyNames);
+      const unavailable = names.filter(name => !ready.has(name));
+      if (unavailable.length > 0) {
+        return {
+          tool_call_id: id,
+          tool_name: 'activate_tools',
+          content: `Error: tools are not ready in this turn: ${unavailable.join(', ')}`,
+          is_error: true,
+        };
+      }
+      return {
+        tool_call_id: id,
+        tool_name: 'activate_tools',
+        content: `Activated tool schemas for the next model call: ${names.join(', ')}`,
+        is_error: false,
+        activatedToolNames: names,
       };
     }
     case 'create_tool': {
@@ -950,16 +1011,15 @@ export async function executeRuntimeTool(
         const tasks = listCronTasks(context?.tenantId ?? 'default').filter(task =>
           context?.userId ? task.user_id === context.userId : task.chat_id === context?.chatId
         );
-        const endsTurn = resolveSchedulerControlAction(context?.userPrompt ?? '') === 'list';
         if (tasks.length === 0) {
           const content = /[㐀-鿿]/.test(context?.userPrompt ?? '') ? '当前没有 MOZI 定时任务。' : 'No MOZI scheduled tasks configured.';
-          return { tool_call_id: id, content, is_error: false, ...(endsTurn ? { ends_turn: true, ends_turn_message: content } : {}) };
+          return { tool_call_id: id, content, is_error: false };
         }
         const lines = tasks.map(t =>
           `- [${t.enabled ? 'ON' : 'OFF'}] ${t.id}: "${t.description}" (${t.schedule_value}) handler=${t.handler_type}${t.last_run_at ? ` last_run=${t.last_run_at}` : ''}`
         );
         const content = `Cron tasks (${tasks.length}):\n${lines.join('\n')}`;
-        return { tool_call_id: id, content, is_error: false, ...(endsTurn ? { ends_turn: true, ends_turn_message: content } : {}) };
+        return { tool_call_id: id, content, is_error: false };
       } catch (err) {
         return { tool_call_id: id, content: `Error: ${err instanceof Error ? err.message : String(err)}`, is_error: true };
       }

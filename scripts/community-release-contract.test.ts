@@ -32,5 +32,7 @@ describe('OpenMozi community and release contract', () => {
     expect(release).toContain('scripts/release-supply-chain.mjs');
     expect(release).toContain('OpenMozi-${version}-SHA256SUMS.txt');
     expect(release).toContain("'desktop:test:packaged'");
+    expect(release).toContain("'--exclude-config', 'scripts/public-export.config.json'");
+    expect(release).toContain("'--skip-commit-scan'");
   });
 });

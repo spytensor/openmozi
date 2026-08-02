@@ -114,6 +114,7 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermission> = {
   create_artifact: { category: 'filesystem', action: 'write' },
   update_artifact: { category: 'filesystem', action: 'write' },
   get_capabilities: { category: 'filesystem', action: 'read' },
+  activate_tools: { category: 'filesystem', action: 'read' },
   // A schedule may perform network/model work later, so creation requires the
   // same L2 boundary as deferred execution even though raw shell is disallowed.
   set_cron_task: { category: 'shell', action: 'execute' },

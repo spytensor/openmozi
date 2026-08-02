@@ -3,7 +3,21 @@ import type { TaskBrief } from '../agents/protocol.js';
 export type CliWorkerOutputMode = 'json' | 'jsonl' | 'text';
 export type CliWorkerSystemPromptFormat = 'raw' | 'codex-config-instructions' | undefined;
 
-export function buildManagedWorkerTaskPrompt(task: TaskBrief): string {
+function metadataStrings(metadata: Record<string, unknown>, key: string): string[] {
+  const value = metadata[key];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    : [];
+}
+
+export function buildManagedWorkerTaskPrompt(
+  task: TaskBrief,
+  metadata: Record<string, unknown> = {},
+): string {
+  const allowedScope = metadataStrings(metadata, 'allowed_scope');
+  const nonGoals = metadataStrings(metadata, 'non_goals');
+  const acceptanceCriteria = metadataStrings(metadata, 'acceptance_criteria');
+  const requiredTests = metadataStrings(metadata, 'required_tests');
   const lines = [
     'You are a managed external worker running a single MOZI job.',
     'Work directly in the repository when changes are required.',
@@ -16,6 +30,10 @@ export function buildManagedWorkerTaskPrompt(task: TaskBrief): string {
     task.constraints.forbidden_paths.length > 0
       ? `Forbidden paths: ${task.constraints.forbidden_paths.join(', ')}`
       : '',
+    allowedScope.length > 0 ? `Allowed scope: ${allowedScope.join(', ')}` : '',
+    nonGoals.length > 0 ? `Non-goals: ${nonGoals.join('; ')}` : '',
+    acceptanceCriteria.length > 0 ? `Acceptance criteria: ${acceptanceCriteria.join('; ')}` : '',
+    requiredTests.length > 0 ? `Required tests: ${requiredTests.join('; ')}` : '',
     'Return a concise final summary of completed work, tests run, and blockers.',
   ];
 
