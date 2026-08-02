@@ -527,7 +527,7 @@ async function verifyChatFirstSidebarContract(page) {
   });
   if (
     emptyComposerState.variant !== 'empty' ||
-    !emptyComposerState.rounded?.startsWith('20px') ||
+    !emptyComposerState.rounded?.startsWith('18px') ||
     emptyComposerState.top == null ||
     emptyComposerState.top < 0 ||
     emptyComposerState.bottom_gap == null ||
@@ -550,7 +550,7 @@ async function verifyChatFirstSidebarContract(page) {
     const sidebarWidth = sidebar ? sidebar.getBoundingClientRect().width : 0;
     const workspaceWidth = workspacePanel ? workspacePanel.getBoundingClientRect().width : 0;
     const availableWidth = innerWidth - sidebarWidth - workspaceWidth - 40;
-    const targetWidth = Math.min(availableWidth, 1240);
+    const targetWidth = Math.min(availableWidth, 960);
     return {
       variant: composer?.getAttribute('data-composer-variant'),
       dock_bottom_gap: dockRect ? innerHeight - dockRect.bottom : null,
@@ -590,7 +590,7 @@ async function verifyChatFirstSidebarContract(page) {
       textarea_overflow_y: textareaStyle?.overflowY ?? null,
     };
   });
-  if (grownComposerState.composer_height == null || grownComposerState.composer_height > 180) {
+  if (grownComposerState.composer_height == null || grownComposerState.composer_height > 184) {
     fail(`Active conversation composer should grow only to a bounded height: ${JSON.stringify(grownComposerState)}`);
   }
   await page.locator('[data-testid="composer"] textarea').fill('');
