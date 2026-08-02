@@ -38,11 +38,6 @@ jobs:
       MOZI_RELEASE_CHANNEL: ${{ inputs.channel }}
       MOZI_BUILD_VERSION: ${{ inputs.version }}
       MOZI_BUILD_COMMIT: ${{ github.sha }}
-      CSC_LINK: ${{ secrets.MOZI_APPLE_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.MOZI_APPLE_CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.MOZI_APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MOZI_APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.MOZI_APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,6 +48,12 @@ jobs:
           node-version: 22
           cache: pnpm
       - name: Fail closed when publication lacks Apple release credentials
+        env:
+          CSC_LINK: ${{ secrets.MOZI_APPLE_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MOZI_APPLE_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.MOZI_APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MOZI_APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.MOZI_APPLE_TEAM_ID }}
         run: |
           if [ "${{ inputs.publish_update_feed }}" != "true" ]; then
             exit 0
@@ -85,10 +86,23 @@ jobs:
       - run: pnpm typecheck
       - name: Set canonical build time
         run: echo "MOZI_BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-      - name: Build macOS DMG and ZIP
+      - name: Build signed macOS DMG and ZIP
+        if: ${{ inputs.publish_update_feed }}
+        env:
+          CSC_LINK: ${{ secrets.MOZI_APPLE_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MOZI_APPLE_CSC_KEY_PASSWORD }}
+        run: pnpm desktop:dist:mac
+      - name: Build unsigned macOS DMG and ZIP
+        if: ${{ !inputs.publish_update_feed }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm desktop:dist:mac
       - name: Notarize and staple macOS release artifacts
         if: ${{ inputs.publish_update_feed }}
+        env:
+          APPLE_ID: ${{ secrets.MOZI_APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MOZI_APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.MOZI_APPLE_TEAM_ID }}
         run: |
           shopt -s nullglob
           artifacts=(desktop/dist/*.dmg desktop/dist/*.zip)

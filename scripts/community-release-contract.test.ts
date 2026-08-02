@@ -25,6 +25,7 @@ describe('OpenMozi community and release contract', () => {
   it('requires GitHub Releases to contain both Mac formats and explicit trust evidence', () => {
     const desktop = JSON.parse(readFileSync('desktop/package.json', 'utf8')) as { scripts: Record<string, string> };
     expect(desktop.scripts['dist:mac']).toContain('--mac dmg zip');
+    expect(desktop.scripts['dist:mac']).toContain('--publish never');
 
     const release = readFileSync('scripts/release.mjs', 'utf8');
     expect(release).toContain("'--verify-tag'");
@@ -37,6 +38,7 @@ describe('OpenMozi community and release contract', () => {
 
     const supplyChain = readFileSync('.github/workflows/release-supply-chain.yml', 'utf8');
     expect(supplyChain).toContain("tr '[:upper:]' '[:lower:]'");
+    expect(supplyChain).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"');
     expect(supplyChain).not.toContain('ghcr.io/${{ github.repository }}');
   });
 });
