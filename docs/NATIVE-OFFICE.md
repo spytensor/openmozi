@@ -9,7 +9,7 @@ MOZI supports an optional local ONLYOFFICE Docs service for editor-grade DOCX, X
 | ONLYOFFICE Docs Community | Selected. Local Docker image, Word/Spreadsheet/Presentation editors, OOXML support, JWT integration, and no external CDN. |
 | Collabora Online | Viable WOPI alternative, but adds a second protocol/storage integration and does not improve the initial local deployment target. |
 | Microsoft Office web embed | Rejected for local-first use. Online Viewer files cannot require authentication and the service is not an offline/local Docker dependency. |
-| Mammoth, SheetJS, PDF conversion | Retained only as explicit fallback previews; they are not labeled native. |
+| docx-preview, SheetJS, browser-native PPTX | Retained as local fallback previews; they are not labeled native. Legacy Office formats remain downloadable instead of receiving a low-fidelity converted preview. |
 
 ONLYOFFICE Community requires substantial local resources (the vendor recommends at least 4 GB RAM and 40 GB disk), so it is an opt-in Compose profile.
 The Community image is currently amd64-only. The Compose service pins `linux/amd64`, so Apple Silicon Macs run it through Docker Desktop emulation; startup and document rendering are slower than on a native amd64 host.
@@ -36,7 +36,7 @@ The browser loads the editor API from the local `onlyoffice` container. ONLYOFFI
 
 ## Fallback And Editing
 
-When the service is absent or unhealthy, MOZI labels the surface `Fallback preview` and uses the existing LibreOffice-to-PDF, Mammoth, or SheetJS viewer. It never calls that path native.
+When the service is absent or unhealthy, MOZI labels the surface `Fallback preview`. DOCX uses `docx-preview`, spreadsheets use SheetJS, and PPTX uses a sandboxed browser worker. These paths run locally and do not require LibreOffice, Gotenberg, or a remote conversion service. Legacy Office formats remain downloadable when no high-quality local renderer is available.
 
 Sessions currently use `mode: view`. Enabling edit mode requires a separate change that verifies ONLYOFFICE callbacks, writes the returned binary to a new artifact version, handles conflict/version keys, and audits the mutation. Turning on `permissions.edit` without that storage contract would lose user changes and is forbidden.
 

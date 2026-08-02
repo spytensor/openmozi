@@ -55,6 +55,7 @@ jobs:
   unit:
     name: Unit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: typecheck
     steps:
       - uses: actions/checkout@v4

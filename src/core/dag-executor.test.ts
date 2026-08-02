@@ -512,7 +512,7 @@ describe('core/dag-executor', () => {
     await vi.waitFor(() => expect(hoisted.logEventMock).toHaveBeenCalledWith(
       'task_retry_scheduled', 'task', 'a', expect.anything(), 'default',
     ));
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(20_000);
     const summary = await run;
 
     expect(calls).toBe(3); // Africa twice, then the dependent Excel step.
@@ -597,8 +597,8 @@ describe('core/dag-executor', () => {
         id: 'tc-guard',
         type: 'function',
         function: {
-          name: 'web_search',
-          arguments: JSON.stringify({ query: 'openclaw' }),
+          name: 'get_capabilities',
+          arguments: '{}',
         },
       }],
     }));
@@ -606,7 +606,7 @@ describe('core/dag-executor', () => {
     hoisted.executeToolCallsMock.mockResolvedValue([
       {
         tool_call_id: 'tc-guard',
-        tool_name: 'web_search',
+        tool_name: 'get_capabilities',
         content: 'SEARCH1API_KEY environment variable is not set',
         is_error: true,
       },

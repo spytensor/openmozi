@@ -6,6 +6,30 @@ OpenMozi maintains its own version line.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-02
+
+### Added
+
+- **PowerPoint files now preview locally in the app.** `.pptx` artifacts use a
+  browser-native renderer without LibreOffice, an office container, or a remote
+  upload. The original file stays available for download.
+
+### Changed
+
+- **GitHub Releases now contain the macOS app downloads.** The release workflow
+  attaches DMG, ZIP, supply-chain manifest, and SHA-256 checksums directly to
+  the Release page.
+- Public release titles and downloadable files consistently use the exact
+  lowercase `openmozi` name, while the installed application remains
+  `MOZI.app`.
+- Provider compatibility checks are manual-only, and the layered Unit job has
+  a ten-minute timeout so a stalled test cannot consume a runner indefinitely.
+
+### Fixed
+
+- Release and DAG tests no longer wait on network dependency installation or
+  inactive deferred tools.
+
 ## [1.3.1] - 2026-08-02
 
 ### Fixed

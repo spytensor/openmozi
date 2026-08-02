@@ -433,7 +433,7 @@ function buildMacReleaseAssets(version, channel, unsigned) {
   }
   if (!unsigned) notarizeArtifacts(artifacts);
 
-  const manifestPath = join(distPath, `OpenMozi-${version}-${channel}-manifest.json`);
+  const manifestPath = join(distPath, `openmozi-${version}-${channel}-manifest.json`);
   const manifestArgs = [
     'scripts/release-supply-chain.mjs',
     '--version', version,
@@ -447,14 +447,14 @@ function buildMacReleaseAssets(version, channel, unsigned) {
 
   const manifest = readJson(manifestPath);
   const releaseArtifacts = manifest.artifacts ?? [];
-  const checksumPath = join(distPath, `OpenMozi-${version}-SHA256SUMS.txt`);
+  const checksumPath = join(distPath, `openmozi-${version}-SHA256SUMS.txt`);
   writeFileSync(
     checksumPath,
     `${releaseArtifacts.map((artifact) => `${artifact.sha256}  ${artifact.name}`).join('\n')}\n`,
     'utf-8',
   );
 
-  const notesPath = join(distPath, `OpenMozi-${version}-release-notes.md`);
+  const notesPath = join(distPath, `openmozi-${version}-release-notes.md`);
   const trustNotice = unsigned
     ? '> **Unsigned macOS prerelease:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing.\n\n'
     : '> **Verified macOS release:** the manifest records Developer ID signing and Apple notarization evidence.\n\n';
@@ -464,7 +464,7 @@ function buildMacReleaseAssets(version, channel, unsigned) {
     assets: [...artifacts, manifestPath, checksumPath],
     notesPath,
     prerelease: unsigned || channel === 'beta',
-    title: unsigned ? `v${version} (unsigned macOS prerelease)` : `v${version}`,
+    title: unsigned ? `openmozi v${version} (unsigned macOS prerelease)` : `openmozi v${version}`,
   };
 }
 

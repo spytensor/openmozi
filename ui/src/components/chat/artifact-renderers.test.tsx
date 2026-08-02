@@ -1,7 +1,17 @@
 import { fireEvent, screen, renderWithLocale, waitFor } from "@/test/render";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Artifact } from "@/types";
 import { artifactSnippet, artifactTypeLabel, CodeRenderer, DocumentRenderer, FileArtifactRenderer, getArtifactDownload, isMissingFileError, renderArtifactPrintHtml, SourcesRenderer } from "./artifact-renderers";
+
+const pptxViewerMock = vi.hoisted(() => ({
+  destroy: vi.fn(),
+  open: vi.fn(),
+}));
+
+vi.mock("@file-viewer/pptx", () => ({
+  PptxViewer: { open: pptxViewerMock.open },
+  RECOMMENDED_ZIP_LIMITS: { maxFileBytes: 100_000_000 },
+}));
 
 function artifact(overrides: Partial<Artifact>): Artifact {
   return {
@@ -294,6 +304,156 @@ describe("artifact renderers", () => {
         },
       })),
     ).toBe("Investment report Ready to review.");
+  });
+});
+
+describe("browser-native PowerPoint preview", () => {
+  beforeEach(() => {
+    pptxViewerMock.destroy.mockReset();
+    pptxViewerMock.open.mockReset();
+    pptxViewerMock.open.mockImplementation(async (_buffer: ArrayBuffer, target: HTMLElement, options: {
+      onRenderComplete?: () => void;
+      onSlideRendered?: (index: number, element: Element) => void;
+    }) => {
+      const slide = document.createElement("section");
+      slide.textContent = "Rendered slide 1";
+      target.append(slide);
+      options.onSlideRendered?.(1, slide);
+      options.onRenderComplete?.();
+      return { destroy: pptxViewerMock.destroy };
+    });
+  });
+
+  it("falls back from unavailable ONLYOFFICE to the local PPTX worker without requesting a LibreOffice PDF", async () => {
+    const pptxBytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]).buffer;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/office/session?")) {
+        return Promise.resolve({ ok: false, status: 503 } as Response);
+      }
+      if (url.startsWith("/api/fs/file?")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          arrayBuffer: () => Promise.resolve(pptxBytes),
+        } as Response);
+      }
+      return Promise.reject(new Error(`Unexpected fetch: ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      renderWithLocale(
+        <FileArtifactRenderer
+          artifact={artifact({
+            plugin_id: "file_v1",
+            title: "briefing.pptx",
+            data: {
+              path: "/Users/me/MOZI/output/briefing.pptx",
+              filename: "briefing.pptx",
+              ext: "pptx",
+              size: pptxBytes.byteLength,
+              mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              kind: "document",
+              downloadUrl: "/api/fs/file?path=briefing.pptx",
+              previewable: true,
+            },
+          })}
+        />,
+      );
+
+      const frame = await screen.findByTestId("pptx-browser-preview") as HTMLIFrameElement;
+      frame.contentDocument!.body.innerHTML = '<div id="pptx-root"></div>';
+      fireEvent.load(frame);
+      await waitFor(() => expect(pptxViewerMock.open).toHaveBeenCalled());
+      expect(frame).toHaveAttribute("sandbox", "allow-same-origin");
+      expect(frame.getAttribute("sandbox")).not.toContain("allow-scripts");
+      expect(frame.getAttribute("srcdoc")).toContain("default-src 'none'");
+      expect(frame.contentDocument?.body).toHaveTextContent("Rendered slide 1");
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContainEqual(expect.stringContaining("/api/fs/office-pdf"));
+      expect(pptxViewerMock.open).toHaveBeenCalledWith(
+        expect.any(ArrayBuffer),
+        expect.objectContaining({ nodeType: 1 }),
+        expect.objectContaining({
+          fitMode: "contain",
+          lazySlides: true,
+          workerType: "module",
+          zipLimits: { maxFileBytes: 100_000_000 },
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows a real parse failure instead of silently converting through LibreOffice", async () => {
+    pptxViewerMock.open.mockRejectedValueOnce(new Error("PPTX_INVALID_ZIP"));
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/office/session?")) return Promise.resolve({ ok: false, status: 503 } as Response);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      } as Response);
+    }));
+
+    try {
+      renderWithLocale(
+        <FileArtifactRenderer
+          artifact={artifact({
+            plugin_id: "file_v1",
+            title: "broken.pptx",
+            data: {
+              path: "/Users/me/MOZI/output/broken.pptx",
+              filename: "broken.pptx",
+              ext: "pptx",
+              mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+              kind: "document",
+              downloadUrl: "/api/fs/file?path=broken.pptx",
+              previewable: true,
+            },
+          })}
+        />,
+      );
+
+      const frame = await screen.findByTestId("pptx-browser-preview") as HTMLIFrameElement;
+      frame.contentDocument!.body.innerHTML = '<div id="pptx-root"></div>';
+      fireEvent.load(frame);
+      expect(await screen.findByText("PPTX_INVALID_ZIP")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("labels legacy PPT as unsupported instead of producing a low-fidelity LibreOffice preview", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: false, status: 503 } as Response));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      renderWithLocale(
+        <FileArtifactRenderer
+          artifact={artifact({
+            plugin_id: "file_v1",
+            title: "legacy.ppt",
+            data: {
+              path: "/Users/me/MOZI/output/legacy.ppt",
+              filename: "legacy.ppt",
+              ext: "ppt",
+              mime: "application/vnd.ms-powerpoint",
+              kind: "document",
+              downloadUrl: "/api/fs/file?path=legacy.ppt",
+              previewable: true,
+            },
+          })}
+        />,
+      );
+
+      expect(await screen.findByTestId("office-legacy-preview-unavailable")).toHaveTextContent("High-quality preview is unavailable");
+      expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContainEqual(expect.stringContaining("/api/fs/office-pdf"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

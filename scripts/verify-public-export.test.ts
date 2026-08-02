@@ -165,6 +165,7 @@ describe('verify-public-export', () => {
 
     expect(existsSync('THIRD_PARTY_NOTICES.md')).toBe(true);
     expect(existsSync('third_party/licenses/codesandbox-nodebox-SUL-1.0.txt')).toBe(true);
+    expect(existsSync('third_party/licenses/file-viewer-pptx-Apache-2.0.txt')).toBe(true);
     expect(existsSync('third_party/licenses/lobehub-ui-MIT.txt')).toBe(true);
 
     const desktop = JSON.parse(readFileSync('desktop/package.json', 'utf8')) as {

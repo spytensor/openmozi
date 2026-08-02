@@ -39,6 +39,18 @@ The complete license text is distributed at
 MOZI retains its own ReactMarkdown renderer and does not bundle the Lobe UI
 package solely for these styles.
 
+## Flyfish PPTX viewer
+
+OpenMozi's browser-native PowerPoint preview uses `@file-viewer/pptx` version
+2.2.3, copyright 2026 Flyfish Viewer. It is licensed under the Apache License
+2.0. The viewer runs locally in the browser and does not upload presentations
+to a remote conversion service.
+
+The complete license text is distributed at
+[`third_party/licenses/file-viewer-pptx-Apache-2.0.txt`](third_party/licenses/file-viewer-pptx-Apache-2.0.txt)
+and is included in the packaged macOS application under
+`Contents/Resources/licenses/third-party/`.
+
 ## Other dependencies
 
 Dependency manifests and the lockfile identify the remaining third-party

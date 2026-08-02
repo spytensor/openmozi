@@ -28,7 +28,7 @@ function parseArgs(argv) {
     channel: 'stable',
     commit: '',
     dist: 'desktop/dist',
-    out: 'release/mozi-release-manifest.json',
+    out: 'release/openmozi-release-manifest.json',
     dockerImage: '',
     dockerDigest: '',
     expectTag: false,
