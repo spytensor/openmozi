@@ -34,5 +34,9 @@ describe('OpenMozi community and release contract', () => {
     expect(release).toContain("'desktop:test:packaged'");
     expect(release).not.toContain('scripts/public-export.config.json');
     expect(release).toContain("'--skip-commit-scan'");
+
+    const supplyChain = readFileSync('.github/workflows/release-supply-chain.yml', 'utf8');
+    expect(supplyChain).toContain("tr '[:upper:]' '[:lower:]'");
+    expect(supplyChain).not.toContain('ghcr.io/${{ github.repository }}');
   });
 });
