@@ -24,6 +24,7 @@ import pino from 'pino';
 import { validateBotToken, setBotCommands } from '../channels/telegram.js';
 import { getConfigPath } from '../paths.js';
 import { readConfigWithLegacyFallback, writeConfigObject } from '../config/storage.js';
+import { getConfig } from '../config/index.js';
 import {
   persistEnvValue,
   persistSearchKey,
@@ -137,12 +138,19 @@ interface RecommendationCandidate {
  * Uses the Provider Registry as single source of truth.
  */
 export function detectProviders(): ProviderInfo[] {
+  // resolveApiKey/resolveBaseUrl document config overrides as their highest
+  // priority source, but only when the config providers map is supplied. Omitting
+  // it silently drops `providers.<id>.api_key` / `.base_url` from mozi.json, so a
+  // provider pointed at a custom OpenAI-compatible endpoint gets health-checked
+  // and model-discovered against the registry default (api.openai.com for
+  // `openai`) while brain calls correctly use the override.
+  const configProviders = getConfig().providers;
   const configured = detectConfiguredProviders();
   const detected = configured.map(def => ({
     id: def.id,
     name: def.name,
-    apiKey: resolveApiKey(def.id) || '',
-    baseUrl: resolveBaseUrl(def.id),
+    apiKey: resolveApiKey(def.id, configProviders) || '',
+    baseUrl: resolveBaseUrl(def.id, process.env, configProviders),
     models: def.models.map(m => ({ id: m.id, name: m.name, provider: def.id, reasoning: m.reasoning })),
     healthy: false,
   }));
