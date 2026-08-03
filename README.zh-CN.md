@@ -46,7 +46,7 @@ Composer 就是驾驶舱：选**项目**（任意文件夹或 git 仓库）、�
 
 桌面应用是使用 MOZI 的主要方式。请从 [GitHub Releases](https://github.com/spytensor/openmozi/releases) 下载最新的 Apple Silicon DMG 及校验文件。
 
-目前提供的是未签名的预发布版本，因为尚未经过 Apple 公证，macOS 会阻止首次启动。先将 DMG 的 SHA-256 与发布的 `openmozi-<version>-SHA256SUMS.txt` 对照，确认一致后把 `MOZI.app` 拖入 `/Applications`，再对这份已验证的应用移除隔离标记：
+目前提供的是未签名的正式版本；由于尚未经过 Apple 公证，macOS 会阻止首次启动。先将 DMG 的 SHA-256 与发布的 `openmozi-<version>-SHA256SUMS.txt` 对照，确认一致后把 `MOZI.app` 拖入 `/Applications`，再对这份已验证的应用移除隔离标记：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MOZI.app

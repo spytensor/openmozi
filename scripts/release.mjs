@@ -127,7 +127,6 @@ function parseArgs(argv) {
   if (options.release) options.macAssets = true;
   if (options.unsigned && !options.macAssets) fail('--unsigned requires --mac-assets or --release');
   if (!['stable', 'beta'].includes(options.channel)) fail('--channel must be stable or beta');
-  if (options.unsigned) options.channel = 'beta';
 
   return options;
 }
@@ -150,7 +149,7 @@ function printHelp() {
     '  --push               Push commit and tag to origin',
     '  --release            Create a GitHub Release with verified macOS assets',
     '  --mac-assets         Build DMG + ZIP, run packaged smoke, and create checksummed evidence',
-    '  --unsigned           Explicitly publish an unsigned prerelease (never presented as stable)',
+    '  --unsigned           Build without Apple signing or notarization',
     '  --channel <name>     stable | beta (default: stable)',
     '  --all                Commit, build/verify assets, tag, push, and publish the GitHub Release',
   ].join('\n'));
@@ -380,7 +379,7 @@ function ensureMacReleasePreflight(options) {
     const required = ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'];
     const missing = required.filter((name) => !process.env[name]);
     if (missing.length > 0) {
-      fail(`Signed release requires Apple credentials (${missing.join(', ')}). Use --unsigned only for an explicitly labeled prerelease.`);
+      fail(`Signed release requires Apple credentials (${missing.join(', ')}). Use --unsigned to publish with an explicit installation warning.`);
     }
   }
 }
@@ -459,15 +458,15 @@ function buildMacReleaseAssets(version, channel, unsigned) {
 
   const notesPath = join(distPath, `openmozi-${version}-release-notes.md`);
   const trustNotice = unsigned
-    ? '> **Unsigned macOS prerelease:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing. After copying the verified app to `/Applications`, run `xattr -dr com.apple.quarantine /Applications/MOZI.app` to allow the first launch.\n\n'
+    ? '> **Unsigned macOS release:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing. After copying the verified app to `/Applications`, run `xattr -dr com.apple.quarantine /Applications/MOZI.app` to allow the first launch.\n\n'
     : '> **Verified macOS release:** the manifest records Developer ID signing and Apple notarization evidence.\n\n';
   writeFileSync(notesPath, `${trustNotice}${extractReleaseNotes(version)}\n`, 'utf-8');
 
   return {
     assets: [...artifacts, manifestPath, checksumPath],
     notesPath,
-    prerelease: unsigned || channel === 'beta',
-    title: unsigned ? `openmozi v${version} (unsigned macOS prerelease)` : `openmozi v${version}`,
+    prerelease: channel === 'beta',
+    title: `openmozi v${version}`,
   };
 }
 

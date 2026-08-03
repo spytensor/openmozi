@@ -29,7 +29,9 @@ describe('OpenMozi community and release contract', () => {
 
     const release = readFileSync('scripts/release.mjs', 'utf8');
     expect(release).toContain("'--verify-tag'");
-    expect(release).toContain('unsigned macOS prerelease');
+    expect(release).toContain('Unsigned macOS release');
+    expect(release).toContain("prerelease: channel === 'beta'");
+    expect(release).not.toContain("prerelease: unsigned || channel === 'beta'");
     expect(release).toContain('xattr -dr com.apple.quarantine /Applications/MOZI.app');
     expect(release).toContain('scripts/release-supply-chain.mjs');
     expect(release).toContain('openmozi-${version}-SHA256SUMS.txt');
@@ -42,6 +44,8 @@ describe('OpenMozi community and release contract', () => {
     expect(supplyChain).toContain("tr '[:upper:]' '[:lower:]'");
     expect(supplyChain).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"');
     expect(supplyChain).toContain('gh release create');
+    expect(supplyChain).toContain('if [ "${{ inputs.channel }}" = "beta" ]; then');
+    expect(supplyChain).not.toContain('if [ "${{ inputs.publish_update_feed }}" != "true" ] ||');
     expect(supplyChain).toContain('openmozi-${{ inputs.version }}-${{ inputs.channel }}-manifest.json');
     expect(supplyChain).not.toContain('ghcr.io/${{ github.repository }}');
 

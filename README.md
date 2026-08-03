@@ -46,7 +46,7 @@ The composer is the cockpit: pick a **project** (any folder or git repo), the **
 
 The desktop app is the primary way to use MOZI. Download the latest Apple Silicon DMG and its checksum file from [GitHub Releases](https://github.com/spytensor/openmozi/releases).
 
-Current downloads are unsigned prereleases. macOS will block the first launch because Apple has not notarized them. Verify the DMG's SHA-256 value against the published `openmozi-<version>-SHA256SUMS.txt`, drag `MOZI.app` into `/Applications`, and only then remove quarantine from that verified copy:
+Current downloads are unsigned releases. macOS will block the first launch because Apple has not notarized them. Verify the DMG's SHA-256 value against the published `openmozi-<version>-SHA256SUMS.txt`, drag `MOZI.app` into `/Applications`, and only then remove quarantine from that verified copy:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MOZI.app

@@ -13,7 +13,7 @@ pnpm version:bump -- --bump patch
 pnpm version:bump -- --bump minor
 pnpm version:bump -- --bump major
 
-# One-click unsigned prerelease (explicitly labeled; never promoted as stable)
+# One-click unsigned release (formal by default; carries an installation warning)
 pnpm release:cut -- --version 2.0.1 --unsigned
 
 # Signed and notarized release (requires the Apple credentials below)
@@ -78,13 +78,13 @@ Routine runtime upgrades should not require re-running onboarding. On startup, M
 - `--push`: push commit and tag to `origin`
 - `--release`: create a GitHub Release containing verified macOS assets; it implies `--mac-assets`
 - `--mac-assets`: build DMG and ZIP, run packaged smoke, and generate checksummed evidence
-- `--unsigned`: disable signing discovery and publish only as an explicitly labeled prerelease
+- `--unsigned`: disable Apple signing and notarization while retaining the explicit installation warning
 - `--channel stable|beta`: record the release channel in build identity and the manifest
 - `--all`: commit, build/verify assets, tag, push, and publish the GitHub Release
 
 `--release` refuses to run without a release commit, tag, push, and verified assets. Empty GitHub Releases are not supported.
 
-## Unsigned prerelease
+## Unsigned release
 
 ```bash
 brew install gitleaks gh
@@ -92,7 +92,7 @@ gh auth login
 pnpm release:cut -- --version 2.0.1 --unsigned
 ```
 
-Unsigned builds are forced to the `beta` channel, GitHub prerelease status, and the title `unsigned macOS prerelease`. They must not be described as signed, notarized, or production-ready.
+Unsigned builds use the `stable` channel and a normal GitHub Release by default. They retain an explicit unsigned/not-notarized installation warning and must not be described as signed or notarized. Pass `--channel beta` only when the version is intentionally a prerelease.
 
 ## Signed and notarized release
 
