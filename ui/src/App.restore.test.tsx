@@ -563,6 +563,33 @@ describe("App session timeline restore", () => {
     expect(screen.getAllByText("Live report").length).toBeGreaterThan(0);
   });
 
+  it("keeps a closed HTML artifact open until the user closes the panel", async () => {
+    renderWithLocale(<App />);
+
+    await screen.findByText("Restored final answer");
+
+    act(() => {
+      mocks.wsOnMessage.current?.({
+        type: "artifact_open",
+        artifact: {
+          id: "artifact-closed-html",
+          plugin_id: "sandpack_v1",
+          title: "Closed HTML report",
+          status: "closed",
+          data: { content_type: "html", code: "<main><h1>Finished</h1></main>" },
+        },
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Closed HTML report/ }));
+
+    expect(await screen.findByTestId("artifact-panel")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("artifact-panel")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Close artifact panel" }));
+    expect(screen.queryByTestId("artifact-panel")).not.toBeInTheDocument();
+  });
+
   it("attributes cancelled turns correctly: user stop vs runtime restart", async () => {
     renderWithLocale(<App />);
     await screen.findByText("Restored final answer");

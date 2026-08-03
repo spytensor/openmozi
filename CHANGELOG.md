@@ -8,7 +8,7 @@ OpenMozi maintains its own version line.
 
 ### Added
 
-- Release queue reset after v1.5.0; new entries land here.
+- Release queue reset after v1.5.1; new entries land here.
 
 ### Changed
 
@@ -17,6 +17,16 @@ OpenMozi maintains its own version line.
 ### Fixed
 
 - None yet.
+
+## [v1.5.1] - 2026-08-03
+
+### Fixed
+
+- Multi-step turns now present all model reasoning in one Thinking card and all
+  execution phases in one Work card instead of repeating both surfaces
+  throughout the conversation.
+- Completed HTML artifacts remain open after they are selected instead of
+  flashing briefly and disappearing when generation has already finished.
 
 ## [v1.5.0] - 2026-08-03
 

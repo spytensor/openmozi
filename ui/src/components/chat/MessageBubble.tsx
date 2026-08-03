@@ -25,6 +25,8 @@ interface MessageBubbleProps {
   regenerateText?: string;
   showAvatar?: boolean;
   showAssistantActions?: boolean;
+  /** Reasoning can be owned by the turn-level Thinking Card instead. */
+  showReasoning?: boolean;
   onDelete?: (message: ChatMessage) => void;
   /** Open an attachment in the shared artifact panel (same renderers as agent artifacts). */
   onOpenArtifact?: (artifact: Artifact) => void;
@@ -237,7 +239,7 @@ export function hasRenderableReasoning(message: ChatMessage): boolean {
   );
 }
 
-function ReasoningDisclosure({ reasoning }: { reasoning: ChatReasoning }) {
+function ReasoningDisclosure({ reasoning, showProvider = true }: { reasoning: ChatReasoning; showProvider?: boolean }) {
   const { locale, t } = useLocale();
   const [open, setOpen] = useState(reasoning.streaming);
   const wasStreaming = useRef(reasoning.streaming);
@@ -278,7 +280,7 @@ function ReasoningDisclosure({ reasoning }: { reasoning: ChatReasoning }) {
           <Lightbulb className="h-3.5 w-3.5 shrink-0 text-ink/38" strokeWidth={1.8} aria-hidden="true" />
         )}
         <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-ink/58">{title}</span>
-        <span className="shrink-0 text-[10.5px] text-ink/28">{reasoning.provider}</span>
+        {showProvider && <span className="shrink-0 text-[10.5px] text-ink/28">{reasoning.provider}</span>}
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink/30 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>
       {open && (
@@ -313,6 +315,77 @@ function ReasoningDisclosure({ reasoning }: { reasoning: ChatReasoning }) {
   );
 }
 
+/** One per-turn container for every provider-authored reasoning segment. */
+export function ReasoningGroup({ messages }: { messages: ChatMessage[] }) {
+  const { locale, t } = useLocale();
+  const segments = messages.flatMap((message) => message.reasoning
+    ? [{ id: message.id, reasoning: message.reasoning }]
+    : []);
+  const streaming = segments.some(({ reasoning }) => reasoning.streaming);
+  const [open, setOpen] = useState(streaming);
+  const wasStreaming = useRef(streaming);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (streaming) setOpen(true);
+    else if (wasStreaming.current) setOpen(false);
+    wasStreaming.current = streaming;
+  }, [streaming]);
+
+  useEffect(() => {
+    if (!streaming) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [streaming]);
+
+  const durationMs = segments.reduce((total, { reasoning }) => {
+    const duration = reasoning.durationMs
+      ?? Math.max(0, (reasoning.completedAt ?? now) - reasoning.startedAt);
+    return total + duration;
+  }, 0);
+  const title = streaming
+    ? t("chat.reasoning.thinking")
+    : t("chat.reasoning.thoughtFor", { duration: formatDurationForLocale(durationMs, locale) });
+  const providers = [...new Set(segments.map(({ reasoning }) => reasoning.provider).filter(Boolean))].join(" · ");
+
+  return (
+    <div
+      data-testid="reasoning-group"
+      className="w-full max-w-[640px] overflow-hidden rounded-2xl border border-ink/[0.08] bg-ink/[0.025]"
+    >
+      <button
+        type="button"
+        data-testid="reasoning-group-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="group flex w-full items-center gap-2.5 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus/35"
+      >
+        {streaming ? (
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-activity" strokeWidth={2} aria-hidden="true" />
+        ) : (
+          <Lightbulb className="h-4 w-4 shrink-0 text-ink/42" strokeWidth={1.8} aria-hidden="true" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink/72">{title}</span>
+        {providers && <span className="max-w-[32%] truncate text-[10.5px] text-ink/30">{providers}</span>}
+        <span className="shrink-0 rounded-full bg-ink/[0.05] px-2 py-0.5 text-[10.5px] text-ink/42">
+          {t("chat.reasoning.segments", { count: String(segments.length) })}
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink/30 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+      </button>
+      {open && (
+        <div data-testid="reasoning-group-content" className="border-t border-ink/[0.07] px-4 py-2">
+          {segments.map(({ id, reasoning }, index) => (
+            <div key={id} className={index > 0 ? "border-t border-ink/[0.06]" : undefined}>
+              <ReasoningDisclosure reasoning={reasoning} showProvider={false} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Memoized so a streaming turn only re-parses the markdown of the bubble whose
  * content actually changed. useChat rebuilds the timeline array on every chunk but
@@ -337,6 +410,7 @@ export default memo(function MessageBubble({
   regenerateText,
   showAvatar = true,
   showAssistantActions = true,
+  showReasoning = true,
   onDelete,
   onOpenArtifact,
   onOpenModelSettings,
@@ -346,7 +420,7 @@ export default memo(function MessageBubble({
   const content = role === "user" ? stripInjectedContext(message.content) : normalizeAssistantMarkdown(message.content);
   const chatError = role === "assistant" ? normalizeChatError(content) : null;
   const showStreamingPlaceholder = role === "assistant" && Boolean(streaming && message.requestId);
-  const showReasoning = role === "assistant" && hasRenderableReasoning(message);
+  const renderReasoning = showReasoning && role === "assistant" && hasRenderableReasoning(message);
 
   if (role === "system") {
     if (!content) return null;
@@ -416,7 +490,7 @@ export default memo(function MessageBubble({
     );
   }
 
-  if (!content && !showStreamingPlaceholder && !showReasoning) return null;
+  if (!content && !showStreamingPlaceholder && !renderReasoning) return null;
 
   // Assistant — MOZI avatar beside the content, aligned to the first text line
   return (
@@ -430,8 +504,8 @@ export default memo(function MessageBubble({
         <div aria-hidden="true" className="mt-0.5 h-[26px] w-[26px] shrink-0" />
       )}
       <div className="min-w-0 flex-1">
-        {showReasoning && message.reasoning && <ReasoningDisclosure reasoning={message.reasoning} />}
-        <div className={showReasoning && (content || chatError) ? "mt-3" : undefined}>
+        {renderReasoning && message.reasoning && <ReasoningDisclosure reasoning={message.reasoning} />}
+        <div className={renderReasoning && (content || chatError) ? "mt-3" : undefined}>
           {chatError ? (
             <div data-testid="message-error" className="max-w-full rounded-xl border border-danger/25 bg-danger/[0.05] p-3 text-[13px] text-ink/85 shadow-sm">
               <div className="flex items-start gap-2.5">
@@ -487,7 +561,7 @@ export default memo(function MessageBubble({
                 </ReactMarkdown>
               </div>
             )
-          ) : streaming && !showReasoning ? (
+          ) : streaming && !renderReasoning ? (
             <div className="flex items-center gap-1 py-1">
               <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
               <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />

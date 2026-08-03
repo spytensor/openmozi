@@ -689,13 +689,19 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
 
   const CAPS = ["timeline_v1"];
 
-  function idMessage(role: ChatMessage["role"], content: string, turnId: string, seq: number): TimelineItem {
+  function idMessage(
+    role: ChatMessage["role"],
+    content: string,
+    turnId: string,
+    seq: number,
+    overrides: Partial<ChatMessage> = {},
+  ): TimelineItem {
     return {
       type: "message",
       timestamp: 1000 + seq,
       turnId,
       seq,
-      data: { id: `${role}-${turnId}-${seq}`, role, content, timestamp: 1000 + seq, turnId, seq },
+      data: { id: `${role}-${turnId}-${seq}`, role, content, timestamp: 1000 + seq, turnId, seq, ...overrides },
     };
   }
 
@@ -739,6 +745,44 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
     expect(screen.getAllByTestId("mozi-avatar")).toHaveLength(2);
     expect(screen.getByText("first answer")).toBeInTheDocument();
     expect(screen.getByText("second answer")).toBeInTheDocument();
+  });
+
+  it("groups interleaved model reasoning and execution into one card each per turn", () => {
+    const turnId = "turn_reasoning";
+    const reasoning = (raw: string, startedAt: number, durationMs: number): Partial<ChatMessage> => ({
+      reasoning: {
+        provider: "dashscope",
+        raw,
+        streaming: false,
+        startedAt,
+        completedAt: startedAt + durationMs,
+        durationMs,
+      },
+    });
+    renderChat(
+      [
+        idMessage("user", "Compare the providers", turnId, 1),
+        idMessage("assistant", "", turnId, 2, reasoning("Plan the comparison.", 1_000, 2_000)),
+        idTool(turnId, "search-1", 3),
+        idMessage("assistant", "", turnId, 4, reasoning("Check the pricing evidence.", 3_000, 1_500)),
+        idTool(turnId, "search-2", 5),
+        idMessage("assistant", "", turnId, 6, reasoning("Synthesize the result.", 5_000, 3_500)),
+      ],
+      {
+        timelineCapabilities: CAPS,
+        turns: [{ turnId, sessionId: "s", chatId: "c", origin: "user", status: "completed", seqHighWater: 6, startedAt: 1, locale: "en" }],
+      },
+    );
+
+    expect(screen.getAllByTestId("reasoning-group")).toHaveLength(1);
+    expect(screen.getByTestId("reasoning-group-toggle")).toHaveTextContent("3 thoughts");
+    expect(screen.getAllByTestId("execution-block")).toHaveLength(1);
+    expect(screen.getAllByTestId("execution-summary")).toHaveLength(1);
+
+    fireEvent.click(screen.getByTestId("reasoning-group-toggle"));
+    expect(screen.getAllByTestId("message-reasoning-toggle")).toHaveLength(3);
+    fireEvent.click(screen.getAllByTestId("message-reasoning-toggle")[0]);
+    expect(screen.getByText("Plan the comparison.")).toBeInTheDocument();
   });
 
   it("renders a pre-answer failure before the answer (true chronology)", () => {

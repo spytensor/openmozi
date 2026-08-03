@@ -476,11 +476,9 @@ export default function App() {
       (item) => item.type === "artifact" && (item.data as Artifact).id === activeArtifact.id,
     )?.data as Artifact | undefined;
     if (!latest) return;
-    // The runtime closed this artifact — honor it instead of showing stale chrome.
-    if (latest.status === "closed") {
-      setActiveArtifact(null);
-      return;
-    }
+    // Runtime lifecycle and panel visibility are separate concerns. `closed`
+    // means generation has terminalized; the finished artifact remains a
+    // readable historical product until the user closes this local panel.
     if (latest !== activeArtifact) {
       setActiveArtifact(latest);
     }

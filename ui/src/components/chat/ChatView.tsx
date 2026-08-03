@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect, useLayoutEffect, useMemo, useState, typ
 import { ArrowDown, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TimelineItem, ChatMessage, ApprovalRequest, Artifact, MemoryUpdate, PlanStartedUpdate, SessionState, TurnEnvelope } from "@/types";
-import MessageBubble, { AssistantNarration, hasRenderableAssistantContent, hasRenderableReasoning, stripInjectedContext } from "./MessageBubble";
+import MessageBubble, { AssistantNarration, ReasoningGroup, hasRenderableAssistantContent, hasRenderableReasoning, stripInjectedContext } from "./MessageBubble";
 import MoziAvatar from "@/components/MoziAvatar";
 import ExecutionBlock, { TechnicalDetails, type OpenSourcesHandler } from "./ExecutionBlock";
 import type { ExecutionBlockModel, ExecutionSourceRef } from "./execution";
@@ -467,9 +467,15 @@ interface TurnFoldGroup {
   status: "completed" | "failed";
 }
 
-interface FailedTurnGroup {
+interface ExecutionTurnGroup {
   key: string;
   block: ExecutionBlockModel;
+}
+
+interface ReasoningTurnGroup {
+  key: string;
+  messages: ChatMessage[];
+  indices: number[];
 }
 
 function mergeExecutionBlocks(blocks: ExecutionBlockModel[], key: string): ExecutionBlockModel {
@@ -514,39 +520,72 @@ function mergeExecutionBlocks(blocks: ExecutionBlockModel[], key: string): Execu
   };
 }
 
-/**
- * A terminally failed TURN owns one visible process surface unless an explicit
- * detached-plan parent already owns the task-level fold. Assistant narration
- * can split its execution stream into several render blocks, but those blocks
- * are child operations of the same turn — rendering each as its own capsule
- * shatters both the task identity and the page.
- */
-function buildFailedTurnGroups(
+/** Assistant narration may split one turn's execution into several blocks;
+ * presentation still gives that turn one Work Card. */
+function buildExecutionTurnGroups(
   renderItems: ChatRenderItem[],
-  failedTurnIds: ReadonlySet<string>,
   startIndex: number,
   foldedRowIndices: ReadonlySet<number>,
-): { groups: Map<number, FailedTurnGroup>; grouped: Set<number> } {
+  excludedTurnId: string | null,
+): { groups: Map<number, ExecutionTurnGroup>; grouped: Set<number> } {
   const byTurn = new Map<string, { indices: number[]; blocks: ExecutionBlockModel[] }>();
   for (let i = startIndex; i < renderItems.length; i++) {
     if (foldedRowIndices.has(i)) continue;
     const item = renderItems[i];
-    if (item.kind !== "execution" || !item.block.turnId || !failedTurnIds.has(item.block.turnId)) continue;
+    if (item.kind !== "execution" || !item.block.turnId || item.block.turnId === excludedTurnId) continue;
     const bucket = byTurn.get(item.block.turnId) ?? { indices: [], blocks: [] };
     bucket.indices.push(i);
     bucket.blocks.push(item.block);
     byTurn.set(item.block.turnId, bucket);
   }
 
-  const groups = new Map<number, FailedTurnGroup>();
+  const groups = new Map<number, ExecutionTurnGroup>();
   const grouped = new Set<number>();
   for (const [turnId, bucket] of byTurn) {
     const anchor = bucket.indices[0];
     groups.set(anchor, {
-      key: `failed-turn-${turnId}`,
-      block: mergeExecutionBlocks(bucket.blocks, `failed-turn-${turnId}`),
+      key: `work-turn-${turnId}`,
+      block: mergeExecutionBlocks(bucket.blocks, `work-turn-${turnId}`),
     });
     bucket.indices.forEach((index) => grouped.add(index));
+  }
+  return { groups, grouped };
+}
+
+/**
+ * Reasoning is emitted once per model call, so a tool-using turn naturally has
+ * several segments. Keep those durable messages intact, but give the turn one
+ * presentation owner instead of one top-level row per model round.
+ */
+function buildReasoningTurnGroups(
+  renderItems: ChatRenderItem[],
+  startIndex: number,
+): { groups: Map<number, ReasoningTurnGroup>; grouped: Set<number> } {
+  const byTurn = new Map<string, ReasoningTurnGroup>();
+  let legacySegment = 0;
+
+  for (let i = startIndex; i < renderItems.length; i++) {
+    const item = renderItems[i];
+    if (isUserRenderRow(item)) {
+      legacySegment += 1;
+      continue;
+    }
+    if (item.kind !== "single" || item.item.type !== "message") continue;
+    const message = item.item.data as ChatMessage;
+    if (message.role !== "assistant" || !hasRenderableReasoning(message)) continue;
+    const turnId = renderTurnId(item);
+    const key = turnId ? `turn:${turnId}` : `legacy:${legacySegment}`;
+    const group = byTurn.get(key) ?? { key: `reasoning-${key}`, messages: [], indices: [] };
+    group.messages.push(message);
+    group.indices.push(i);
+    byTurn.set(key, group);
+  }
+
+  const groups = new Map<number, ReasoningTurnGroup>();
+  const grouped = new Set<number>();
+  for (const group of byTurn.values()) {
+    groups.set(group.indices[0], group);
+    group.indices.forEach((index) => grouped.add(index));
   }
   return { groups, grouped };
 }
@@ -1152,6 +1191,10 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // sessions (<= WINDOW_MAX_ROWS) render byte-for-byte as before.
   const windowStart = showEarlier ? 0 : windowStartIndex(renderItems, WINDOW_MAX_ROWS);
   const hiddenEarlierCount = windowStart;
+  const { groups: reasoningTurnGroups, grouped: groupedReasoningRowIndices } = buildReasoningTurnGroups(
+    renderItems,
+    windowStart,
+  );
 
   // One coarse, deduplicated live-activity phase for screen readers (Issue
   // #628). The DOM text changes only on a phase transition, so an assistive
@@ -1249,6 +1292,12 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         if (msg.role === "user") {
           assistantAvatarShownInTurn = false;
         }
+        const reasoningOwnedByGroup = groupedReasoningRowIndices.has(renderIndex);
+        const rendersAssistantContent = hasRenderableAssistantContent(msg);
+        // Reasoning-only provider messages are represented by the turn-level
+        // Thinking Card. A message that also carries answer text keeps its text
+        // row without repeating the same reasoning disclosure inside it.
+        if (msg.role === "assistant" && reasoningOwnedByGroup && !rendersAssistantContent) return null;
         // An assistant answer regenerates by re-running the user prompt that
         // produced it — the nearest visible user message before it.
         const regenerateText =
@@ -1259,7 +1308,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
             : undefined;
         const assistantMessageRenders =
           msg.role === "assistant" &&
-          (hasRenderableAssistantContent(msg) || hasRenderableReasoning(msg) || Boolean(msg.streaming && msg.requestId));
+          (rendersAssistantContent || (!reasoningOwnedByGroup && (hasRenderableReasoning(msg) || Boolean(msg.streaming && msg.requestId))));
         const showAvatar = msg.role === "assistant" ? !assistantAvatarShownInTurn : true;
         if (assistantMessageRenders) {
           assistantAvatarShownInTurn = true;
@@ -1275,6 +1324,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
             regenerateText={regenerateText}
             showAvatar={showAvatar}
             showAssistantActions={isLastAssistantTextInTurn(renderItems, renderIndex, msg)}
+            showReasoning={!reasoningOwnedByGroup}
             onDelete={sessionState === "IDLE" && /^conversation:\d+$/.test(msg.id) ? onDeleteMessage : undefined}
             onOpenArtifact={onOpenArtifact}
             onOpenModelSettings={onOpenModelSettings}
@@ -1360,11 +1410,11 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // paragraphs in multi-phase turns.) Windowing drops only a leading prefix;
   // every mounted row is wrapped for keyboard/screen-reader navigation.
   const { groups: turnFoldGroups, folded: foldedRowIndices } = buildTurnFolds(renderItems, failedTurnIds);
-  const { groups: failedTurnGroups, grouped: failedTurnRowIndices } = buildFailedTurnGroups(
+  const { groups: executionTurnGroups, grouped: groupedExecutionRowIndices } = buildExecutionTurnGroups(
     renderItems,
-    failedTurnIds,
     windowStart,
     foldedRowIndices,
+    liveWorkTurnId,
   );
   const rows: Array<{ key: string; node: ReactNode }> = [];
   // Supporting files are process, not product (operator decision 2026-07-19):
@@ -1431,19 +1481,30 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     if (liveTurnWorkModel && !capsulePushed && renderTurnId(renderItems[i]) === liveWorkTurnId && !isUserRenderRow(renderItems[i])) {
       pushLiveCapsule();
     }
-    const failedTurnGroup = failedTurnGroups.get(i);
-    if (failedTurnGroup) {
+    const reasoningTurnGroup = reasoningTurnGroups.get(i);
+    if (reasoningTurnGroup) {
       rows.push({
-        key: failedTurnGroup.key,
+        key: reasoningTurnGroup.key,
         node: (
           <AssistantColumnRow showAvatar={claimTurnAvatar()}>
-            <ExecutionBlock block={failedTurnGroup.block} onOpenSources={handleOpenSources} onOpenAgentRun={onOpenAgentRun} />
+            <ReasoningGroup messages={reasoningTurnGroup.messages} />
+          </AssistantColumnRow>
+        ),
+      });
+    }
+    const executionTurnGroup = executionTurnGroups.get(i);
+    if (executionTurnGroup) {
+      rows.push({
+        key: executionTurnGroup.key,
+        node: (
+          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
+            <ExecutionBlock block={executionTurnGroup.block} onOpenSources={handleOpenSources} onOpenAgentRun={onOpenAgentRun} />
           </AssistantColumnRow>
         ),
       });
       continue;
     }
-    if (failedTurnRowIndices.has(i)) continue;
+    if (groupedExecutionRowIndices.has(i)) continue;
     const foldGroup = turnFoldGroups.get(i);
     if (foldGroup) {
       const foldTurnIds = foldClaimedTurnIds(foldGroup.items);
