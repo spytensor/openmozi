@@ -255,7 +255,6 @@ export const activateToolsTool: ToolDefinition = {
           type: 'array',
           items: { type: 'string' },
           minItems: 1,
-          uniqueItems: true,
           description: 'Exact ready tool names from the Tool Catalog',
         },
       },
@@ -394,8 +393,14 @@ export async function executeRuntimeTool(
       };
     }
     case 'activate_tools': {
+      // Deduplicated here rather than with a `uniqueItems` schema constraint:
+      // Azure OpenAI rejects `uniqueItems` outright when a function is sent with
+      // strict: true, which fails the whole request, and the keyword is outside
+      // the JSON Schema subset documented for strict function calling.
       const names = Array.isArray(args.names)
-        ? args.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+        ? [...new Set(
+            args.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0),
+          )]
         : [];
       if (names.length === 0) {
         return {
