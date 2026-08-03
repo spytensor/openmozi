@@ -127,6 +127,34 @@ export function readCodexCliCredentials(): CliCredentials | null {
   }
 }
 
+/**
+ * True when Codex CLI has a credential it can authenticate with.
+ *
+ * Codex CLI supports two credential paths and stores either in the same file:
+ *   OAuth   — { tokens: { access_token, refresh_token } }
+ *   API key — { OPENAI_API_KEY: "sk-..." }   (written when config.toml sets
+ *             preferred_auth_method = "apikey")
+ *
+ * Readiness checks must accept both, otherwise an installed and working CLI is
+ * reported as unauthenticated.
+ *
+ * Deliberately separate from readCodexCliCredentials(): that function's result is
+ * resolved against https://api.openai.com/v1 by resolveCliOAuthKey(), and an API
+ * key may belong to a different OpenAI-compatible endpoint. Returning it as an
+ * `accessToken` would risk sending it to the wrong host, so the "can it
+ * authenticate?" question is answered separately from "give me a bearer token".
+ */
+export function hasCodexCliAuth(): boolean {
+  if (readCodexCliCredentials() !== null) return true;
+  try {
+    const filePath = join(homedir(), '.codex', 'auth.json');
+    const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+    return typeof data?.OPENAI_API_KEY === 'string' && data.OPENAI_API_KEY.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Resolver — maps CLI provider to API config
 // ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ import { execFile, execFileSync } from 'node:child_process';
 import { accessSync, constants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { promisify } from 'node:util';
-import { readClaudeCliCredentials, readCodexCliCredentials } from '../core/cli-credentials.js';
+import { readClaudeCliCredentials, hasCodexCliAuth } from '../core/cli-credentials.js';
 import { getProvider } from '../core/providers.js';
 
 export type CodingWorkerId = 'claude_code' | 'codex_cli';
@@ -67,7 +67,7 @@ const WORKER_DEFS: {
     id: 'codex_cli',
     name: 'Codex CLI',
     providerId: 'codex-cli',
-    authCheck: () => readCodexCliCredentials() !== null || hasEnvAuth('OPENAI_API_KEY'),
+    authCheck: () => hasCodexCliAuth() || hasEnvAuth('OPENAI_API_KEY'),
     authHint: 'Run: codex login (or set OPENAI_API_KEY)',
     installHint: 'npm install -g @openai/codex',
   },

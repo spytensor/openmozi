@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import {
   readClaudeCliCredentials,
   readCodexCliCredentials,
+  hasCodexCliAuth,
   resolveCliOAuthKey,
   clearCredentialCache,
 } from './cli-credentials.js';
@@ -120,6 +121,46 @@ describe('cli-credentials', () => {
     it('returns null when access_token is missing', () => {
       mockReadFileSync.mockReturnValue(JSON.stringify({ tokens: {} }));
       expect(readCodexCliCredentials()).toBeNull();
+    });
+
+    it('returns null for API-key auth so the key is never used as an OpenAI bearer', () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ OPENAI_API_KEY: 'sk-api-key' }));
+      expect(readCodexCliCredentials()).toBeNull();
+      expect(resolveCliOAuthKey('codex-cli')).toBeNull();
+    });
+  });
+
+  describe('hasCodexCliAuth', () => {
+    it('accepts OAuth credentials', () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({
+        tokens: { access_token: 'oai-test-token' },
+      }));
+      expect(hasCodexCliAuth()).toBe(true);
+    });
+
+    it('accepts API-key auth written by preferred_auth_method = "apikey"', () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ OPENAI_API_KEY: 'sk-api-key' }));
+      expect(hasCodexCliAuth()).toBe(true);
+    });
+
+    it('ignores a blank API key', () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ OPENAI_API_KEY: '   ' }));
+      expect(hasCodexCliAuth()).toBe(false);
+    });
+
+    it('returns false for an empty auth file', () => {
+      mockReadFileSync.mockReturnValue('{}');
+      expect(hasCodexCliAuth()).toBe(false);
+    });
+
+    it('returns false when the file is missing', () => {
+      mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT'); });
+      expect(hasCodexCliAuth()).toBe(false);
+    });
+
+    it('returns false for malformed JSON', () => {
+      mockReadFileSync.mockReturnValue('{bad');
+      expect(hasCodexCliAuth()).toBe(false);
     });
   });
 

@@ -3,7 +3,7 @@ import { accessSync, constants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { TaskBriefSchema, type TaskBrief } from '../agents/protocol.js';
 import { buildSubagentEnv } from '../agents/process-manager.js';
-import { readClaudeCliCredentials, readCodexCliCredentials } from '../core/cli-credentials.js';
+import { readClaudeCliCredentials, hasCodexCliAuth } from '../core/cli-credentials.js';
 import { getProvider } from '../core/providers.js';
 import { getRuntimeProjectRoot, resolveProjectRelativePath } from '../runtime/project-root.js';
 import type {
@@ -275,7 +275,7 @@ function resolveAuthState(
     }
   }
   if (adapterId === 'codex_cli') {
-    return readCodexCliCredentials()
+    return hasCodexCliAuth()
       ? { ok: true, source: '~/.codex/auth.json', summary: 'Codex CLI auth found' }
       : { ok: false, source: null, summary: 'Codex CLI auth not found (~/.codex/auth.json)' };
   }
