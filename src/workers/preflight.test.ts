@@ -4,7 +4,7 @@ import type { WorkerAdapter } from './adapter.js';
 const hoisted = vi.hoisted(() => ({
   spawnSyncMock: vi.fn(),
   readClaudeCliCredentialsMock: vi.fn(() => true),
-  readCodexCliCredentialsMock: vi.fn(() => true),
+  hasCodexCliAuthenticationMock: vi.fn(() => true),
   spawnCalls: [] as Array<{
     command: string;
     args: string[];
@@ -18,7 +18,7 @@ vi.mock('node:child_process', () => ({
 
 vi.mock('../core/cli-credentials.js', () => ({
   readClaudeCliCredentials: hoisted.readClaudeCliCredentialsMock,
-  readCodexCliCredentials: hoisted.readCodexCliCredentialsMock,
+  hasCodexCliAuthentication: hoisted.hasCodexCliAuthenticationMock,
 }));
 
 import {
@@ -58,8 +58,8 @@ afterEach(() => {
   hoisted.spawnSyncMock.mockReset();
   hoisted.readClaudeCliCredentialsMock.mockReset();
   hoisted.readClaudeCliCredentialsMock.mockReturnValue(true);
-  hoisted.readCodexCliCredentialsMock.mockReset();
-  hoisted.readCodexCliCredentialsMock.mockReturnValue(true);
+  hoisted.hasCodexCliAuthenticationMock.mockReset();
+  hoisted.hasCodexCliAuthenticationMock.mockReturnValue(true);
   hoisted.spawnCalls.length = 0;
 });
 
@@ -210,5 +210,20 @@ describe('workers/preflight', () => {
 
     expect(report.status).toBe('blocked');
     expect(report.summary).toContain('no authenticated session');
+  });
+
+  it('uses the shared Codex authentication check for worker readiness', async () => {
+    const codexAdapter: WorkerAdapter = {
+      ...fakeAdapter,
+      metadata: { ...fakeAdapter.metadata, id: 'codex_cli', supported_sandbox_profiles: ['adapter-managed'] },
+    };
+
+    const report = await inspectWorkerAdapterLaneReadiness(codexAdapter, 'code', {
+      config: { command: 'node' },
+    });
+
+    expect(report.status).toBe('ready');
+    expect(report.auth_source).toBe('Codex CLI credentials');
+    expect(hoisted.hasCodexCliAuthenticationMock).toHaveBeenCalledOnce();
   });
 });

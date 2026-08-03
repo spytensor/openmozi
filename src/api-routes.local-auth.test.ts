@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { registerApiRoutes } from './api-routes.js';
@@ -674,6 +674,36 @@ describe('api routes local auth', () => {
       source: 'cache',
       capabilityConfidence: 'provider',
     });
+  });
+
+  it('uses normalized provider base_url overrides for live model discovery', async () => {
+    process.env.OPENAI_API_KEY = 'sk-test-custom-endpoint';
+    writeFileSync(join(tmpDir, 'mozi.json'), JSON.stringify({
+      providers: { openai: { base_url: 'https://gateway.example.internal/v1' } },
+    }));
+    loadConfig(join(tmpDir, 'mozi.json'));
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === 'https://gateway.example.internal/v1/models') {
+        return new Response(JSON.stringify({ data: [{ id: 'gpt-4.1' }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    app = await createApp('invite');
+    const admin = await registerUser(app, { email: 'admin@example.com', password: 'AdminPass1' });
+
+    const live = await app.inject({
+      method: 'GET',
+      url: '/api/providers/openai/models/live',
+      headers: { cookie: cookieHeader(admin) },
+    });
+
+    expect(live.statusCode).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://gateway.example.internal/v1/models',
+      expect.any(Object),
+    );
   });
 
   it('persists a provider-scoped manual model and routes it with conservative capabilities', async () => {

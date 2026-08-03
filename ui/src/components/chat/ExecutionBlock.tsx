@@ -1,15 +1,18 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Check,
   ChevronDown,
   ChevronRight,
   Circle,
   CircleSlash,
+  Clock3,
   ExternalLink,
   FileSearch,
   FileText,
   Globe,
+  ListTodo,
   Loader2,
   PenLine,
   Search,
@@ -17,6 +20,14 @@ import {
   Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import type { TaskUpdate, ToolEvent } from "@/types";
 import {
   buildToolStepSummary,
@@ -63,7 +74,6 @@ interface ExecutionBlockProps {
 }
 
 const EXECUTION_TIMELINE_SCROLL_THRESHOLD = 8;
-
 interface AgentEnvelope {
   status: "succeeded" | "failed" | "blocked";
   summary: string;
@@ -884,7 +894,7 @@ function stateTintClass(state: RowState): string {
   if (state === "done") return "text-ink/35";
   if (state === "blocked" || state === "interrupted") return "text-warning";
   if (state === "skipped" || state === "cancelled") return "text-warning/80";
-  if (state === "running") return "text-activity";
+  if (state === "running") return "work-active-ink";
   return "text-ink/24";
 }
 
@@ -1012,52 +1022,138 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
   const progress = planProgress(block);
   const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null;
   const verifying = planVerifying(block);
-  const title = translateMessage(locale, progress ? "execution.plan.title" : "execution.capsule.working");
+  const visualState = verifying ? "verifying" : "running";
+  const title = liveLabel(block, locale);
+  const statusLabel = translateMessage(locale, verifying ? "execution.plan.verifying" : "execution.capsule.working");
+  const elapsed = block.totalElapsedMs > 0 ? formatDurationForLocale(block.totalElapsedMs, locale) : null;
   return (
-    <div data-testid={progress ? "execution-live-plan" : "execution-live-work"} className="w-full max-w-[640px]">
-      {/* The capsule is a button — it keeps a faint surface lift for click
-          affordance, but no hairline frame (operator decision 2026-07-19). */}
-      <div
-        data-testid="execution-plan-card"
-        className="overflow-hidden rounded-lg bg-ink/[0.02]"
-      >
-        <button
-          type="button"
-          data-testid="plan-capsule-toggle"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className="flex w-full flex-col gap-0.5 px-3.5 pb-2 pt-2 text-left transition-colors duration-180ms hover:bg-ink/[0.015]"
+    <div data-testid={progress ? "execution-live-plan" : "execution-live-work"} className="w-full max-w-[640px] py-1">
+      <Dialog open={open} onOpenChange={setOpen}>
+        <div
+          data-testid="execution-plan-card"
+          data-state={visualState}
+          className="work-capsule"
         >
-          <span className="flex w-full items-center gap-2">
-            <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-            <span className="text-[12px] font-medium text-ink/70">{title}</span>
-            {verifying && (
-              <span data-testid="execution-plan-verifying" className="text-[11px] text-activity/70">
-                {translateMessage(locale, "execution.plan.verifying")}
+          <DialogTrigger asChild>
+            <button
+              type="button"
+              data-testid="plan-capsule-toggle"
+              aria-expanded={open}
+              aria-haspopup="dialog"
+              className="group flex w-full flex-col text-left focus-visible:outline-none"
+            >
+              <span className="flex w-full items-center gap-2.5 px-4 pb-1.5 pt-3.5">
+                <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--work-state)" }} strokeWidth={2.1} />
+                <span
+                  data-testid={verifying ? "execution-plan-verifying" : undefined}
+                  className="work-title-shimmer min-w-0 flex-1 truncate text-[13.5px] font-semibold"
+                >
+                  {title}
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-ink/38 transition-transform duration-180ms group-hover:translate-x-0.5" aria-hidden="true" />
               </span>
-            )}
-            {progress && (
-              <span className="ml-auto text-[11.5px] tabular-nums text-ink/32">
-                {progress.done} / {progress.total}
+              <span className="w-full truncate px-4 pb-3 pl-[42px] text-[12.5px] leading-5 text-ink/48">
+                {statusLabel}
               </span>
-            )}
-            <ChevronDown size={12} className={cn("shrink-0 text-ink/25 transition-transform duration-180ms", !progress && "ml-auto", open && "rotate-180")} />
-          </span>
-          <span className="live-verb-shimmer w-full truncate pl-[22px] text-[12px] text-ink/45">{liveLabel(block, locale)}</span>
-          {pct != null && (
-            <span className="mt-1 block h-0.5 w-full overflow-hidden rounded-full bg-ink/[0.06]">
-              {/* Always activity: this capsule only exists while the plan is
-                  live, and the terminal card carries no bar at all. */}
-              <span className="block h-full rounded-full bg-activity/60 transition-[width] duration-300" style={{ width: `${pct}%` }} />
-            </span>
-          )}
-        </button>
-        {open && (
-          <div className="px-3.5 pb-2 pt-0.5 duration-180ms motion-safe:animate-in motion-safe:fade-in-0">
-            <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
+              {progress && (
+                <span className="border-t border-ink/[0.07] px-4 py-3">
+                  <span className="flex items-center gap-2.5">
+                    <ListTodo className="h-4 w-4 shrink-0 text-ink/52" strokeWidth={1.8} aria-hidden="true" />
+                    <span className="text-[13px] font-medium text-ink/76">{translateMessage(locale, "execution.plan.title")}</span>
+                    <span className="ml-auto text-[11.5px] tabular-nums text-ink/38">
+                      {progress.done} / {progress.total}
+                    </span>
+                  </span>
+                  {pct != null && (
+                    <span className="mt-2 block h-0.5 w-full overflow-hidden rounded-full bg-ink/[0.07]">
+                      <span
+                        className="block h-full rounded-full transition-[width] duration-300"
+                        style={{ width: `${pct}%`, background: "var(--work-state)" }}
+                      />
+                    </span>
+                  )}
+                </span>
+              )}
+            </button>
+          </DialogTrigger>
+        </div>
+
+        <DialogContent
+          data-testid="work-detail-dialog"
+          showClose={false}
+          unstyled
+          className="h-[calc(100vh-80px)] min-h-[320px] w-[calc(100vw-24px)] !max-w-[1120px] !gap-0 !border-0 !p-0 !shadow-none sm:w-[calc(100vw-64px)] sm:!rounded-none"
+        >
+          <div
+            data-testid="work-detail-surface"
+            data-state={visualState}
+            className="work-detail-shell flex h-full min-h-0 flex-col overflow-hidden"
+          >
+            <header className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-ink/[0.07] px-3 sm:px-4">
+              <DialogClose asChild>
+                <button
+                  type="button"
+                  aria-label={translateMessage(locale, "execution.workDetail.back")}
+                  className="inline-flex h-9 min-w-0 items-center gap-2 justify-self-start rounded-lg px-2.5 text-[12.5px] text-ink/58 transition-colors hover:bg-ink/[0.05] hover:text-ink/82 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/35"
+                >
+                  <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  <span className="hidden truncate sm:inline">{translateMessage(locale, "execution.workDetail.back")}</span>
+                </button>
+              </DialogClose>
+              <div className="flex min-w-0 items-center gap-2 px-2">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--work-state)" }} aria-hidden="true" />
+                <DialogTitle className="truncate text-[13px] font-semibold leading-none text-ink/86">
+                  {translateMessage(locale, "execution.workDetail.title")}
+                </DialogTitle>
+              </div>
+              <div className="flex min-w-0 items-center justify-end gap-3 text-[11.5px] tabular-nums text-ink/38">
+                {elapsed && (
+                  <span className="hidden items-center gap-1.5 md:inline-flex">
+                    <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
+                    {elapsed}
+                  </span>
+                )}
+                {progress && <span>{progress.done} / {progress.total}</span>}
+              </div>
+            </header>
+            <DialogDescription className="sr-only">{title}</DialogDescription>
+
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="mx-auto w-full max-w-[900px] px-4 py-6 sm:px-8 sm:py-8">
+                <div className="flex min-w-0 items-end justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink/34">
+                      {translateMessage(locale, "execution.workDetail.timeline")}
+                    </p>
+                    <h2 data-testid="execution-work-detail-title" className="work-title-shimmer mt-1 truncate text-[18px] font-semibold leading-7">{title}</h2>
+                  </div>
+                  {progress && (
+                    <span className="shrink-0 text-[12px] tabular-nums text-ink/40">
+                      {progress.done} / {progress.total}
+                    </span>
+                  )}
+                </div>
+
+                <section data-testid="work-detail-timeline" className="work-detail-card mt-4 px-4 py-4 sm:px-6 sm:py-5">
+                  <div className="flex min-w-0 items-start gap-3 border-b border-ink/[0.07] pb-4">
+                    <Loader2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--work-state)" }} strokeWidth={2.1} />
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-ink/32">
+                        {translateMessage(locale, "execution.workDetail.status")}
+                      </p>
+                      <p className="mt-1 break-words text-[13px] leading-5 text-ink/62">{statusLabel}</p>
+                    </div>
+                  </div>
+                  <div className="mt-5">
+                    <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
+                  </div>
+                  <TechnicalDetails block={block} locale={locale} />
+                </section>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1084,7 +1180,7 @@ const LEAF_KIND_ICONS: Record<ToolStepKind, typeof Search> = {
 function LeafKindIcon({ row }: { row: TimelineRow }) {
   const Icon = row.kind ? LEAF_KIND_ICONS[row.kind] : FileText;
   const stateClass = row.state === "running"
-    ? "text-activity"
+    ? "work-active-ink"
     : row.state === "blocked" || row.state === "interrupted"
       ? "text-warning"
       : row.state === "skipped" || row.state === "cancelled"
@@ -1409,7 +1505,7 @@ function liveLabel(block: ExecutionBlockModel, locale: Locale): string {
   if (runningTool) {
     const summary = buildToolStepSummary(runningTool, locale);
     if (summary.isSkillActivation) return toolRunningActionLabel(runningTool.tool, locale, summary.skillName);
-    if (summary.kind === "shell") return translateMessage(locale, "execution.step.runFallback");
+    if (summary.kind === "shell") return summary.target ? translateMessage(locale, "execution.step.runFallback") : summary.label;
     if (summary.kind === "write") return translateMessage(locale, "execution.step.writeFallback");
     if (summary.kind === "inspect") return translateMessage(locale, "execution.step.inspectFallback");
     return summary.label;
@@ -1444,7 +1540,7 @@ function LiveExecutionLine({ block, locale }: { block: ExecutionBlockModel; loca
 
   return (
     <div data-testid="execution-live-line" className="flex w-full max-w-[640px] items-center gap-2 py-1.5 text-[12px] text-ink/42">
-      <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
+      <Loader2 aria-hidden="true" className="work-active-ink h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={2} />
       <span className="live-verb-shimmer min-w-0 truncate">{liveLabel(block, locale)}</span>
       <span className="flex-1" />
       {approximateDuration && (

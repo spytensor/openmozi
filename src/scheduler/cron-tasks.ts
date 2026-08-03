@@ -294,17 +294,13 @@ export const cronTaskRunQueue = {
     const db = getDb();
     const runId = `cronrun_${randomUUID()}`;
     const params = task.handler_params ? JSON.parse(task.handler_params) as Record<string, unknown> : {};
-    const requestedTimeoutMinutes = Number(params.timeout_minutes);
-    const timeoutMs = task.handler_type === 'managed_brain'
-      ? (Number.isFinite(requestedTimeoutMinutes) ? Math.min(120, Math.max(10, requestedTimeoutMinutes)) : 60) * 60_000
-      : undefined;
     const background = addBackgroundTask({
       chatId: task.chat_id, userId: task.user_id ?? undefined,
       sessionId: task.session_id ?? undefined, channelType: task.channel_type ?? undefined,
       permissionLevel: task.permission_level ?? undefined,
       objective: task.description || `Scheduled ${task.schedule_kind} ${task.schedule_value}`,
       tenantId: task.tenant_id, handlerType: task.handler_type, handlerParams: params,
-      timeoutMs,
+      timeoutMs: task.handler_type === 'managed_brain' ? 0 : undefined,
       sourceCronTaskId: task.id, cronRunId: runId,
     });
     db.prepare(`INSERT INTO cron_task_runs (

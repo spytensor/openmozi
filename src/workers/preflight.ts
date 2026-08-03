@@ -3,7 +3,7 @@ import { accessSync, constants } from 'node:fs';
 import { delimiter, isAbsolute, join } from 'node:path';
 import { TaskBriefSchema, type TaskBrief } from '../agents/protocol.js';
 import { buildSubagentEnv } from '../agents/process-manager.js';
-import { readClaudeCliCredentials, readCodexCliCredentials } from '../core/cli-credentials.js';
+import { hasCodexCliAuthentication, readClaudeCliCredentials } from '../core/cli-credentials.js';
 import { getProvider } from '../core/providers.js';
 import { getRuntimeProjectRoot, resolveProjectRelativePath } from '../runtime/project-root.js';
 import type {
@@ -275,9 +275,9 @@ function resolveAuthState(
     }
   }
   if (adapterId === 'codex_cli') {
-    return readCodexCliCredentials()
-      ? { ok: true, source: '~/.codex/auth.json', summary: 'Codex CLI auth found' }
-      : { ok: false, source: null, summary: 'Codex CLI auth not found (~/.codex/auth.json)' };
+    return hasCodexCliAuthentication()
+      ? { ok: true, source: 'Codex CLI credentials', summary: 'Codex CLI auth found' }
+      : { ok: false, source: null, summary: 'Codex CLI auth not found (~/.codex/auth.json or OPENAI_API_KEY)' };
   }
   return { ok: true, source: null, summary: 'Adapter-specific auth check not required' };
 }

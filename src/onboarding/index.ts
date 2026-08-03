@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import pino from 'pino';
 import { validateBotToken, setBotCommands } from '../channels/telegram.js';
 import { getConfigPath } from '../paths.js';
+import { loadConfig } from '../config/index.js';
 import { readConfigWithLegacyFallback, writeConfigObject } from '../config/storage.js';
 import {
   persistEnvValue,
@@ -137,12 +138,13 @@ interface RecommendationCandidate {
  * Uses the Provider Registry as single source of truth.
  */
 export function detectProviders(): ProviderInfo[] {
+  const configProviders = loadConfig(getConfigPath()).providers;
   const configured = detectConfiguredProviders();
   const detected = configured.map(def => ({
     id: def.id,
     name: def.name,
-    apiKey: resolveApiKey(def.id) || '',
-    baseUrl: resolveBaseUrl(def.id),
+    apiKey: resolveApiKey(def.id, configProviders) || '',
+    baseUrl: resolveBaseUrl(def.id, process.env, configProviders),
     models: def.models.map(m => ({ id: m.id, name: m.name, provider: def.id, reasoning: m.reasoning })),
     healthy: false,
   }));

@@ -26,21 +26,26 @@ for a long time. If you change a token, change this section in the same commit �
 a design doc that disagrees with the stylesheet is worse than none, because it
 sends reviewers looking for violations that are actually the house style.
 
-**Dark theme — true black ground, monochrome accents**
+**Dark theme — true black ground, restrained state accents**
 - Grounds: `--app-bg #000000`, `--main-bg #000000`, `--sidebar-bg #0a0a0a`
 - Surfaces (elevation by background shift, not shadow): `--surface-base #000000` → `--surface-elevated #111111` → `--surface-card #161616` → `--surface-overlay #1a1a1a`; `--surface-input #111111`
 - Interaction surfaces are ink alphas, not fixed greys: `--surface-hover rgba(255,255,255,.08)`, `--surface-active rgba(255,255,255,.12)`
 - Light theme mirrors this structurally: `--app-bg #fafafa`, `--surface-elevated #ffffff`
-- **Interaction roles are deliberately monochrome**: `--action`, `--activity`,
+- General interaction roles remain monochrome: `--action`, `--activity`, and
   `--focus` are `#ffffff` in dark and `#000000` in light; `--link #a1a1aa`,
-  `--selection rgba(255,255,255,.2)`. Colour is not how this product signals
-  interactivity — contrast and weight are. Do not introduce a coloured accent
-  for a role that is currently monochrome.
+  `--selection rgba(255,255,255,.2)`. The one deliberate exception is
+  `--work-active` (`#4f76e8` dark / `#315bc9` light), reserved for an agent that
+  is actively executing. It must never become a general brand or navigation
+  accent. The live title has its own presentation-only gradient tokens:
+  `--work-title-start`, `--work-title-mid`, and `--work-title-end`; these never
+  encode success, warning, failure, or verification state.
 - Status colours are the only saturated hues and are reserved for state, never decoration: `--success #10b981` · `--warning #f59e0b` · `--danger #ef4444` (danger = errors only, sparingly)
 - **Identity hues are a separate family** from status: `--agent-ochre #b08a4f`, `--agent-jade #6f9b74`, `--agent-slate #6d8299`, `--agent-bronze #a8674a`, `--agent-violet #9a7aa8`, `--agent-neutral #77808c`. They are low-saturation on purpose and render as a tinted fill with the glyph in the same hue — an identity must never restate a status colour, and a saturated block at avatar size competes with the content it labels.
 - Text (opacity layers on ink, not separate greys): primary .9 / secondary .7 / muted .46 / disabled .25; the flat equivalents are `--text-primary #ededed` / `--text-secondary #a1a1aa` / `--text-muted #71717a` / `--text-disabled #3f3f46`
 - Borders (hairline-first): `--border-subtle` (rgba .08) default, `--border-medium` (.15) active
-- Radii: `--radius-card 12px` · `--radius-button 8px` · `--radius-badge 6px`
+- Radii: `--radius-card 12px` · `--radius-button 8px` · `--radius-badge 6px` ·
+  `--radius-work 18px` (only the live-work capsule and its matching detail
+  surface)
 - Shadows: only the composer setback shadows; cards use border + background shift, **not** drop shadows
 
 ## Binding Rules (MOZI already respects most — keep it that way)
@@ -57,6 +62,8 @@ sends reviewers looking for violations that are actually the house style.
 **DO NOT (hard red lines — these are what "AI slop" looks like)**
 - **No emoji in the UI.** (Pre-existing MOZI red line — absolute.)
 - No purple→blue / neon gradients, no neon cyan fields, no glow as decoration.
+  The sole exception is the tokenized, text-only live-work title flow described
+  below; it is an activity signal, never a page background or status colour.
 - No glassmorphism / decorative `backdrop-blur` (translucency is allowed *only* for real overlays: modals, menus).
 - No bounce/elastic/overshoot easing (`cubic-bezier` with values >1); no gratuitous motion.
 - No unmotivated mid-greys or muddy tints. The ground is true black (dark) / near-white (light) by design; depth comes from the surface ladder and hairline borders, not from washing the background.
@@ -73,12 +80,21 @@ sends reviewers looking for violations that are actually the house style.
 The plan/timeline in chat is a runtime record, not a marketing checklist. Two
 rules keep it reading as a system instead of a screenshot:
 
-- **The expanded plan card is frameless.** No hairline border, no background
-  shift — the "Plan" header, progress bar, and icon spine carry the structure,
-  and the plan reads as part of the conversation. (Deliberate exception to the
-  "background shift + hairline" card default; do not add the frame back.) The
-  *collapsed* live capsule keeps a faint `bg-ink/[0.02]` lift only because it
-  is a button and needs click affordance — still no hairline.
+- **Live work has one identity in two projections.** In chat it is a compact
+  rounded capsule; activating it opens the one work-detail dialog backed by the
+  same `ExecutionBlockModel`. Never render an inline expansion beside a second
+  detail surface, and never create another `View work` owner for the same turn.
+- **The live capsule is visibly alive.** Running work uses the restrained
+  `--work-active` border plus a shallow state tint; verification switches that
+  same state role to `--warning`. The double edge is a border + outline, never
+  a glow or drop shadow. The terminal plan inside the completed turn fold stays
+  frameless so finished work recedes into the conversation.
+- **The live title names the current action.** “Working” / “正在处理” is helper
+  text and a last-resort fallback, never the primary title while runtime truth
+  can name the action. The title alone uses a restrained left-to-right
+  white/lavender/cobalt text flow that is identical across runtime states;
+  reduced-motion keeps the same gradient still. Transport identifiers such as
+  `process_id` and UUIDs remain technical detail and never become titles.
 - **Success is quiet; color marks exceptions.** Completed steps use a bare
   muted-ink check (`text-ink/35` `Check`), never semantic green and never a
   circled badge — a column of green circle-checks is infographic language.
@@ -94,13 +110,18 @@ rules keep it reading as a system instead of a screenshot:
   done/total fraction — the row states carry it, and the turn fold already
   labels the section. A title + fraction + bar is a mini-dashboard embedded
   in prose. (The "Verifying" chip stays: a verifying card must not read as
-  settled.) The LIVE capsule keeps its one-line header + accent bar — that
-  is its collapsed summary job, and it leaves with the capsule.
+  settled.) The LIVE capsule keeps its state header, current action and compact
+  plan footer — that is its summary job, and it leaves with the capsule.
 - **No progress bar on the terminal card.** A colored rule under the header
   reads as a divider cutting the record off from the conversation. The
   done/total fraction and the row icons carry the state. Only the *live*
-  capsule keeps a thin accent bar — it is the alive signal, and it leaves
-  with the capsule when the turn ends.
+  capsule keeps a thin state bar — it is the alive signal, and it leaves with
+  the capsule when the turn ends.
+- **The work-detail surface is a timeline, not a dashboard.** One bounded
+  content surface may hold the current action, phase spine and technical
+  disclosure. Individual tool rows remain rows; only persisted substantive
+  results may become content cards. Motion is a 180–200ms ease-out layout/fade
+  transition and must collapse to no motion under `prefers-reduced-motion`.
 - **Every completed step is disclosable.** A phase row opens to its tool
   rows AND its persisted result excerpt (`resultDetail`, server-carried) —
   a step that ran without tools must never render as a dead, unclickable

@@ -44,7 +44,16 @@ Composer 就是驾驶舱：选**项目**（任意文件夹或 git 仓库）、�
 
 ## 获取应用
 
-桌面应用是使用 MOZI 的主要方式。从源码构建（macOS，Apple Silicon）：
+桌面应用是使用 MOZI 的主要方式。请从 [GitHub Releases](https://github.com/spytensor/openmozi/releases) 下载最新的 Apple Silicon DMG 及校验文件。
+
+目前提供的是未签名的预发布版本，因为尚未经过 Apple 公证，macOS 会阻止首次启动。先将 DMG 的 SHA-256 与发布的 `openmozi-<version>-SHA256SUMS.txt` 对照，确认一致后把 `MOZI.app` 拖入 `/Applications`，再对这份已验证的应用移除隔离标记：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/MOZI.app
+open -a /Applications/MOZI.app
+```
+
+也可以自己从源码构建（macOS，Apple Silicon）：
 
 ```bash
 git clone https://github.com/spytensor/openmozi.git
@@ -89,6 +98,15 @@ MOZI 兼容任何 OpenAI 风格 API——目录里有 26 个提供商，随时�
 | | | ……以及另外 18 家（xAI、Mistral、Together、OpenRouter、NVIDIA、Bedrock 等） |
 
 国内平台可通过 `<PROVIDER>_BASE_URL` 覆盖区域端点。
+
+如果 Docker 位于会拦截 TLS 的企业网络中，构建时传入企业代理的公开根证书：
+
+```bash
+export MOZI_EXTRA_CA_CERT_B64="$(base64 < company-root-ca.pem | tr -d '\n')"
+docker compose up -d --build
+```
+
+该证书会加入两个构建阶段。这个变量只能放公开证书，绝不能放私钥。
 
 ## 架构
 

@@ -1289,10 +1289,11 @@ describe("single stable live plan surface", () => {
 
     // Exactly one stable consolidated capsule; the split blocks never render.
     expect(screen.getAllByTestId("execution-live-plan")).toHaveLength(1);
-    // Collapsed by default — phases appear after the capsule is expanded.
+    // The capsule opens the one turn-scoped detail surface; phase content
+    // never duplicates inside the chat card.
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(screen.getByTestId("execution-plan-card")).toHaveTextContent("Research indices");
-    expect(screen.getByTestId("execution-plan-card")).toHaveTextContent("Write summary");
+    expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Research indices");
+    expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Write summary");
     // No competing live surfaces: no bare live line, no generic indicator.
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-responding-status-line")).not.toBeInTheDocument();
@@ -1340,9 +1341,9 @@ describe("detached-plan turn linkage (turn_bg_<planId>)", () => {
 
     expect(screen.getAllByTestId("execution-live-plan")).toHaveLength(1);
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    const card = screen.getByTestId("execution-plan-card");
-    expect(card).toHaveTextContent("Research Nikkei");
-    expect(card).toHaveTextContent("Write note");
+    const detail = screen.getByTestId("work-detail-timeline");
+    expect(detail).toHaveTextContent("Research Nikkei");
+    expect(detail).toHaveTextContent("Write note");
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
   });
 

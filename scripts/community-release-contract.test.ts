@@ -30,6 +30,7 @@ describe('OpenMozi community and release contract', () => {
     const release = readFileSync('scripts/release.mjs', 'utf8');
     expect(release).toContain("'--verify-tag'");
     expect(release).toContain('unsigned macOS prerelease');
+    expect(release).toContain('xattr -dr com.apple.quarantine /Applications/MOZI.app');
     expect(release).toContain('scripts/release-supply-chain.mjs');
     expect(release).toContain('openmozi-${version}-SHA256SUMS.txt');
     expect(release).toContain("'desktop:test:packaged'");
@@ -48,5 +49,21 @@ describe('OpenMozi community and release contract', () => {
     };
     expect(build.build.artifactName).toBe('openmozi-${version}-${arch}.${ext}');
     expect(build.build.productName).toBe('MOZI');
+
+    for (const readme of ['README.md', 'README.zh-CN.md']) {
+      const content = readFileSync(readme, 'utf8');
+      expect(content).toContain('https://github.com/spytensor/openmozi/releases');
+      expect(content).toContain('xattr -dr com.apple.quarantine /Applications/MOZI.app');
+    }
+  });
+
+  it('supports an additional Docker root CA without coupling apt and pip layers', () => {
+    const dockerfile = readFileSync('Dockerfile', 'utf8');
+    const compose = readFileSync('docker-compose.yml', 'utf8');
+
+    expect(dockerfile).toContain('ARG MOZI_EXTRA_CA_CERT_B64=');
+    expect(dockerfile).toContain('update-ca-certificates');
+    expect(compose).toContain('MOZI_EXTRA_CA_CERT_B64: ${MOZI_EXTRA_CA_CERT_B64:-}');
+    expect(dockerfile).toMatch(/rm -rf \/var\/lib\/apt\/lists\/\*\n\n# Keep Python packages[\s\S]+RUN pip3 install/);
   });
 });

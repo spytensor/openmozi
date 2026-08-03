@@ -110,7 +110,7 @@ describe('scheduler/cron-tasks background execution', () => {
     })).toThrow(/handlerParams\.prompt/);
   });
 
-  it('enqueues managed Brain work with persisted identity and bounded execution time', () => {
+  it('enqueues managed Brain work with persisted identity and no total execution deadline', () => {
     const cron = addCronTask({
       chatId: 'local-user:sess-market',
       userId: 'local-user',
@@ -135,7 +135,7 @@ describe('scheduler/cron-tasks background execution', () => {
       channel_type: 'websocket',
       permission_level: 'L2_WRITE',
       handler_type: 'managed_brain',
-      timeout_ms: 75 * 60_000,
+      timeout_ms: 0,
       source_cron_task_id: cron.id,
     });
   });

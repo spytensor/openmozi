@@ -4,6 +4,7 @@ import {
   buildChatRenderItems,
   buildToolStepSummary,
   inferMessageLocale,
+  sanitizeToolIntent,
   sanitizeTaskTitle,
   toolDisplayLabel,
   toolActionLabel,
@@ -333,6 +334,25 @@ describe("execution helpers", () => {
     expect(renderItems[0]?.kind).toBe("execution");
     if (renderItems[0]?.kind !== "execution") throw new Error("expected execution block");
     expect(renderItems[0].block.headline).toBe("read page information");
+  });
+
+  it("projects background process polling as an action without leaking its process id", () => {
+    const processId = "433a2865-1771-4f2a-947a-741e1aa490cd";
+    expect(sanitizeToolIntent(processId)).toBeNull();
+    expect(sanitizeToolIntent(`{"process_id":"${processId}"}`)).toBeNull();
+
+    const summary = buildToolStepSummary({
+      id: "process-1",
+      callId: "process-1",
+      tool: "process_status",
+      phase: "start",
+      intent: processId,
+      timestamp: 1,
+    });
+
+    expect(summary.label).toBe("Waiting for background command");
+    expect(summary.target).toBeNull();
+    expect(summary.raw).toBeNull();
   });
 
   it("aggregates repeated tool failures into one user-facing issue summary", () => {

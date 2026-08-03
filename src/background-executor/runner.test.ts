@@ -288,6 +288,29 @@ describe('BackgroundJobRunner', () => {
     expect(task!.result).toContain('Timeout');
   });
 
+  it('does not impose a total execution deadline on managed Brain work', async () => {
+    registerHandler('managed_brain', async () => {
+      await new Promise(resolve => setTimeout(resolve, 40));
+      return 'completed after the configured deadline';
+    });
+
+    addBackgroundTask({
+      chatId: 'chat1',
+      objective: 'Managed Brain task',
+      handlerType: 'managed_brain',
+      timeoutMs: 10,
+      maxRetries: 0,
+    });
+
+    await runner.tick();
+    await runner.waitForIdle();
+
+    expect(getTask(1)).toMatchObject({
+      status: 'completed',
+      result: 'completed after the configured deadline',
+    });
+  });
+
   it('does not pick up already running tasks', async () => {
     let callCount = 0;
     registerHandler('count_handler', async () => {

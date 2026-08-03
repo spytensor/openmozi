@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import {
   readClaudeCliCredentials,
   readCodexCliCredentials,
+  hasCodexCliAuthentication,
   resolveCliOAuthKey,
   clearCredentialCache,
 } from './cli-credentials.js';
@@ -120,6 +121,19 @@ describe('cli-credentials', () => {
     it('returns null when access_token is missing', () => {
       mockReadFileSync.mockReturnValue(JSON.stringify({ tokens: {} }));
       expect(readCodexCliCredentials()).toBeNull();
+    });
+
+    it('recognizes API-key auth without exposing the key as OAuth credentials', () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ OPENAI_API_KEY: 'self-hosted-key' }));
+
+      expect(hasCodexCliAuthentication({})).toBe(true);
+      expect(readCodexCliCredentials()).toBeNull();
+      expect(resolveCliOAuthKey('codex-cli')).toBeNull();
+    });
+
+    it('recognizes Codex API-key auth from the runtime environment', () => {
+      mockReadFileSync.mockImplementation(() => { throw new Error('ENOENT'); });
+      expect(hasCodexCliAuthentication({ OPENAI_API_KEY: 'runtime-key' })).toBe(true);
     });
   });
 

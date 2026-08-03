@@ -46,7 +46,7 @@ const MAX_CONCURRENT_TASKS = 3;
 
 interface RunningHandler {
   controller: AbortController;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | null;
 }
 
 const activeHandlers = new Map<string, RunningHandler>();
@@ -132,7 +132,7 @@ export async function cascadeCancelCronTask(
 
 export class BackgroundJobRunner {
   private interval: ReturnType<typeof setInterval> | null = null;
-  private running = new Map<number, { controller: AbortController; timer: ReturnType<typeof setTimeout> }>();
+  private running = new Map<number, RunningHandler>();
   private executions = new Set<Promise<void>>();
   private pollIntervalMs: number;
   private tenantId: string;
@@ -178,7 +178,7 @@ export class BackgroundJobRunner {
 
     // Abort all running tasks
     for (const [taskId, { controller, timer }] of this.running) {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       controller.abort();
       activeHandlers.delete(handlerKey(taskId, this.tenantId));
       logger.info({ taskId }, 'Running task aborted on shutdown');
@@ -282,10 +282,12 @@ export class BackgroundJobRunner {
 
     // Setup abort controller with timeout BEFORE markRunning to avoid leaks
     const controller = new AbortController();
-    const timeoutMs = task.timeout_ms > 0 ? task.timeout_ms : 300_000;
-    const timer = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
+    const timeoutMs = task.handler_type === 'managed_brain'
+      ? 0
+      : task.timeout_ms > 0 ? task.timeout_ms : 300_000;
+    const timer = timeoutMs > 0
+      ? setTimeout(() => controller.abort(), timeoutMs)
+      : null;
 
     logger.info({ taskId: task.id, objective: task.objective.slice(0, 100), handlerType: task.handler_type }, 'Task started');
     this.running.set(task.id, { controller, timer });
@@ -295,7 +297,7 @@ export class BackgroundJobRunner {
       const result = await handler(task, controller.signal);
 
       // Clear timeout
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       this.running.delete(task.id);
       activeHandlers.delete(handlerKey(task.id, task.tenant_id));
 
@@ -309,7 +311,7 @@ export class BackgroundJobRunner {
       if (completed) await this.deliverTaskResult(completed);
     } catch (err) {
       // Clear timeout
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       this.running.delete(task.id);
       activeHandlers.delete(handlerKey(task.id, task.tenant_id));
 
@@ -360,6 +362,7 @@ export class BackgroundJobRunner {
     const runningTasks = getRunningTasks(this.tenantId);
     for (const task of runningTasks) {
       if (!task.running_since) continue;
+      if (task.handler_type === 'managed_brain') continue;
       const elapsed = Date.now() - new Date(task.running_since + 'Z').getTime();
       const timeoutMs = task.timeout_ms > 0 ? task.timeout_ms : 300_000;
 
@@ -367,7 +370,7 @@ export class BackgroundJobRunner {
         // Stale running task — process may have crashed
         const entry = this.running.get(task.id);
         if (entry) {
-          clearTimeout(entry.timer);
+          if (entry.timer) clearTimeout(entry.timer);
           entry.controller.abort();
           this.running.delete(task.id);
           activeHandlers.delete(handlerKey(task.id, task.tenant_id));

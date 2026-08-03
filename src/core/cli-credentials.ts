@@ -38,8 +38,19 @@ interface CacheEntry {
   timestamp: number;
 }
 
+interface CodexAuthFile {
+  oauth: CliCredentials | null;
+  hasApiKey: boolean;
+}
+
+interface CodexAuthCacheEntry {
+  value: CodexAuthFile | null;
+  timestamp: number;
+}
+
 const CACHE_TTL_MS = 60_000;
 const cache = new Map<string, CacheEntry>();
+let codexAuthCache: CodexAuthCacheEntry | undefined;
 
 function getCached(key: string): CliCredentials | null | undefined {
   const entry = cache.get(key);
@@ -58,6 +69,7 @@ function setCache(key: string, value: CliCredentials | null): void {
 /** Clear the credential cache (exposed for testing). */
 export function clearCredentialCache(): void {
   cache.clear();
+  codexAuthCache = undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,35 +108,42 @@ export function readClaudeCliCredentials(): CliCredentials | null {
   }
 }
 
-/**
- * Read OAuth credentials stored by Codex CLI.
- * File: ~/.codex/auth.json
- * Shape: { tokens: { access_token, refresh_token } }
- */
-export function readCodexCliCredentials(): CliCredentials | null {
-  const cacheKey = 'codex-cli';
-  const cached = getCached(cacheKey);
-  if (cached !== undefined) return cached;
-
+function readCodexAuthFile(): CodexAuthFile | null {
+  if (codexAuthCache && Date.now() - codexAuthCache.timestamp <= CACHE_TTL_MS) {
+    return codexAuthCache.value;
+  }
   try {
     const filePath = join(homedir(), '.codex', 'auth.json');
     const raw = readFileSync(filePath, 'utf-8');
     const data = JSON.parse(raw);
     const tokens = data?.tokens;
-    if (!tokens?.access_token) {
-      setCache(cacheKey, null);
-      return null;
-    }
-    const creds: CliCredentials = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
+    const value: CodexAuthFile = {
+      oauth: tokens?.access_token ? {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+      } : null,
+      hasApiKey: typeof data?.OPENAI_API_KEY === 'string' && data.OPENAI_API_KEY.trim().length > 0,
     };
-    setCache(cacheKey, creds);
-    return creds;
+    codexAuthCache = { value, timestamp: Date.now() };
+    return value;
   } catch {
-    setCache(cacheKey, null);
+    codexAuthCache = { value: null, timestamp: Date.now() };
     return null;
   }
+}
+
+/**
+ * Read OAuth credentials stored by Codex CLI for the optional direct-API path.
+ * API-key authentication is intentionally not returned as OAuth credentials.
+ */
+export function readCodexCliCredentials(): CliCredentials | null {
+  return readCodexAuthFile()?.oauth ?? null;
+}
+
+/** True when Codex CLI can authenticate through OAuth or an API key. */
+export function hasCodexCliAuthentication(env: NodeJS.ProcessEnv = process.env): boolean {
+  const auth = readCodexAuthFile();
+  return Boolean(auth?.oauth || auth?.hasApiKey || env.OPENAI_API_KEY?.trim());
 }
 
 // ---------------------------------------------------------------------------

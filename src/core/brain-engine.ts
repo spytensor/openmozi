@@ -253,23 +253,6 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
   };
 
   let renderableArtifactEmitted = false;
-  const executionStartedAt = Date.now();
-  const deadlineController = new AbortController();
-  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-  const scheduleExecutionDeadline = (timeoutMs: number): void => {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
-    if (timeoutMs <= 0 || deadlineController.signal.aborted) return;
-    const remainingMs = timeoutMs - (Date.now() - executionStartedAt);
-    if (remainingMs <= 0) {
-      deadlineController.abort(new Error('Gateway execution deadline exceeded'));
-      return;
-    }
-    deadlineTimer = setTimeout(
-      () => deadlineController.abort(new Error('Gateway execution deadline exceeded')),
-      remainingMs,
-    );
-    deadlineTimer.unref?.();
-  };
   const executionKernel = new UnifiedExecutionKernel({
     scope: 'gateway',
     tenantId: opts.tenantId,
@@ -280,17 +263,13 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
     maxLoopElapsedMs,
     maxFailedToolBatches,
     repeatedFailureStrategy: 'inject_then_stop',
-    timeoutMode: 'wall_clock',
-    onLoopTimeoutChanged: scheduleExecutionDeadline,
     loopDetectorOptions: {
       consecutiveThreshold: repeatedBatchThreshold,
       exemptToolNames: INTERACTIVE_LOOP_EXEMPT_TOOLS,
       countingMode: 'turn_frequency',
     },
   });
-  const executionAbortSignal = abortSignal
-    ? AbortSignal.any([abortSignal, deadlineController.signal])
-    : deadlineController.signal;
+  const executionAbortSignal = abortSignal ?? new AbortController().signal;
   const baseToolContext: ToolContext = {
     ...opts.toolContext,
     tenantId: opts.tenantId,
@@ -333,7 +312,6 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
         })
     : undefined;
   await fileArtifactTracker?.captureBaseline();
-  scheduleExecutionDeadline(maxLoopElapsedMs);
 
   logger.debug({ chatId, userText: contextMessages[contextMessages.length - 1]?.content?.toString().slice(0, 80) }, 'Brain execution starting');
 
@@ -484,7 +462,6 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
     artifactCoordinator?.terminateAll('failed', errorMessageForTerminalPatch(err, 'Artifact generation interrupted'));
     throw err;
   } finally {
-    if (deadlineTimer) clearTimeout(deadlineTimer);
     artifactCoordinator?.terminateAll('closed');
   }
 }

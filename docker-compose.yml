@@ -1,6 +1,11 @@
 services:
   mozi:
-    build: .
+    build:
+      context: .
+      args:
+        # Optional base64-encoded PEM root CA for TLS-intercepting networks.
+        # A certificate is public material; never put a private key here.
+        MOZI_EXTRA_CA_CERT_B64: ${MOZI_EXTRA_CA_CERT_B64:-}
     # Bind to localhost only — expose to the internet via the nginx reverse
     # proxy in deploy/nginx.conf.example, NOT by changing this to 0.0.0.0.
     # Reason: when MOZI runs with auth_mode=none (the simple single-user

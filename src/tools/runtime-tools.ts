@@ -255,7 +255,6 @@ export const activateToolsTool: ToolDefinition = {
           type: 'array',
           items: { type: 'string' },
           minItems: 1,
-          uniqueItems: true,
           description: 'Exact ready tool names from the Tool Catalog',
         },
       },
@@ -395,7 +394,7 @@ export async function executeRuntimeTool(
     }
     case 'activate_tools': {
       const names = Array.isArray(args.names)
-        ? args.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+        ? Array.from(new Set(args.names.filter((name): name is string => typeof name === 'string' && name.trim().length > 0)))
         : [];
       if (names.length === 0) {
         return {
@@ -963,16 +962,12 @@ export async function executeRuntimeTool(
         if (!prompt) {
           return { tool_call_id: id, content: 'Error: managed_brain requires handler_params.prompt containing only the workload to execute when the schedule fires', is_error: true };
         }
-        const requestedTimeout = Number(handlerParams?.timeout_minutes ?? 60);
-        const managedTimeoutMinutes = Number.isFinite(requestedTimeout)
-          ? Math.min(120, Math.max(10, Math.floor(requestedTimeout)))
-          : 60;
         effectiveHandlerParams = {
           ...handlerParams,
           prompt,
           source_request: context.userPrompt ?? prompt,
-          timeout_minutes: managedTimeoutMinutes,
         };
+        delete effectiveHandlerParams.timeout_minutes;
       }
 
       try {

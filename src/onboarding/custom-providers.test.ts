@@ -57,7 +57,7 @@ describe('detectProviders with registry', () => {
   const savedEnv: Record<string, string | undefined> = {};
   const envKeys = ['GROQ_API_KEY', 'TOGETHER_API_KEY', 'OPENROUTER_API_KEY', 'OLLAMA_API_KEY',
     'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY', 'GOOGLE_API_KEY', 'GEMINI_API_KEY',
-    'MINIMAX_API_KEY', 'MINIMAX_BASE_URL', 'MOONSHOT_API_KEY'];
+    'MINIMAX_API_KEY', 'MINIMAX_BASE_URL', 'MOONSHOT_API_KEY', 'MOZI_HOME'];
 
   beforeEach(() => {
     for (const key of envKeys) {
@@ -130,6 +130,23 @@ describe('detectProviders with registry', () => {
 
     expect(minimax).toBeDefined();
     expect(minimax!.baseUrl).toBe('https://api.minimax.chat/anthropic/v1');
+  });
+
+  it('normalizes provider base_url overrides from mozi.json', () => {
+    const home = join(tmpdir(), `mozi-provider-config-${Date.now()}`);
+    mkdirSync(home, { recursive: true });
+    process.env.MOZI_HOME = home;
+    process.env.OPENAI_API_KEY = 'openai-key';
+    writeFileSync(join(home, 'mozi.json'), JSON.stringify({
+      providers: { openai: { base_url: 'https://gateway.example.internal/v1' } },
+    }));
+
+    try {
+      const openai = detectProviders().find(provider => provider.id === 'openai');
+      expect(openai?.baseUrl).toBe('https://gateway.example.internal/v1');
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

@@ -113,9 +113,9 @@ The signed path fails closed unless the packaged app has a valid `Developer ID A
 
 Every created Release contains:
 
-- `MOZI-<version>-arm64.dmg`
-- `MOZI-<version>-arm64-mac.zip`
-- `OpenMozi-<version>-<channel>-manifest.json`
-- `OpenMozi-<version>-SHA256SUMS.txt`
+- `openmozi-<version>-arm64.dmg`
+- `openmozi-<version>-arm64-mac.zip`
+- `openmozi-<version>-<channel>-manifest.json`
+- `openmozi-<version>-SHA256SUMS.txt`
 
 The manifest records source commit, build identity, package versions, artifact sizes and hashes, Developer ID status, notarization status, and explicit blockers. It reports macOS publishability separately from full-product publishability, which additionally requires an immutable Docker image digest. GitHub stores these files but does not build them.

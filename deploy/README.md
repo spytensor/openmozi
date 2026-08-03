@@ -53,6 +53,19 @@ MOZI_HOME=$(pwd)/data pnpm mozi onboard
 docker compose up -d --build
 ```
 
+### Corporate TLS interception
+
+If your network replaces TLS certificates, encode the public root CA before
+step 5. The build installs it into both Docker stages before Corepack, pnpm,
+or pip makes a network request:
+
+```bash
+export MOZI_EXTRA_CA_CERT_B64="$(base64 < company-root-ca.pem | tr -d '\n')"
+docker compose up -d --build
+```
+
+Do not put a private key in this variable.
+
 After step 4, `./data/mozi.json` exists with the operator's provider
 choices, model router, and `bootstrap_state.onboarding.completed=true`.
 The container will skip the wizard and land directly on the chat UI.

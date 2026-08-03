@@ -6,6 +6,47 @@ OpenMozi maintains its own version line.
 
 ## [Unreleased]
 
+### Added
+
+- Release queue reset after v1.4.1; new entries land here.
+
+### Changed
+
+- None yet.
+
+### Fixed
+
+- None yet.
+
+## [v1.4.1] - 2026-08-03
+
+### Added
+
+- Docker builds can install an optional base64-encoded public root CA before
+  Corepack, pnpm, or pip access the network, improving compatibility with
+  TLS-intercepting corporate networks.
+
+### Changed
+
+- Active work now uses one compact capsule and one matching timeline dialog.
+  Its title follows the current runtime action and uses a restrained
+  left-to-right text gradient while work is running.
+- macOS installation instructions link directly to GitHub Releases and explain
+  checksum verification and first-launch handling for unsigned prereleases.
+
+### Fixed
+
+- Codex worker setup recognizes API-key authentication stored by the Codex CLI,
+  not only OAuth credentials.
+- Azure-compatible model endpoints no longer receive the unsupported
+  `uniqueItems` tool-schema keyword; duplicate tool names are removed at
+  runtime instead.
+- Custom provider `base_url` settings are honored consistently during model
+  discovery and onboarding.
+- Managed and scheduled work is no longer terminated by an arbitrary
+  ten-minute wall-clock deadline; explicit cancellation and concrete runtime
+  failures still stop execution.
+
 ## [1.4.0] - 2026-08-02
 
 ### Added

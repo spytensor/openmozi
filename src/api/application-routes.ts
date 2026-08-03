@@ -1220,9 +1220,8 @@ function validateRequestedModelAllowed(ctx: ApiTenantContext, modelId: string): 
 }
 
 function getModelRolesForTenant(tenantId: string): { brain: ModelRoleSlot; light: ModelRoleSlot; step: ModelRoleSlot; plan_summary: ModelRoleSlot; embedding: ModelRoleSlot } {
-  const raw = readConfigWithLegacyFallback(getConfigPath()).config;
   const config = loadConfig(getConfigPath());
-  const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+  const rawProviders = config.providers;
   const storedKeyProviders = new Set(listTenantApiKeys(tenantId).map((entry) => entry.provider));
   const readyCliProviders = detectReadyCliProviderIds();
 
@@ -4434,7 +4433,7 @@ export async function registerApiRoutes(
     const allowedModels = ctx ? resolveAllowedModels(ctx.tenant_id, ctx.user_id).models : null;
     const storedKeys = new Set(listTenantApiKeys(tenantId).map((entry) => entry.provider));
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+    const rawProviders = loadConfig(getConfigPath()).providers;
     const manualModels = ((raw.model_discovery as Record<string, unknown> | undefined)?.manual_models ?? {}) as Record<string, string[]>;
     const persistedModels = ((raw.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
     const persistedFetchedAt = ((raw.model_discovery as Record<string, unknown> | undefined)?.fetched_at ?? {}) as Record<string, string>;
@@ -4588,8 +4587,7 @@ export async function registerApiRoutes(
       // Azure needs a per-user resource URL, and the model factory throws
       // without one. That throw happens during startup client construction, so
       // accepting this selection would leave the daemon unable to boot.
-      const rawBrainConfig = readConfigWithLegacyFallback(getConfigPath()).config as Record<string, unknown>;
-      const brainRawProviders = rawBrainConfig.providers as Record<string, { baseurl?: string }> | undefined;
+      const brainRawProviders = loadConfig(getConfigPath()).providers;
       if (!resolveBaseUrl(provider.id, process.env, brainRawProviders)) {
         return reply.code(400).send({
           success: false,
@@ -4671,7 +4669,7 @@ export async function registerApiRoutes(
       return reply.code(404).send({ success: false, reason: 'live_discovery_unsupported', error: 'Provider does not expose live model discovery' });
     }
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+    const rawProviders = loadConfig(getConfigPath()).providers;
     const masterSecret = resolveTenantMasterSecret();
     const apiKey = resolveRuntimeApiKey(id, {
       configProviders: rawProviders,
@@ -4766,7 +4764,7 @@ export async function registerApiRoutes(
     if (!provider) return reply.code(400).send({ ok: false, error: 'Unknown provider' });
 
     const raw = readConfigWithLegacyFallback(getConfigPath()).config;
-    const rawProviders = raw.providers as Record<string, { apikey?: string; baseurl?: string; apiversion?: string }> | undefined;
+    const rawProviders = loadConfig(getConfigPath()).providers;
     const masterSecret = resolveTenantMasterSecret();
     const apiKey = resolveRuntimeApiKey(id, {
       configProviders: rawProviders,

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTempDir, removeTempDir, setupTestDb, teardownTestDb } from '../test-helpers.js';
 import { getDb } from '../store/db.js';
-import { executeRuntimeTool, RUNTIME_TOOL_DEFINITIONS } from './runtime-tools.js';
+import { activateToolsTool, executeRuntimeTool, RUNTIME_TOOL_DEFINITIONS } from './runtime-tools.js';
 import type { ToolContext } from './types.js';
 
 const hoisted = vi.hoisted(() => ({
@@ -129,9 +129,11 @@ async function createMarkdownArtifact(content: string, callId: string) {
 describe('progressive tool activation', () => {
   it('registers activate_tools and returns structured activation metadata', async () => {
     expect(RUNTIME_TOOL_DEFINITIONS.map(tool => tool.function.name)).toContain('activate_tools');
+    expect((activateToolsTool.function.parameters.properties as Record<string, Record<string, unknown>>).names)
+      .not.toHaveProperty('uniqueItems');
     const result = await executeRuntimeTool(
       'activate_tools',
-      { names: ['web_search', 'write_file'] },
+      { names: ['web_search', 'write_file', 'web_search'] },
       'call-activate',
       { ...toolContext, availableToolNames: ['activate_tools', 'web_search', 'write_file'] },
     );
@@ -323,11 +325,12 @@ describe('runtime managed scheduler tools', () => {
       permission_level: context.permissionLevel,
       handler_type: 'managed_brain',
     });
-    expect(JSON.parse(row.handler_params)).toMatchObject({
+    const params = JSON.parse(row.handler_params);
+    expect(params).toMatchObject({
       prompt: '搜索当日 A 股收盘数据，验证交易日期后生成 dashboard。',
       source_request: context.userPrompt,
-      timeout_minutes: 120,
     });
+    expect(params).not.toHaveProperty('timeout_minutes');
   });
 
   it('rejects managed schedules without a future workload prompt', async () => {

@@ -362,7 +362,10 @@ export function sanitizeToolIntent(intent?: string): string | null {
   const value = intent?.replace(/\s+/g, " ").trim();
   if (!value) return null;
 
+  const runtimeUuid = value.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i)?.[0];
   const looksLikeRuntimeId =
+    value === runtimeUuid ||
+    Boolean(runtimeUuid && /["']?process_?id["']?\s*[:=]/i.test(value)) ||
     /^[a-z]+_[0-9]{8,}_[a-z0-9]+$/i.test(value) ||
     (/^[a-z0-9_:-]+$/i.test(value) && /[_:-]/.test(value) && /\d{6,}/.test(value));
   return looksLikeRuntimeId ? null : value;
@@ -605,7 +608,12 @@ function toolStepKind(tool?: string | null): ToolStepKind {
   // create_artifact authors a document — it is a write, never a raw tool
   // name leaking into the narrative tier ("处理 create_artifact").
   if (normalized.includes("write") || normalized.includes("save") || normalized.includes("patch") || normalized.includes("artifact")) return "write";
-  if (normalized.includes("shell") || normalized.includes("exec") || normalized.includes("terminal")) return "shell";
+  if (
+    normalized.includes("shell") ||
+    normalized.includes("exec") ||
+    normalized.includes("terminal") ||
+    ["process_status", "process_output", "process_input", "process_kill"].includes(normalized)
+  ) return "shell";
   if (
     normalized.includes("fetch") ||
     normalized.includes("read") ||
@@ -833,6 +841,7 @@ function sourcesForToolStep(tool: ToolEvent, kind: ToolStepKind, url: string | n
 
 export function buildToolStepSummary(tool: ToolEvent, locale: Locale = DEFAULT_LOCALE): ToolStepSummary {
   const kind = toolStepKind(tool.tool);
+  const normalizedTool = normalizeToolName(tool.tool).toLowerCase();
   const skillName = skillNameForTool(tool);
   const skillDescription = skillDescriptionForTool(tool);
   const skillLoadOutcome = skillLoadOutcomeForTool(tool);
@@ -861,6 +870,35 @@ export function buildToolStepSummary(tool: ToolEvent, locale: Locale = DEFAULT_L
       skillLoadError,
       skillSuffixName: null,
       isSkillActivation: true,
+      sources: [],
+    };
+  }
+
+  const processLabelKey = ({
+    process_status: "execution.step.backgroundStatus",
+    process_output: "execution.step.backgroundOutput",
+    process_input: "execution.step.backgroundInput",
+    process_kill: "execution.step.backgroundStop",
+  } as const)[normalizedTool];
+  if (processLabelKey) {
+    const label = translateMessage(locale, processLabelKey);
+    return {
+      kind: "shell",
+      label,
+      timelineLabel: label,
+      target: null,
+      url: null,
+      hostname: null,
+      showHostnameChip: false,
+      raw: null,
+      skillName: null,
+      skillDescription: null,
+      skillLoadOutcome: null,
+      skillMissingBins: [],
+      skillMissingEnv: [],
+      skillLoadError: null,
+      skillSuffixName: null,
+      isSkillActivation: false,
       sources: [],
     };
   }

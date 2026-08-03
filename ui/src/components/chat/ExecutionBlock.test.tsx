@@ -1673,24 +1673,34 @@ describe("live in-chat plan card (single plan surface)", () => {
     };
     renderWithLocale(<ExecutionBlock block={block} />);
 
-    // Collapsed capsule by default (operator decision 2026-07-18): plan
-    // chrome + progress + current action, no phase rows until clicked.
+    // The live capsule is the single visible work owner in chat. It carries
+    // state, current activity and plan progress without dumping phase rows.
     const card = screen.getByTestId("execution-live-plan");
-    expect(card).toHaveTextContent("Plan");
+    const trigger = screen.getByTestId("plan-capsule-toggle");
+    expect(card).toHaveTextContent("Working");
     expect(card).toHaveTextContent("0 / 2");
     expect(card).not.toHaveTextContent("Generate final PDF report");
     expect(screen.getByTestId("execution-plan-card")).toBeInTheDocument();
+    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "running");
+    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
 
-    // First click: phase spine only — tool rows still behind each phase row.
-    fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(card).toHaveTextContent("Research CPI & PCE inflation");
-    expect(card).toHaveTextContent("Generate final PDF report");
+    // Clicking moves the same work object into one dedicated detail surface;
+    // the chat capsule itself never grows a competing inline copy.
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("work-detail-surface")).toHaveAttribute("data-state", "running");
+    expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Research CPI & PCE inflation");
+    expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Generate final PDF report");
+    expect(card).not.toHaveTextContent("Generate final PDF report");
     const spineRows = screen.getAllByTestId("execution-step-label");
 
     // Second disclosure: clicking a phase expands that phase's tool rows.
     fireEvent.click(screen.getAllByTestId("execution-task-group")[0]);
     expect(screen.getAllByTestId("execution-step-label").length).toBeGreaterThan(spineRows.length);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to conversation" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("renders the same working capsule without plan chrome when the turn has no typed plan", () => {
@@ -1698,10 +1708,78 @@ describe("live in-chat plan card (single plan surface)", () => {
     expect(screen.queryByTestId("execution-live-plan")).not.toBeInTheDocument();
     const capsule = screen.getByTestId("execution-live-work");
     expect(capsule).toBeInTheDocument();
-    // No plan chrome: no phase fraction, but the capsule is clickable and
-    // expands the process rows.
+    // No plan chrome: no phase fraction, but the same detail surface owns its
+    // process rows.
     expect(capsule).not.toHaveTextContent("/");
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
+    expect(screen.getByTestId("work-detail-dialog")).toBeInTheDocument();
     expect(screen.getAllByTestId("execution-step-label").length).toBeGreaterThan(0);
+  });
+
+  it("uses the live action as the flowing title and hides background process ids", () => {
+    const processId = "433a2865-1771-4f2a-947a-741e1aa490cd";
+    const block: ExecutionBlockModel = {
+      key: "turn-process-status",
+      turnId: "turn-process-status",
+      headline: processId,
+      status: "running",
+      toolCount: 1,
+      taskCount: 0,
+      issueCount: 0,
+      totalElapsedMs: 0,
+      issueSummaries: [],
+      tasks: [],
+      tools: [{
+        id: "process-status",
+        callId: "process-status",
+        turnId: "turn-process-status",
+        tool: "process_status",
+        phase: "start",
+        intent: processId,
+        timestamp: 1,
+      }],
+    };
+
+    renderWithLocale(<ExecutionBlock block={block} />);
+
+    const capsule = screen.getByTestId("execution-live-work");
+    expect(capsule).toHaveTextContent("Waiting for background command");
+    expect(capsule).not.toHaveTextContent(processId);
+    expect(capsule.querySelector(".work-title-shimmer")).toHaveTextContent("Waiting for background command");
+
+    fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
+    expect(screen.getByTestId("execution-work-detail-title")).toHaveTextContent("Waiting for background command");
+    expect(screen.getByTestId("work-detail-dialog")).not.toHaveTextContent(processId);
+  });
+
+  it("switches the work surface from active cobalt to verification state", () => {
+    const block: ExecutionBlockModel = {
+      key: "turn-verifying",
+      turnId: "turn-verifying",
+      headline: "Checking the report",
+      status: "running",
+      toolCount: 0,
+      taskCount: 1,
+      issueCount: 0,
+      totalElapsedMs: 12_000,
+      issueSummaries: [],
+      plan: {
+        plan_id: "p-verifying",
+        goal: "Verified report",
+        phases: [{ taskId: "verify", title: "Verify report", dependsOn: [] }],
+        timestamp: 1,
+      },
+      tasks: [
+        { id: "ev-verify", task_id: "verify", title: "Verify report", status: "running", userStatus: "verifying", timestamp: 2 },
+      ],
+      tools: [],
+    };
+
+    renderWithLocale(<ExecutionBlock block={block} />);
+    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "verifying");
+    expect(screen.getByTestId("execution-plan-card")).toHaveTextContent("Verifying");
+
+    fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
+    expect(screen.getByTestId("work-detail-surface")).toHaveAttribute("data-state", "verifying");
   });
 });

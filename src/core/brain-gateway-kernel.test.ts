@@ -21,7 +21,7 @@ vi.mock('./autonomous-timeout.js', () => ({
 }));
 
 import { brainExecute, type BrainExecutionOptions } from './brain-engine.js';
-import type { ChatMessage, ChatResponse, LLMClient } from './llm.js';
+import type { ChatMessage, ChatOptions, ChatResponse, LLMClient } from './llm.js';
 import { loadConfig } from '../config/index.js';
 import { getConfigPath } from '../paths.js';
 import { getOutputDir } from '../tools/workspace-policy.js';
@@ -271,7 +271,7 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
     expect(timeoutHoisted.report).not.toHaveBeenCalled();
   });
 
-  it('bounds a stream whose iterator never resolves with a gateway-owned deadline', async () => {
+  it('recovers when the provider adapter enforces the per-call timeout', async () => {
     timeoutHoisted.report.mockReturnValue({
       applied: false,
       reason: 'at_limit',
@@ -283,9 +283,13 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
       nextInteractiveTurnTimeoutMs: 45,
     });
     const client = {
-      chat: vi.fn(() => new Promise<ChatResponse>(() => undefined)),
-      chatStream: vi.fn(async function* () {
-        await new Promise<never>(() => undefined);
+      chat: vi.fn(async (_messages: ChatMessage[], callOptions?: ChatOptions) => {
+        await new Promise(resolve => setTimeout(resolve, callOptions?.timeout_ms ?? 20));
+        throw new Error('provider call timeout');
+      }),
+      chatStream: vi.fn(async function* (_messages: ChatMessage[], callOptions?: ChatOptions) {
+        await new Promise(resolve => setTimeout(resolve, callOptions?.timeout_ms ?? 20));
+        throw new Error('provider stream timeout');
       }),
     } as unknown as LLMClient;
     const onStreamReset = vi.fn();
@@ -298,10 +302,32 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
       selfHealRetries: 0,
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(250);
+    expect(Date.now() - startedAt).toBeLessThan(750);
     expect(result.recovered).toBe(true);
     expect(result.recoveryMode).toBe('fallback');
     expect(onStreamReset).toHaveBeenCalled();
+  });
+
+  it('does not abort a Brain turn solely because total elapsed time exceeds the inactivity window', async () => {
+    let executionSignal: AbortSignal | undefined;
+    const client = {
+      chat: vi.fn(async (_messages: ChatMessage[], chatOptions?: ChatOptions) => {
+        executionSignal = chatOptions?.abort_signal;
+        await new Promise(resolve => setTimeout(resolve, 40));
+        return response('Completed without a wall-clock deadline.');
+      }),
+      chatStream: vi.fn(),
+    } as unknown as LLMClient;
+
+    const result = await brainExecute({
+      ...options(client),
+      llmCallTimeoutMs: 100,
+      maxLoopElapsedMs: 10,
+      selfHealRetries: 0,
+    });
+
+    expect(executionSignal?.aborted).toBe(false);
+    expect(result.responseText).toBe('Completed without a wall-clock deadline.');
   });
 
   it('propagates user cancellation after recovery has started', async () => {

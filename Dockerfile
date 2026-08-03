@@ -3,11 +3,23 @@ FROM node:22-slim AS builder
 ARG MOZI_BUILD_COMMIT=unknown
 ARG MOZI_BUILD_TIME
 ARG MOZI_RELEASE_CHANNEL=stable
+ARG MOZI_EXTRA_CA_CERT_B64=
 ENV MOZI_BUILD_COMMIT=${MOZI_BUILD_COMMIT}
 ENV MOZI_BUILD_TIME=${MOZI_BUILD_TIME}
 ENV MOZI_RELEASE_CHANNEL=${MOZI_RELEASE_CHANNEL}
 
 WORKDIR /app
+
+# Debian's slim Node image does not include a system trust store. Install one
+# before the first Node network request, and optionally add a PEM root
+# certificate supplied as base64 by the image builder.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && if [ -n "$MOZI_EXTRA_CA_CERT_B64" ]; then \
+    printf '%s' "$MOZI_EXTRA_CA_CERT_B64" | base64 --decode > /usr/local/share/ca-certificates/mozi-extra-ca.crt; \
+    update-ca-certificates; \
+  fi \
+  && rm -rf /var/lib/apt/lists/*
 
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
@@ -27,6 +39,7 @@ ARG MOZI_BUILD_COMMIT=unknown
 ARG MOZI_BUILD_TIME=unknown
 ARG MOZI_BUILD_VERSION=unknown
 ARG MOZI_RELEASE_CHANNEL=stable
+ARG MOZI_EXTRA_CA_CERT_B64=
 LABEL org.opencontainers.image.version=${MOZI_BUILD_VERSION} \
       org.opencontainers.image.revision=${MOZI_BUILD_COMMIT} \
       org.opencontainers.image.created=${MOZI_BUILD_TIME} \
@@ -42,10 +55,17 @@ COPY requirements/document-runtime-constraints.txt ./requirements/document-runti
 # Install them at build time so the skills are Ready offline instead of
 # surfacing "Needs setup" in the enterprise container.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 python3-pip git poppler-utils \
+  && apt-get install -y --no-install-recommends ca-certificates python3 python3-pip git poppler-utils \
     libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-core fonts-noto-cjk \
-  && rm -rf /var/lib/apt/lists/* \
-  && pip3 install --no-cache-dir --break-system-packages \
+  && if [ -n "$MOZI_EXTRA_CA_CERT_B64" ]; then \
+    printf '%s' "$MOZI_EXTRA_CA_CERT_B64" | base64 --decode > /usr/local/share/ca-certificates/mozi-extra-ca.crt; \
+    update-ca-certificates; \
+  fi \
+  && rm -rf /var/lib/apt/lists/*
+
+# Keep Python packages in their own layer so a registry failure does not force
+# Docker to repeat the much larger LibreOffice installation.
+RUN pip3 install --no-cache-dir --break-system-packages \
     --requirement requirements/document-runtime.txt \
     --constraint requirements/document-runtime-constraints.txt \
   && python3 -c 'import defusedxml, docx, imageio, numpy, openpyxl, pandas, pdf2image, pdfplumber, PIL, pptx, pypdf, reportlab, markitdown'

@@ -59,6 +59,19 @@
     --activity-glow: rgba(255, 255, 255, 0.15);
     --code-bg: rgba(255, 255, 255, 0.05);
 
+    /* Work surfaces use colour only as live runtime state. Cobalt means the
+       agent is actively executing; verification, failure and success keep the
+       existing semantic status tokens. */
+    --work-active: #4f76e8;
+    --work-title-start: #f5f7ff;
+    --work-title-mid: #cbc8ff;
+    --work-title-end: #7696ff;
+    --work-detail-surface: #101010;
+    --work-detail-card: #181818;
+    --radius-work: 18px;
+    --motion-work-duration: 180ms;
+    --motion-work-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
     /* Agent identity hues. Low-saturation and their own tokens: an identity
        must not restate a status colour (amber = warning), and a saturated
        fill at avatar size competes with the content it labels. Rendered as a
@@ -135,6 +148,12 @@
     --danger: #ef4444;
     --activity-glow: rgba(0, 0, 0, 0.08);
     --code-bg: rgba(0, 0, 0, 0.04);
+    --work-active: #315bc9;
+    --work-title-start: #18181b;
+    --work-title-mid: #6658c7;
+    --work-title-end: #315bc9;
+    --work-detail-surface: #ffffff;
+    --work-detail-card: #f7f7f8;
     --composer-shadow: 0 0 0 1px rgba(0,0,0,0.06), 0 8px 30px -12px rgba(0,0,0,0.12);
     --composer-shadow-empty: 0 0 0 1px rgba(0,0,0,0.08), 0 16px 40px -16px rgba(0,0,0,0.15);
     --composer-shadow-active: 0 0 0 1px rgba(0,0,0,0.15), 0 12px 35px -15px rgba(0,0,0,0.12);
@@ -237,6 +256,65 @@
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     box-shadow: var(--composer-shadow);
+  }
+
+  .work-active-ink {
+    color: var(--work-active);
+  }
+
+  .work-capsule,
+  .work-detail-shell {
+    --work-state: var(--work-active);
+  }
+
+  .work-capsule[data-state="verifying"],
+  .work-detail-shell[data-state="verifying"] {
+    --work-state: var(--warning);
+  }
+
+  .work-capsule {
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--work-state) 78%, transparent);
+    border-radius: var(--radius-work);
+    outline: 2px solid color-mix(in srgb, var(--work-state) 24%, transparent);
+    outline-offset: 2px;
+    background: color-mix(in srgb, var(--work-state) 7%, var(--surface-card));
+    transition:
+      background-color var(--motion-work-duration) var(--motion-work-ease),
+      border-color var(--motion-work-duration) var(--motion-work-ease),
+      outline-color var(--motion-work-duration) var(--motion-work-ease),
+      transform var(--motion-work-duration) var(--motion-work-ease);
+  }
+
+  .work-capsule:hover {
+    background: color-mix(in srgb, var(--work-state) 10%, var(--surface-card));
+    border-color: color-mix(in srgb, var(--work-state) 92%, transparent);
+  }
+
+  .work-capsule:focus-within {
+    outline-color: color-mix(in srgb, var(--work-state) 52%, transparent);
+  }
+
+  .work-capsule:active {
+    transform: translateY(1px);
+  }
+
+  .work-detail-shell {
+    border: 1px solid color-mix(in srgb, var(--work-state) 24%, var(--border-medium));
+    border-radius: var(--radius-work);
+    background: var(--work-detail-surface);
+  }
+
+  .work-detail-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-work);
+    background: var(--work-detail-card);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .work-capsule {
+      transition: none;
+    }
   }
 
   .glow-activity {
@@ -392,6 +470,26 @@
     100% { background-position: -120% 0; }
   }
 
+  @keyframes work-title-flow {
+    0% { background-position: -120% 0; }
+    100% { background-position: 120% 0; }
+  }
+
+  .work-title-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      var(--work-title-start) 0%,
+      var(--work-title-mid) 46%,
+      var(--work-title-end) 100%
+    );
+    background-position: 0 0;
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+
   @media (prefers-reduced-motion: no-preference) {
     .pulse-dot {
       animation: pulse-dot 1.5s ease-in-out infinite;
@@ -413,13 +511,18 @@
       color: transparent;
       animation: live-verb-shimmer 2.4s ease-in-out infinite;
     }
+
+    .work-title-shimmer {
+      animation: work-title-flow 3.2s linear infinite;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .pulse-dot,
     .typing-dot,
     .live-progress-indicator,
-    .live-verb-shimmer {
+    .live-verb-shimmer,
+    .work-title-shimmer {
       animation: none !important;
     }
   }
