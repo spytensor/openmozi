@@ -2,11 +2,12 @@
 
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
-import { dirname, join, resolve } from 'node:path';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const DEFAULT_DEST = join(ROOT, 'desktop', 'resources', 'mozi');
+const DEFAULT_NODE_ROOT = join(ROOT, 'desktop', 'resources', 'node');
 
 function getArg(name, fallback) {
   const idx = process.argv.indexOf(name);
@@ -51,6 +52,27 @@ function runPnpm(args) {
   execFileSync('pnpm', args, options);
 }
 
+function rebuildNativeDependencies(dest) {
+  const nodeRoot = resolve(process.env.MOZI_DESKTOP_NODE_DEST || DEFAULT_NODE_ROOT);
+  const nodeBin = join(nodeRoot, 'bin', 'node');
+  const npmCli = join(nodeRoot, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  assertExists(nodeBin, 'Staged desktop Node');
+  assertExists(npmCli, 'Staged desktop npm');
+
+  const env = {
+    ...process.env,
+    PATH: `${dirname(nodeBin)}${delimiter}${process.env.PATH ?? ''}`,
+  };
+  execFileSync(nodeBin, [
+    npmCli, 'rebuild', 'better-sqlite3', '--prefix', dest, '--foreground-scripts',
+  ], { cwd: ROOT, stdio: 'inherit', env });
+  execFileSync(nodeBin, ['-e', [
+    `const Database = require(${JSON.stringify(join(dest, 'node_modules', 'better-sqlite3'))});`,
+    "const db = new Database(':memory:');",
+    'db.close();',
+  ].join(' ')], { cwd: ROOT, stdio: 'inherit', env });
+}
+
 async function main() {
   const dest = resolve(getArg('--dest', process.env.MOZI_DESKTOP_RUNTIME_DEST || DEFAULT_DEST));
 
@@ -66,6 +88,7 @@ async function main() {
   mkdirSync(dirname(dest), { recursive: true });
 
   runPnpm(['--filter', '.', 'deploy', '--legacy', '--prod', dest]);
+  rebuildNativeDependencies(dest);
 
   replaceDir(join(ROOT, 'dist'), join(dest, 'dist'));
   rmSync(join(dest, 'ui'), { recursive: true, force: true });

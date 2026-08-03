@@ -66,4 +66,11 @@ describe('install contract', () => {
     // and shipped to the public repo.
     expect(existsSync('ui/pnpm-lock.yaml')).toBe(false);
   });
+
+  it('rebuilds native runtime dependencies with the staged desktop Node', () => {
+    const prepareRuntime = readFileSync('scripts/prepare-desktop-runtime.mjs', 'utf8');
+    expect(prepareRuntime).toContain("npmCli, 'rebuild', 'better-sqlite3'");
+    expect(prepareRuntime).toContain("const db = new Database(':memory:');");
+    expect(prepareRuntime).toContain('PATH: `${dirname(nodeBin)}${delimiter}');
+  });
 });

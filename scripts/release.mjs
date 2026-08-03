@@ -404,6 +404,9 @@ function notarizeArtifacts(artifacts) {
 function buildMacReleaseAssets(version, channel, unsigned) {
   const commit = run('git', ['rev-parse', 'HEAD'], { stdio: 'pipe' }).trim();
   const distPath = resolve(ROOT, 'desktop', 'dist');
+  for (const generatedPath of ['node', 'python', 'mozi']) {
+    rmSync(resolve(ROOT, 'desktop', 'resources', generatedPath), { recursive: true, force: true });
+  }
   rmSync(distPath, { recursive: true, force: true });
 
   run(process.execPath, [

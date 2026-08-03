@@ -36,6 +36,9 @@ OpenMozi maintains its own version line.
 
 ### Fixed
 
+- macOS packages rebuild native SQLite bindings with the Node runtime embedded
+  in the app and verify the binding before packaging. Failed release retries
+  also clear generated runtime resources before privacy scanning.
 - Codex worker setup recognizes API-key authentication stored by the Codex CLI,
   not only OAuth credentials.
 - Azure-compatible model endpoints no longer receive the unsupported
