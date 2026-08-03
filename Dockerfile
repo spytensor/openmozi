@@ -44,10 +44,19 @@ COPY requirements/document-runtime-constraints.txt ./requirements/document-runti
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 python3-pip git poppler-utils \
     libreoffice-impress libreoffice-writer libreoffice-calc libreoffice-core fonts-noto-cjk \
-  && rm -rf /var/lib/apt/lists/* \
-  && pip3 install --no-cache-dir --break-system-packages \
-    --requirement requirements/document-runtime.txt \
-    --constraint requirements/document-runtime-constraints.txt \
+  && rm -rf /var/lib/apt/lists/*
+
+# Kept in its own layer, and retried: pip treats an HTTP error from the package
+# host as fatal (--retries only covers connection-level errors), so a single
+# transient 4xx while fetching one wheel would otherwise invalidate the apt layer
+# above and redo the ~10 minute LibreOffice install on the next attempt.
+RUN for attempt in 1 2 3; do \
+      pip3 install --no-cache-dir --break-system-packages --retries 10 \
+        --requirement requirements/document-runtime.txt \
+        --constraint requirements/document-runtime-constraints.txt && break; \
+      [ "$attempt" = 3 ] && exit 1; \
+      echo "pip install attempt $attempt failed; retrying"; sleep 15; \
+    done \
   && python3 -c 'import defusedxml, docx, imageio, numpy, openpyxl, pandas, pdf2image, pdfplumber, PIL, pptx, pypdf, reportlab, markitdown'
 
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
