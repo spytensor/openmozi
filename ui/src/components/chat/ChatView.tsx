@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect, useLayoutEffect, useMemo, useState, typ
 import { ArrowDown, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TimelineItem, ChatMessage, ApprovalRequest, Artifact, MemoryUpdate, PlanStartedUpdate, SessionState, TurnEnvelope } from "@/types";
-import MessageBubble, { AssistantNarration, hasRenderableAssistantContent, stripInjectedContext } from "./MessageBubble";
+import MessageBubble, { AssistantNarration, hasRenderableAssistantContent, hasRenderableReasoning, stripInjectedContext } from "./MessageBubble";
 import MoziAvatar from "@/components/MoziAvatar";
 import ExecutionBlock, { TechnicalDetails, type OpenSourcesHandler } from "./ExecutionBlock";
 import type { ExecutionBlockModel, ExecutionSourceRef } from "./execution";
@@ -153,6 +153,12 @@ function isStreamingAssistantMessage(item?: TimelineItem): boolean {
   if (item?.type !== "message") return false;
   const message = item.data as ChatMessage;
   return message.role === "assistant" && message.streaming === true;
+}
+
+function isStreamingReasoning(item?: TimelineItem): boolean {
+  if (item?.type !== "message") return false;
+  const message = item.data as ChatMessage;
+  return message.role === "assistant" && message.reasoning?.streaming === true && hasRenderableReasoning(message);
 }
 
 function normalizedArtifactState(value: unknown): string {
@@ -353,6 +359,7 @@ function deriveActivityIndicator(
   const lastItem = timeline[timeline.length - 1];
   if (hasLiveExecutionBlock(renderItems, activeTurnId)) return "none";
   if (activeTool) return "tool";
+  if (isStreamingReasoning(lastItem)) return "none";
   if (isStreamingAssistantAnswer(lastItem)) return "none";
   if (isStreamingAssistantMessage(lastItem)) return "responding";
   if (hasRunningArtifactInCurrentTurn(timeline)) return "none";
@@ -1252,7 +1259,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
             : undefined;
         const assistantMessageRenders =
           msg.role === "assistant" &&
-          (hasRenderableAssistantContent(msg) || Boolean(msg.streaming && msg.requestId));
+          (hasRenderableAssistantContent(msg) || hasRenderableReasoning(msg) || Boolean(msg.streaming && msg.requestId));
         const showAvatar = msg.role === "assistant" ? !assistantAvatarShownInTurn : true;
         if (assistantMessageRenders) {
           assistantAvatarShownInTurn = true;

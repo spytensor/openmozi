@@ -139,6 +139,19 @@ describe('core/llm adapter mode routing', () => {
     expect(firstCall.baseURL).toBe('https://proxy.example.com/v1');
   });
 
+  it('routes DashScope through its OpenAI-compatible endpoint', async () => {
+    await invoke('dashscope', {
+      model: 'qwen3.7-plus',
+      apiKey: 'dashscope-key',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+
+    expect(createOpenAICompatible).toHaveBeenCalledTimes(1);
+    const firstCall = vi.mocked(createOpenAICompatible).mock.calls[0]?.[0] as { name?: string; baseURL?: string };
+    expect(firstCall.name).toBe('dashscope');
+    expect(firstCall.baseURL).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1');
+  });
+
   it('maps think option to OpenAI reasoningEffort provider option', async () => {
     const client = create('openai', {
       model: 'gpt-5',
@@ -223,6 +236,65 @@ describe('core/llm adapter mode routing', () => {
     const providerOptions = call.providerOptions as Record<string, unknown>;
     const deepseekOptions = providerOptions.deepseek as Record<string, unknown>;
     expect(deepseekOptions.thinking).toEqual({ type: 'disabled' });
+  });
+
+  it('maps Qwen thinking to DashScope request options', async () => {
+    const client = create('dashscope', {
+      model: 'qwen3.7-plus',
+      apiKey: 'dashscope-key',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+    await client.chat([{ role: 'user', content: 'ping' }], { max_tokens: 8, think: 'high' });
+
+    const call = vi.mocked(generateText).mock.calls[0]?.[0] as Record<string, unknown>;
+    const providerOptions = call.providerOptions as Record<string, unknown>;
+    expect(providerOptions.dashscope).toEqual({
+      enable_thinking: true,
+      thinking_budget: 4096,
+    });
+  });
+
+  it('maps Qwen 3.8 named thinking levels to its reasoning effort contract', async () => {
+    const client = create('dashscope', {
+      model: 'qwen3.8-max',
+      apiKey: 'dashscope-key',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+    await client.chat([{ role: 'user', content: 'ping' }], { max_tokens: 8, think: 'high' });
+
+    const call = vi.mocked(generateText).mock.calls[0]?.[0] as Record<string, unknown>;
+    const providerOptions = call.providerOptions as Record<string, unknown>;
+    expect(providerOptions.dashscope).toEqual({
+      reasoningEffort: 'xhigh',
+    });
+  });
+
+  it('uses only thinking_budget for an explicit Qwen 3.8 token budget', async () => {
+    const client = create('dashscope', {
+      model: 'qwen3.8-max',
+      apiKey: 'dashscope-key',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+    await client.chat([{ role: 'user', content: 'ping' }], { max_tokens: 8, think: 16_384 });
+
+    const call = vi.mocked(generateText).mock.calls[0]?.[0] as Record<string, unknown>;
+    const providerOptions = call.providerOptions as Record<string, unknown>;
+    expect(providerOptions.dashscope).toEqual({
+      thinking_budget: 16_384,
+    });
+  });
+
+  it('maps think=false to DashScope non-thinking mode', async () => {
+    const client = create('dashscope', {
+      model: 'qwen3.7-plus',
+      apiKey: 'dashscope-key',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    });
+    await client.chat([{ role: 'user', content: 'ping' }], { max_tokens: 8, think: false });
+
+    const call = vi.mocked(generateText).mock.calls[0]?.[0] as Record<string, unknown>;
+    const providerOptions = call.providerOptions as Record<string, unknown>;
+    expect(providerOptions.dashscope).toEqual({ enable_thinking: false });
   });
 
   it('keeps DeepSeek reasoning enabled for tool calls when think is not explicit', async () => {
@@ -333,6 +405,12 @@ describe('core/llm adapter mode routing', () => {
     }
 
     const done = chunks.find(chunk => chunk.type === 'done');
+    expect(chunks).toContainEqual({
+      type: 'reasoning',
+      text: 'Need a tool.',
+      kind: 'raw',
+      provider: 'deepseek',
+    });
     expect(done?.response?.reasoning_content).toBe('Need a tool.');
     expect(done?.response?.tool_calls?.[0].id).toBe('call_1');
   });

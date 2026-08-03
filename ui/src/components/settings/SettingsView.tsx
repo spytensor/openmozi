@@ -14,6 +14,7 @@ import {
   LogOut,
   Monitor,
   MoreHorizontal,
+  Minus,
   Moon,
   Palette,
   Plug,
@@ -213,6 +214,7 @@ export default function SettingsView({
   const [keys, setKeys] = useState<ApiKeyEntry[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [newKey, setNewKey] = useState("");
+  const [newBaseUrl, setNewBaseUrl] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   // The add-key form stays collapsed behind a button. Keeping a password input
@@ -297,6 +299,11 @@ export default function SettingsView({
   const keyByProvider = useMemo(() => new Map(keys.map((entry) => [entry.provider, entry])), [keys]);
   const providerById = useMemo(() => new Map(providers.map((provider) => [provider.id, provider])), [providers]);
   const selectedProvider = providerById.get(selectedProviderId) ?? providers[0];
+  const selectedProviderRegions = selectedProvider?.regions ?? [];
+  const selectedRegionId = selectedProviderRegions.find((region) => region.baseUrl === newBaseUrl)?.id ?? "custom";
+  useEffect(() => {
+    setNewBaseUrl(selectedProvider?.baseUrl ?? "");
+  }, [selectedProvider?.baseUrl, selectedProvider?.id]);
   const sortedProviders = useMemo(() => {
     return [...providers].sort((a, b) => {
       const aConfigured = keyByProvider.has(a.id) || !!a.hasKey;
@@ -601,9 +608,18 @@ export default function SettingsView({
   const saveKey = async (providerId: string) => {
     const normalized = newKey.trim();
     if (!providerId || !normalized) return;
+    const provider = providerById.get(providerId);
+    const normalizedBaseUrl = provider?.regions?.length ? newBaseUrl.trim() : "";
+    if (provider?.regions?.length && !normalizedBaseUrl) {
+      setKeyError(t("settings.provider.endpointRequired"));
+      return;
+    }
     setSavingKey(true);
     setKeyError(null);
-    const { error: postError } = await post(`/api/keys/${providerId}`, { key: normalized });
+    const { error: postError } = await post(`/api/keys/${providerId}`, {
+      key: normalized,
+      ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+    });
     setSavingKey(false);
     if (postError) {
       setKeyError(postError);
@@ -614,7 +630,9 @@ export default function SettingsView({
       const rest = prev.filter((entry) => entry.provider !== providerId);
       return [...rest, { provider: providerId, key_hint: hint, updated_at: new Date().toISOString() }];
     });
-    setProviders((prev) => prev.map((provider) => (provider.id === providerId ? { ...provider, hasKey: true } : provider)));
+    setProviders((prev) => prev.map((candidate) => (candidate.id === providerId
+      ? { ...candidate, hasKey: true, ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}) }
+      : candidate)));
     setCheckResult((prev) => {
       const next = new Map(prev);
       next.delete(providerId);
@@ -990,7 +1008,10 @@ export default function SettingsView({
                 <div className="space-y-3 p-2">
                   {!showAddKey ? (
                     <button
-                      onClick={() => setShowAddKey(true)}
+                      onClick={() => {
+                        setNewBaseUrl(selectedProvider?.baseUrl ?? "");
+                        setShowAddKey(true);
+                      }}
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border px-3 text-[12.5px] font-medium transition-colors hover:bg-ink/[0.04]"
                       style={{ borderColor: "var(--border-medium)", color: "var(--text-primary)" }}
                     >
@@ -1001,13 +1022,14 @@ export default function SettingsView({
                   <form
                     autoComplete="off"
                     onSubmit={(e) => { e.preventDefault(); if (selectedProvider) void saveKey(selectedProvider.id); }}
-                    className="flex flex-col gap-2 rounded-lg border border-ink/[0.06] bg-ink/[0.018] p-3 lg:flex-row lg:items-end"
+                    className="flex flex-col gap-2 rounded-lg border border-ink/[0.06] bg-ink/[0.018] p-3 lg:flex-row lg:flex-wrap lg:items-end"
                   >
                     <label className="min-w-[180px] flex-1">
                       <span className="mb-1 block text-[11px] text-ink/38">{t("settings.keys.provider")}</span>
                       <select
                         value={selectedProvider?.id ?? ""}
                         onChange={(event) => setSelectedProviderId(event.target.value)}
+                        data-testid="settings-provider-select"
                         className="h-9 w-full rounded-md border px-2.5 text-[12.5px] outline-none"
                         style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                       >
@@ -1016,6 +1038,39 @@ export default function SettingsView({
                         ))}
                       </select>
                     </label>
+                    {selectedProviderRegions.length > 0 && (
+                      <label className="min-w-[180px] flex-1">
+                        <span className="mb-1 block text-[11px] text-ink/38">{t("settings.provider.region")}</span>
+                        <select
+                          value={selectedRegionId}
+                          onChange={(event) => {
+                            const region = selectedProviderRegions.find((candidate) => candidate.id === event.target.value);
+                            setNewBaseUrl(region?.baseUrl ?? "");
+                          }}
+                          data-testid="settings-provider-region"
+                          className="h-9 w-full rounded-md border px-2.5 text-[12.5px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        >
+                          {selectedProviderRegions.map((region) => (
+                            <option key={region.id} value={region.id}>{region.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {selectedProviderRegions.length > 0 && selectedRegionId === "custom" && (
+                      <label className="min-w-[300px] flex-[2]">
+                        <span className="mb-1 block text-[11px] text-ink/38">{t("settings.provider.endpoint")}</span>
+                        <input
+                          type="url"
+                          value={newBaseUrl}
+                          onChange={(event) => setNewBaseUrl(event.target.value)}
+                          placeholder={t("settings.provider.endpointPlaceholder")}
+                          data-testid="settings-provider-endpoint"
+                          className="h-9 w-full rounded-md border px-2.5 font-mono text-[12px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        />
+                      </label>
+                    )}
                     <label className="min-w-[240px] flex-[2]">
                       <span className="mb-1 block text-[11px] text-ink/38">{t("settings.keys.add")}</span>
                       <span className="relative block">
@@ -1046,7 +1101,7 @@ export default function SettingsView({
                     </label>
                     <button
                       type="submit"
-                      disabled={!selectedProvider || !newKey.trim() || savingKey}
+                      disabled={!selectedProvider || !newKey.trim() || savingKey || (selectedProviderRegions.length > 0 && !newBaseUrl.trim())}
                       className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors disabled:opacity-50"
                       style={{ background: "var(--action)", color: "var(--action-fg)" }}
                     >
@@ -1055,7 +1110,11 @@ export default function SettingsView({
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setShowAddKey(false); setNewKey(""); }}
+                      onClick={() => {
+                        setShowAddKey(false);
+                        setNewKey("");
+                        setNewBaseUrl(selectedProvider?.baseUrl ?? "");
+                      }}
                       className="inline-flex h-9 shrink-0 items-center justify-center rounded-md px-3 text-[12.5px] transition-colors hover:bg-ink/[0.04]"
                       style={{ color: "var(--text-muted)" }}
                     >
@@ -1537,15 +1596,10 @@ function ActiveModelsBlock({
         const active = activeModelIds.has(model.id);
         const displayName = model.name || model.id;
         return (
-          <button
+          <div
             key={`${provider.id}:${model.id}`}
-            type="button"
-            role="switch"
-            data-testid={`settings-active-model-${model.id}`}
-            aria-checked={active}
-            onClick={() => onToggle(model.id, !active)}
             className={cn(
-              "group flex min-h-[58px] min-w-0 items-center gap-3 border-ink/[0.06] px-3 py-2 text-left transition-colors hover:bg-ink/[0.025]",
+              "flex min-h-[58px] min-w-0 items-center gap-3 border-ink/[0.06] px-3 py-2 text-left",
               index > 1 && "lg:border-t",
               index > 0 && "max-lg:border-t",
               index % 2 === 1 && "lg:border-l",
@@ -1568,19 +1622,17 @@ function ActiveModelsBlock({
                 )}
               </span>
             </span>
-            <span
-              aria-hidden
-              className={cn(
-                "relative h-[18px] w-8 shrink-0 rounded-full border transition-colors",
-                active ? "border-selection bg-selection" : "border-ink/14 bg-ink/[0.06]",
-              )}
+            <button
+              type="button"
+              data-testid={`settings-active-model-${model.id}`}
+              aria-label={`${t(active ? "settings.models.activation.remove" : "settings.models.activation.add")} ${displayName}`}
+              onClick={() => onToggle(model.id, !active)}
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-ink/[0.12] px-2 text-[10.5px] font-medium text-ink/54 transition-colors hover:border-ink/[0.22] hover:bg-ink/[0.04] hover:text-ink/78"
             >
-              <span className={cn(
-                "absolute top-[2px] h-3 w-3 rounded-full bg-white shadow-sm transition-transform",
-                active ? "translate-x-[16px]" : "translate-x-[2px]",
-              )} />
-            </span>
-          </button>
+              {active ? <Minus className="h-3 w-3" aria-hidden="true" /> : <Plus className="h-3 w-3" aria-hidden="true" />}
+              {t(active ? "settings.models.activation.remove" : "settings.models.activation.add")}
+            </button>
+          </div>
         );
       })}
     </div>
@@ -1725,9 +1777,8 @@ function ActiveModelsBlock({
                                 <button
                                   key={`${provider.id}:picker:${model.id}`}
                                   type="button"
-                                  role="switch"
                                   data-testid={`settings-picker-model-${model.id}`}
-                                  aria-checked="false"
+                                  aria-label={`${t("settings.models.activation.add")} ${displayName}`}
                                   onClick={() => onToggle(model.id, true)}
                                   className="group flex min-h-[50px] w-full min-w-0 items-center gap-3 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-ink/[0.04]"
                                 >
@@ -1745,7 +1796,10 @@ function ActiveModelsBlock({
                                       <CapabilityChips model={model} compact />
                                     </span>
                                   </span>
-                                  <Plus className="h-3.5 w-3.5 shrink-0 text-ink/34 group-hover:text-action" />
+                                  <span className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-ink/[0.12] px-2 text-[10.5px] font-medium text-ink/54 transition-colors group-hover:border-ink/[0.22] group-hover:text-ink/78">
+                                    <Plus className="h-3 w-3" aria-hidden="true" />
+                                    {t("settings.models.activation.add")}
+                                  </span>
                                 </button>
                               );
                             })}

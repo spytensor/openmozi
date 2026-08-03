@@ -476,6 +476,48 @@ describe('brainExecute', () => {
     expect(result.responseText).toBe('The answer is 42.');
   });
 
+  it('forwards provider reasoning separately before visible answer text', async () => {
+    const client = {
+      provider: 'deepseek',
+      chat: vi.fn(),
+      chatStream: vi.fn(async function* () {
+        yield { type: 'reasoning' as const, text: 'Check the evidence first.', kind: 'raw' as const, provider: 'deepseek' };
+        yield { type: 'text' as const, text: 'The evidence is consistent.' };
+        yield {
+          type: 'done' as const,
+          response: {
+            content: 'The evidence is consistent.',
+            reasoning_content: 'Check the evidence first.',
+            usage: { input_tokens: 10, output_tokens: 8 },
+            model: 'deepseek-reasoner',
+            stop_reason: 'end_turn',
+          },
+        };
+      }),
+    } as unknown as LLMClient;
+    const onReasoningChunk = vi.fn();
+    const onReasoningEnd = vi.fn();
+    const onStreamChunk = vi.fn();
+
+    const result = await brainExecute(buildTestOptions(client, {
+      progress: {
+        onToolStart: vi.fn(),
+        onToolEnd: vi.fn(),
+        onProcessingStart: vi.fn(),
+        onReasoningChunk,
+        onReasoningEnd,
+        onStreamChunk,
+        onStreamEnd: vi.fn(),
+      },
+    }, false));
+
+    const reasoning = { provider: 'deepseek', raw: 'Check the evidence first.' };
+    expect(onReasoningChunk).toHaveBeenCalledWith(reasoning);
+    expect(onReasoningEnd).toHaveBeenCalledWith(reasoning);
+    expect(onReasoningEnd.mock.invocationCallOrder[0]).toBeLessThan(onStreamChunk.mock.invocationCallOrder[0]);
+    expect(result.responseText).toBe('The evidence is consistent.');
+  });
+
   it('handles recovery when loop times out', async () => {
     // First call returns tool calls, but max_elapsed_ms = 0 means immediate timeout
     const client = createMockClient([
@@ -675,7 +717,7 @@ describe('brainExecute', () => {
     expect(vi.mocked(client.chat).mock.calls[0]?.[1]?.think).toBe('high');
   });
 
-  it('combines the caller abort_signal with the gateway deadline for the LLM client', async () => {
+  it('passes the caller abort_signal through to the LLM client', async () => {
     const client = createMockClient([
       { content: 'Done.', usage: { input_tokens: 10, output_tokens: 5 }, model: 'test', stop_reason: 'end_turn' },
     ]);
@@ -685,7 +727,7 @@ describe('brainExecute', () => {
 
     const providerSignal = vi.mocked(client.chat).mock.calls[0]?.[1]?.abort_signal;
     expect(providerSignal).toBeInstanceOf(AbortSignal);
-    expect(providerSignal).not.toBe(controller.signal);
+    expect(providerSignal).toBe(controller.signal);
     expect(providerSignal?.aborted).toBe(false);
 
     controller.abort('cancelled by caller');

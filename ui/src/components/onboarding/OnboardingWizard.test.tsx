@@ -102,6 +102,50 @@ describe("OnboardingWizard", () => {
     ]);
   });
 
+  it("saves a DashScope key with the onboarding region endpoint", async () => {
+    apiMocks.get.mockImplementation((url: string) => {
+      if (url === "/api/users/me") {
+        return Promise.resolve({ data: { user: { name: "Ada", role: "admin" } }, error: null });
+      }
+      if (url === "/api/keys") return Promise.resolve({ data: { keys: [] }, error: null });
+      if (url === "/api/providers") {
+        return Promise.resolve({
+          data: {
+            providers: [{
+              id: "dashscope",
+              name: "Qwen / Alibaba Cloud",
+              defaultModel: "qwen3.7-plus",
+              baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+              regions: [
+                { id: "cn", name: "China (Beijing)", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+                { id: "custom", name: "Workspace / subscription endpoint", baseUrl: "" },
+              ],
+              models: [{ id: "qwen3.7-plus", name: "Qwen 3.7 Plus" }],
+            }],
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    renderWithLocale(<OnboardingWizard onComplete={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("Ada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.change(await screen.findByTestId("onboarding-provider-region"), { target: { value: "custom" } });
+    fireEvent.change(await screen.findByTestId("onboarding-provider-endpoint"), {
+      target: { value: "https://workspace.example.com/compatible-mode/v1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Paste provider API key"), { target: { value: "sk-dashscope-test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and test" }));
+
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/api/keys/dashscope", {
+      key: "sk-dashscope-test",
+      baseUrl: "https://workspace.example.com/compatible-mode/v1",
+    }));
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/api/providers/dashscope/check", { model: "qwen3.7-plus" }));
+  });
+
   it("keeps non-admin onboarding on viewer-safe APIs", async () => {
     apiMocks.get.mockImplementation((url: string) => {
       apiMocks.requests.push({ method: "GET", url });

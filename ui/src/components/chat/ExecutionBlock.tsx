@@ -1,13 +1,11 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
-  ArrowLeft,
   Check,
   ChevronDown,
   ChevronRight,
   Circle,
   CircleSlash,
-  Clock3,
   ExternalLink,
   FileSearch,
   FileText,
@@ -20,14 +18,6 @@ import {
   Terminal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import type { TaskUpdate, ToolEvent } from "@/types";
 import {
   buildToolStepSummary,
@@ -947,7 +937,7 @@ function PlanCardShell({ locale, verifying = false, children }: { locale: Locale
  * the phase spine (group rows) is the default view; each phase row is itself
  * the toggle for ITS OWN tool rows — clicking one phase expands only that
  * phase, never the whole timeline. A plan-less working turn has no spine —
- * its rows ARE the process, and the capsule expansion is already the
+ * its rows ARE the process, and the main-pane detail page is already the
  * disclosure, so they render directly. Applies live and terminal alike.
  */
 function PlanTimelineBody({ rows, onOpenSources }: { rows: TimelineRow[]; onOpenSources?: OpenSourcesHandler }) {
@@ -1009,13 +999,14 @@ function PlanTimelineBody({ rows, onOpenSources }: { rows: TimelineRow[]; onOpen
  * Live plan capsule (operator decision 2026-07-18, mockup parity with the
  * compact "Working…" card): while the plan runs, the chat shows ONE quiet
  * rounded capsule — title, current action, and (for plan turns) progress
- * fraction + thin bar. Click expands the process; plan turns get the phase
- * spine with tool rows one more disclosure deeper (PlanTimelineBody).
+ * fraction + thin bar. Click expands the timeline directly below; plan turns
+ * get the phase spine with tool rows one more disclosure deeper
+ * (PlanTimelineBody).
  * Keyed to the turn by the caller, so narration never remounts it
  * (anti-flicker invariant).
  */
 function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: ExecutionBlockModel; locale: Locale; rows: TimelineRow[]; onOpenSources?: OpenSourcesHandler }) {
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   // With a typed plan the capsule carries phases and a progress bar; without
   // one it is the SAME working capsule (four-region model: every working
   // turn's process lives here, plans are not special) minus plan chrome.
@@ -1025,23 +1016,20 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
   const visualState = verifying ? "verifying" : "running";
   const title = liveLabel(block, locale);
   const statusLabel = translateMessage(locale, verifying ? "execution.plan.verifying" : "execution.capsule.working");
-  const elapsed = block.totalElapsedMs > 0 ? formatDurationForLocale(block.totalElapsedMs, locale) : null;
   return (
     <div data-testid={progress ? "execution-live-plan" : "execution-live-work"} className="w-full max-w-[640px] py-1">
-      <Dialog open={open} onOpenChange={setOpen}>
-        <div
-          data-testid="execution-plan-card"
-          data-state={visualState}
-          className="work-capsule"
+      <div
+        data-testid="execution-plan-card"
+        data-state={visualState}
+        className="work-capsule"
+      >
+        <button
+          type="button"
+          data-testid="plan-capsule-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+          className="group flex w-full flex-col text-left focus-visible:outline-none"
         >
-          <DialogTrigger asChild>
-            <button
-              type="button"
-              data-testid="plan-capsule-toggle"
-              aria-expanded={open}
-              aria-haspopup="dialog"
-              className="group flex w-full flex-col text-left focus-visible:outline-none"
-            >
               <span className="flex w-full items-center gap-2.5 px-4 pb-1.5 pt-3.5">
                 <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--work-state)" }} strokeWidth={2.1} />
                 <span
@@ -1050,7 +1038,7 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
                 >
                   {title}
                 </span>
-                <ChevronRight className="h-4 w-4 shrink-0 text-ink/38 transition-transform duration-180ms group-hover:translate-x-0.5" aria-hidden="true" />
+                <ChevronDown className={cn("h-4 w-4 shrink-0 text-ink/38 transition-transform duration-180ms", expanded && "rotate-180")} aria-hidden="true" />
               </span>
               <span className="w-full truncate px-4 pb-3 pl-[42px] text-[12.5px] leading-5 text-ink/48">
                 {statusLabel}
@@ -1074,86 +1062,17 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
                   )}
                 </span>
               )}
-            </button>
-          </DialogTrigger>
-        </div>
-
-        <DialogContent
-          data-testid="work-detail-dialog"
-          showClose={false}
-          unstyled
-          className="h-[calc(100vh-80px)] min-h-[320px] w-[calc(100vw-24px)] !max-w-[1120px] !gap-0 !border-0 !p-0 !shadow-none sm:w-[calc(100vw-64px)] sm:!rounded-none"
-        >
+        </button>
+        {expanded && (
           <div
-            data-testid="work-detail-surface"
-            data-state={visualState}
-            className="work-detail-shell flex h-full min-h-0 flex-col overflow-hidden"
+            data-testid="work-detail-timeline"
+            className="border-t border-ink/[0.07] px-4 py-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1"
           >
-            <header className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-ink/[0.07] px-3 sm:px-4">
-              <DialogClose asChild>
-                <button
-                  type="button"
-                  aria-label={translateMessage(locale, "execution.workDetail.back")}
-                  className="inline-flex h-9 min-w-0 items-center gap-2 justify-self-start rounded-lg px-2.5 text-[12.5px] text-ink/58 transition-colors hover:bg-ink/[0.05] hover:text-ink/82 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus/35"
-                >
-                  <ArrowLeft className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span className="hidden truncate sm:inline">{translateMessage(locale, "execution.workDetail.back")}</span>
-                </button>
-              </DialogClose>
-              <div className="flex min-w-0 items-center gap-2 px-2">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--work-state)" }} aria-hidden="true" />
-                <DialogTitle className="truncate text-[13px] font-semibold leading-none text-ink/86">
-                  {translateMessage(locale, "execution.workDetail.title")}
-                </DialogTitle>
-              </div>
-              <div className="flex min-w-0 items-center justify-end gap-3 text-[11.5px] tabular-nums text-ink/38">
-                {elapsed && (
-                  <span className="hidden items-center gap-1.5 md:inline-flex">
-                    <Clock3 className="h-3.5 w-3.5" aria-hidden="true" />
-                    {elapsed}
-                  </span>
-                )}
-                {progress && <span>{progress.done} / {progress.total}</span>}
-              </div>
-            </header>
-            <DialogDescription className="sr-only">{title}</DialogDescription>
-
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto w-full max-w-[900px] px-4 py-6 sm:px-8 sm:py-8">
-                <div className="flex min-w-0 items-end justify-between gap-4">
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-ink/34">
-                      {translateMessage(locale, "execution.workDetail.timeline")}
-                    </p>
-                    <h2 data-testid="execution-work-detail-title" className="work-title-shimmer mt-1 truncate text-[18px] font-semibold leading-7">{title}</h2>
-                  </div>
-                  {progress && (
-                    <span className="shrink-0 text-[12px] tabular-nums text-ink/40">
-                      {progress.done} / {progress.total}
-                    </span>
-                  )}
-                </div>
-
-                <section data-testid="work-detail-timeline" className="work-detail-card mt-4 px-4 py-4 sm:px-6 sm:py-5">
-                  <div className="flex min-w-0 items-start gap-3 border-b border-ink/[0.07] pb-4">
-                    <Loader2 aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--work-state)" }} strokeWidth={2.1} />
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-medium uppercase tracking-[0.1em] text-ink/32">
-                        {translateMessage(locale, "execution.workDetail.status")}
-                      </p>
-                      <p className="mt-1 break-words text-[13px] leading-5 text-ink/62">{statusLabel}</p>
-                    </div>
-                  </div>
-                  <div className="mt-5">
-                    <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
-                  </div>
-                  <TechnicalDetails block={block} locale={locale} />
-                </section>
-              </div>
-            </div>
+            <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
+            <TechnicalDetails block={block} locale={locale} />
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </div>
     </div>
   );
 }
@@ -1565,6 +1484,21 @@ export function ExecutionBlock({ block, interrupted = false, embedded = false, o
   const summary = compactSummary(block, frozen, locale);
   const shouldScrollTimeline = rows.length > EXECUTION_TIMELINE_SCROLL_THRESHOLD;
   const delegations = useMemo(() => collectAgentDelegations(block), [block]);
+  const rowsWithQueuedPhases = useMemo(() => {
+    if (!isLive || !block.plan) return rows;
+    const startedPhaseIds = new Set(block.tasks.map((task) => task.task_id));
+    const queuedRows: TimelineRow[] = block.plan.phases
+      .filter((phase) => !startedPhaseIds.has(phase.taskId))
+      .map((phase) => ({
+        key: `plan-queued:${phase.taskId}`,
+        label: sanitizeTaskTitle(phase.title) || phase.title,
+        state: "queued" as RowState,
+        depth: 0,
+        isGroup: true,
+        timestamp: Number.MAX_SAFE_INTEGER,
+      }));
+    return [...rows, ...queuedRows];
+  }, [block.plan, block.tasks, isLive, rows]);
 
   if (delegations.length > 0) {
     // Delegation cards are additive, never a replacement: the same turn may
@@ -1608,20 +1542,7 @@ export function ExecutionBlock({ block, interrupted = false, embedded = false, o
     // is the single live narrator (#635 single status owner); no extra
     // activity line, no default-open row dump.
     if (rows.length > 0) {
-      // Phases that have not started yet have no task/tool rows — show them
-      // as queued so the whole plan is visible when expanded (mockup parity).
-      const startedPhaseIds = new Set(block.tasks.map((task) => task.task_id));
-      const queuedRows: TimelineRow[] = (block.plan?.phases ?? [])
-        .filter((phase) => !startedPhaseIds.has(phase.taskId))
-        .map((phase) => ({
-          key: `plan-queued:${phase.taskId}`,
-          label: sanitizeTaskTitle(phase.title) || phase.title,
-          state: "queued" as RowState,
-          depth: 0,
-          isGroup: true,
-          timestamp: Number.MAX_SAFE_INTEGER,
-        }));
-      return <LiveWorkCapsule block={block} locale={locale} rows={[...rows, ...queuedRows]} onOpenSources={onOpenSources} />;
+      return <LiveWorkCapsule block={block} locale={locale} rows={rowsWithQueuedPhases} onOpenSources={onOpenSources} />;
     }
     // Nothing observable yet (lifecycle-only) — the one-line status suffices.
     return <LiveExecutionLine block={block} locale={locale} />;

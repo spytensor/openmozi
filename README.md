@@ -46,7 +46,10 @@ The composer is the cockpit: pick a **project** (any folder or git repo), the **
 
 The desktop app is the primary way to use MOZI. Download the latest Apple Silicon DMG and its checksum file from [GitHub Releases](https://github.com/spytensor/openmozi/releases).
 
-Current downloads are unsigned releases. macOS will block the first launch because Apple has not notarized them. Verify the DMG's SHA-256 value against the published `openmozi-<version>-SHA256SUMS.txt`, drag `MOZI.app` into `/Applications`, and only then remove quarantine from that verified copy:
+> [!WARNING]
+> Current macOS downloads are **not signed with an Apple Developer ID and are not notarized by Apple**. Gatekeeper may say that MOZI "is damaged," "cannot be opened," or is from an unidentified developer. Verify the DMG's SHA-256 value against the published `openmozi-<version>-SHA256SUMS.txt` before removing quarantine. The checksum confirms which GitHub artifact you downloaded; it does not replace Apple code-signing trust.
+
+After verifying the checksum, drag `MOZI.app` into `/Applications`, then remove quarantine from that verified copy and open it:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MOZI.app
@@ -83,7 +86,7 @@ Server-mode configuration lives in `~/.mozi/mozi.json` (JSON, not YAML). Inspect
 
 ## LLM Providers
 
-MOZI works with any OpenAI-compatible API — 26 providers are in the catalog. Switch anytime without losing data or history.
+MOZI works with any OpenAI-compatible API — 27 providers are in the catalog. Switch anytime without losing data or history.
 
 | Provider | Setup | Notes |
 |----------|-------|-------|
@@ -92,6 +95,7 @@ MOZI works with any OpenAI-compatible API — 26 providers are in the catalog. S
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude series |
 | **Google Gemini** | `GEMINI_API_KEY` | Gemini Pro/Flash |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V-series, R-series |
+| **Qwen / Alibaba Cloud** | `DASHSCOPE_API_KEY` | Qwen models through Model Studio / DashScope |
 | **Moonshot** | `MOONSHOT_API_KEY` | Kimi models, long context |
 | **Groq** | `GROQ_API_KEY` | Ultra-fast inference |
 | **Ollama** | Local install | Fully local and private |

@@ -98,6 +98,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [currentUserRole, setCurrentUserRole] = useState<"admin" | "operator" | "viewer" | null>(null);
   const [providers, setProviders] = useState<CatalogProvider[]>([]);
   const [providerId, setProviderId] = useState("");
+  const [providerBaseUrl, setProviderBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [testingProvider, setTestingProvider] = useState(false);
@@ -113,6 +114,12 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   );
   const canConfigureModels = currentUserRole === "admin";
   const providerReady = !!selectedProvider && readyProviderId === selectedProvider.id;
+  const selectedProviderRegions = selectedProvider?.regions ?? [];
+  const selectedRegionId = selectedProviderRegions.find((region) => region.baseUrl === providerBaseUrl)?.id ?? "custom";
+
+  useEffect(() => {
+    setProviderBaseUrl(selectedProvider?.baseUrl ?? "");
+  }, [selectedProvider?.baseUrl, selectedProvider?.id]);
 
   const loadInitialState = useCallback(async () => {
     setLoadingProfile(true);
@@ -191,8 +198,17 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
     setProviderError(null);
     setModelSkipped(false);
     const normalizedKey = apiKey.trim();
+    const normalizedBaseUrl = selectedProviderRegions.length > 0 ? providerBaseUrl.trim() : "";
+    if (selectedProviderRegions.length > 0 && !normalizedBaseUrl) {
+      setTestingProvider(false);
+      setProviderError(t("onboarding.provider.endpointRequired"));
+      return;
+    }
     if (normalizedKey) {
-      const saveResult = await post(`/api/keys/${selectedProvider.id}`, { key: normalizedKey });
+      const saveResult = await post(`/api/keys/${selectedProvider.id}`, {
+        key: normalizedKey,
+        ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+      });
       if (saveResult.error) {
         setTestingProvider(false);
         setProviderError(saveResult.error);
@@ -385,6 +401,43 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                         ))}
                       </select>
                     </label>
+                    {selectedProviderRegions.length > 0 && (
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11.5px] text-ink/42">{t("onboarding.provider.regionLabel")}</span>
+                        <select
+                          value={selectedRegionId}
+                          onChange={(event) => {
+                            const region = selectedProviderRegions.find((candidate) => candidate.id === event.target.value);
+                            setProviderBaseUrl(region?.baseUrl ?? "");
+                            setProviderError(null);
+                          }}
+                          data-testid="onboarding-provider-region"
+                          className="h-10 w-full rounded-md border px-3 text-[13px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        >
+                          {selectedProviderRegions.map((region) => (
+                            <option key={region.id} value={region.id}>{region.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {selectedProviderRegions.length > 0 && selectedRegionId === "custom" && (
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11.5px] text-ink/42">{t("onboarding.provider.endpointLabel")}</span>
+                        <input
+                          type="url"
+                          value={providerBaseUrl}
+                          onChange={(event) => {
+                            setProviderBaseUrl(event.target.value);
+                            setProviderError(null);
+                          }}
+                          data-testid="onboarding-provider-endpoint"
+                          placeholder={t("onboarding.provider.endpointPlaceholder")}
+                          className="h-10 w-full rounded-md border px-3 font-mono text-[12px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        />
+                      </label>
+                    )}
                     <label className="block">
                       <span className="mb-1.5 block text-[11.5px] text-ink/42">{t("onboarding.provider.keyLabel")}</span>
                       <span className="relative block">

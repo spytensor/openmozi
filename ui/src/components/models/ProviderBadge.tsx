@@ -41,6 +41,7 @@ const PROVIDER_LOGO: Record<string, LobeIconComponent> = {
   huggingface: lazy(() => import("@lobehub/icons/es/HuggingFace/components/Color")),
   zai: lazy(() => import("@lobehub/icons/es/Zhipu/components/Color")),
   qwen: lazy(() => import("@lobehub/icons/es/Qwen/components/Color")),
+  dashscope: lazy(() => import("@lobehub/icons/es/Qwen/components/Color")),
   ollama: lazy(() => import("@lobehub/icons/es/Ollama/components/Mono")),
 };
 

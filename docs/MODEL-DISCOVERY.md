@@ -6,7 +6,7 @@ MOZI treats provider APIs as the source of available model IDs when they expose 
 
 | Provider transport | Providers | Discovery strategy |
 |---|---|---|
-| OpenAI-compatible | OpenAI, OpenAI Codex, DeepSeek, Moonshot, Groq, Together, OpenRouter, xAI, Mistral, Hugging Face, Qianfan, NVIDIA, Z.AI, Synthetic, Venice, vLLM | Authenticated `GET /models`; provider failures fall back to the last-known list, then catalog/manual entry |
+| OpenAI-compatible | OpenAI, OpenAI Codex, DeepSeek, Qwen / Alibaba Cloud, Moonshot, Groq, Together, OpenRouter, xAI, Mistral, Hugging Face, Qianfan, NVIDIA, Z.AI, Synthetic, Venice, vLLM | Authenticated `GET /models`; provider failures fall back to the last-known list, then catalog/manual entry |
 | Anthropic-compatible | Anthropic, MiniMax, Xiaomi | Authenticated `GET /v1/models`; MiniMax model discovery uses its OpenAI-compatible `/v1/models` root because chat uses a separate Anthropic path |
 | Gemini native | Google | `GET https://generativelanguage.googleapis.com/v1beta/models`, filtered to `generateContent` models |
 | Ollama native | Ollama | Local `GET /api/tags`; only auto-probed when Ollama is active, with explicit refresh available otherwise |

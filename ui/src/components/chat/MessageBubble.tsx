@@ -1,16 +1,17 @@
-import { memo, useState } from "react";
-import { AlertCircle, Check, Copy, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { memo, useEffect, useRef, useState } from "react";
+import { AlertCircle, Check, ChevronDown, Copy, Lightbulb, Loader2, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { TypeIcon } from "./artifact-type-icons";
 import { buildFileArtifact } from "@/lib/file-artifact";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Artifact, ChatMessage } from "@/types";
+import type { Artifact, ChatMessage, ChatReasoning } from "@/types";
 import MoziAvatar from "@/components/MoziAvatar";
 import { useLocale } from "@/i18n";
 import { MARKDOWN_COMPONENTS } from "./markdown-link";
 import { normalizeMarkdownTables } from "./markdown-normalize";
 import MarkdownReadingSurface from "./MarkdownReadingSurface";
 import { CHAT_PROSE_CLASS, CHAT_PROSE_COMPACT_CLASS } from "./prose";
+import { formatDurationForLocale } from "@/i18n/format";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -227,6 +228,91 @@ export function hasRenderableAssistantContent(message: ChatMessage): boolean {
   return normalizeAssistantMarkdown(message.content).length > 0;
 }
 
+export function hasRenderableReasoning(message: ChatMessage): boolean {
+  return Boolean(
+    message.reasoning && (
+      normalizeAssistantMarkdown(message.reasoning.summary ?? "").length > 0 ||
+      normalizeAssistantMarkdown(message.reasoning.raw ?? "").length > 0
+    ),
+  );
+}
+
+function ReasoningDisclosure({ reasoning }: { reasoning: ChatReasoning }) {
+  const { locale, t } = useLocale();
+  const [open, setOpen] = useState(reasoning.streaming);
+  const wasStreaming = useRef(reasoning.streaming);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (reasoning.streaming && !wasStreaming.current) setOpen(true);
+    if (!reasoning.streaming && wasStreaming.current) setOpen(false);
+    wasStreaming.current = reasoning.streaming;
+  }, [reasoning.streaming]);
+
+  useEffect(() => {
+    if (!reasoning.streaming) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [reasoning.streaming]);
+
+  const summary = normalizeAssistantMarkdown(reasoning.summary ?? "");
+  const raw = normalizeAssistantMarkdown(reasoning.raw ?? "");
+  const durationMs = reasoning.durationMs ?? Math.max(0, (reasoning.completedAt ?? now) - reasoning.startedAt);
+  const title = reasoning.streaming
+    ? t("chat.reasoning.thinking")
+    : t("chat.reasoning.thoughtFor", { duration: formatDurationForLocale(durationMs, locale) });
+
+  return (
+    <div data-testid="message-reasoning" className="w-full max-w-[640px] text-ink/58">
+      <button
+        type="button"
+        data-testid="message-reasoning-toggle"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="group flex w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none"
+      >
+        {reasoning.streaming ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} aria-hidden="true" />
+        ) : (
+          <Lightbulb className="h-3.5 w-3.5 shrink-0 text-ink/38" strokeWidth={1.8} aria-hidden="true" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-ink/58">{title}</span>
+        <span className="shrink-0 text-[10.5px] text-ink/28">{reasoning.provider}</span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink/30 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="ml-[7px] border-l border-ink/[0.10] pb-2 pl-4 pt-1">
+          {summary && (
+            <section data-testid="message-reasoning-summary">
+              <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-ink/30">
+                {t("chat.reasoning.summary")}
+              </div>
+              <div className={`${CHAT_PROSE_COMPACT_CLASS} text-ink/58`}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                  {normalizeMarkdownTables(summary)}
+                </ReactMarkdown>
+              </div>
+            </section>
+          )}
+          {raw && (
+            <section data-testid="message-reasoning-raw" className={summary ? "mt-4 border-t border-ink/[0.07] pt-3" : ""}>
+              <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-ink/30">
+                {t("chat.reasoning.raw")}
+              </div>
+              <div className={`${CHAT_PROSE_COMPACT_CLASS} text-ink/52`}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                  {normalizeMarkdownTables(raw)}
+                </ReactMarkdown>
+              </div>
+            </section>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * Memoized so a streaming turn only re-parses the markdown of the bubble whose
  * content actually changed. useChat rebuilds the timeline array on every chunk but
@@ -260,6 +346,7 @@ export default memo(function MessageBubble({
   const content = role === "user" ? stripInjectedContext(message.content) : normalizeAssistantMarkdown(message.content);
   const chatError = role === "assistant" ? normalizeChatError(content) : null;
   const showStreamingPlaceholder = role === "assistant" && Boolean(streaming && message.requestId);
+  const showReasoning = role === "assistant" && hasRenderableReasoning(message);
 
   if (role === "system") {
     if (!content) return null;
@@ -329,7 +416,7 @@ export default memo(function MessageBubble({
     );
   }
 
-  if (!content && !showStreamingPlaceholder) return null;
+  if (!content && !showStreamingPlaceholder && !showReasoning) return null;
 
   // Assistant — MOZI avatar beside the content, aligned to the first text line
   return (
@@ -343,83 +430,86 @@ export default memo(function MessageBubble({
         <div aria-hidden="true" className="mt-0.5 h-[26px] w-[26px] shrink-0" />
       )}
       <div className="min-w-0 flex-1">
-      {chatError ? (
-        <div data-testid="message-error" className="max-w-full rounded-xl border border-danger/25 bg-danger/[0.05] p-3 text-[13px] text-ink/85 shadow-sm">
-          <div className="flex items-start gap-2.5">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-ink/85">{t(`chat.error.${chatError.kind}.title`)}</p>
-              <p className="mt-0.5 leading-relaxed text-ink/58">
-                {chatError.detail || t(`chat.error.${chatError.kind}.description`)}
-              </p>
-              {chatError.kind === "request" && onRegenerate && regenerateText && (
-                <button
-                  type="button"
-                  onClick={() => onRegenerate(regenerateText)}
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-link hover:text-link-hover"
-                >
-                  <RefreshCw size={12} />
-                  {t("common.retry")}
-                </button>
-              )}
-              {chatError.kind !== "request" && onOpenModelSettings && (
-                <button
-                  type="button"
-                  onClick={onOpenModelSettings}
-                  className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-link hover:text-link-hover"
-                >
-                  <Settings2 size={12} />
-                  {t("chat.error.openModelSettings")}
-                </button>
-              )}
-              {onDelete && (
-                <button
-                  type="button"
-                  onClick={() => onDelete(message)}
-                  className="mt-2 block text-xs font-medium text-ink/50 hover:text-danger"
-                >
-                  {t("chat.delete")}
-                </button>
-              )}
+        {showReasoning && message.reasoning && <ReasoningDisclosure reasoning={message.reasoning} />}
+        <div className={showReasoning && (content || chatError) ? "mt-3" : undefined}>
+          {chatError ? (
+            <div data-testid="message-error" className="max-w-full rounded-xl border border-danger/25 bg-danger/[0.05] p-3 text-[13px] text-ink/85 shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-ink/85">{t(`chat.error.${chatError.kind}.title`)}</p>
+                  <p className="mt-0.5 leading-relaxed text-ink/58">
+                    {chatError.detail || t(`chat.error.${chatError.kind}.description`)}
+                  </p>
+                  {chatError.kind === "request" && onRegenerate && regenerateText && (
+                    <button
+                      type="button"
+                      onClick={() => onRegenerate(regenerateText)}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-link hover:text-link-hover"
+                    >
+                      <RefreshCw size={12} />
+                      {t("common.retry")}
+                    </button>
+                  )}
+                  {chatError.kind !== "request" && onOpenModelSettings && (
+                    <button
+                      type="button"
+                      onClick={onOpenModelSettings}
+                      className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-link hover:text-link-hover"
+                    >
+                      <Settings2 size={12} />
+                      {t("chat.error.openModelSettings")}
+                    </button>
+                  )}
+                  {onDelete && (
+                    <button
+                      type="button"
+                      onClick={() => onDelete(message)}
+                      className="mt-2 block text-xs font-medium text-ink/50 hover:text-danger"
+                    >
+                      {t("chat.delete")}
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
+          ) : content ? (
+            showAssistantActions ? (
+              <MarkdownReadingSurface
+                markdown={content}
+                testId="message-assistant-content"
+                variant="answer"
+              />
+            ) : (
+              <div data-testid="message-assistant-content" className={`${CHAT_PROSE_CLASS} text-ink/70`}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                  {normalizeMarkdownTables(content)}
+                </ReactMarkdown>
+              </div>
+            )
+          ) : streaming && !showReasoning ? (
+            <div className="flex items-center gap-1 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
+              <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
+              <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
+            </div>
+          ) : null}
+        </div>
+        {content && !chatError && !streaming && showAssistantActions && (
+          <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <CopyAction text={content} rich />
+            {onRegenerate && regenerateText && (
+              <MessageAction label={t("chat.regenerate")} onClick={() => onRegenerate(regenerateText)}>
+                <RefreshCw size={13} />
+              </MessageAction>
+            )}
+            {onDelete && (
+              <MessageAction label={t("chat.delete")} onClick={() => onDelete(message)}>
+                <Trash2 size={13} />
+              </MessageAction>
+            )}
           </div>
-        </div>
-      ) : content ? (
-        showAssistantActions ? (
-          <MarkdownReadingSurface
-            markdown={content}
-            testId="message-assistant-content"
-            variant="answer"
-          />
-        ) : (
-          <div data-testid="message-assistant-content" className={`${CHAT_PROSE_CLASS} text-ink/70`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-              {normalizeMarkdownTables(content)}
-            </ReactMarkdown>
-          </div>
-        )
-      ) : streaming ? (
-        <div className="flex items-center gap-1 py-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
-          <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
-          <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
-        </div>
-      ) : null}
-      {content && !chatError && !streaming && showAssistantActions && (
-        <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          <CopyAction text={content} rich />
-          {onRegenerate && regenerateText && (
-            <MessageAction label={t("chat.regenerate")} onClick={() => onRegenerate(regenerateText)}>
-              <RefreshCw size={13} />
-            </MessageAction>
-          )}
-          {onDelete && (
-            <MessageAction label={t("chat.delete")} onClick={() => onDelete(message)}>
-              <Trash2 size={13} />
-            </MessageAction>
-          )}
-        </div>
-      )}
+        )}
       </div>
     </div>
   );

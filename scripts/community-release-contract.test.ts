@@ -30,6 +30,8 @@ describe('OpenMozi community and release contract', () => {
     const release = readFileSync('scripts/release.mjs', 'utf8');
     expect(release).toContain("'--verify-tag'");
     expect(release).toContain('Unsigned macOS release');
+    expect(release).toContain('not signed with an Apple Developer ID');
+    expect(release).toContain('Gatekeeper may report that MOZI is damaged or cannot be opened');
     expect(release).toContain("prerelease: channel === 'beta'");
     expect(release).not.toContain("prerelease: unsigned || channel === 'beta'");
     expect(release).toContain('xattr -dr com.apple.quarantine /Applications/MOZI.app');
@@ -43,6 +45,9 @@ describe('OpenMozi community and release contract', () => {
     const supplyChain = readFileSync('.github/workflows/release-supply-chain.yml', 'utf8');
     expect(supplyChain).toContain("tr '[:upper:]' '[:lower:]'");
     expect(supplyChain).toContain('CSC_IDENTITY_AUTO_DISCOVERY: "false"');
+    expect(supplyChain).toContain('macOS artifacts (signed or unsigned)');
+    expect(supplyChain).toContain('not signed with an Apple Developer ID');
+    expect(supplyChain).toContain('xattr -dr com.apple.quarantine /Applications/MOZI.app');
     expect(supplyChain).toContain('gh release create');
     expect(supplyChain).toContain('if [ "${{ inputs.channel }}" = "beta" ]; then');
     expect(supplyChain).not.toContain('if [ "${{ inputs.publish_update_feed }}" != "true" ] ||');
@@ -60,6 +65,11 @@ describe('OpenMozi community and release contract', () => {
       expect(content).toContain('https://github.com/spytensor/openmozi/releases');
       expect(content).toContain('xattr -dr com.apple.quarantine /Applications/MOZI.app');
     }
+
+    expect(readFileSync('README.md', 'utf8')).toContain('not signed with an Apple Developer ID');
+    expect(readFileSync('README.md', 'utf8')).toContain('MOZI "is damaged,"');
+    expect(readFileSync('README.zh-CN.md', 'utf8')).toContain('没有使用 Apple Developer ID 签名');
+    expect(readFileSync('README.zh-CN.md', 'utf8')).toContain('MOZI 已损坏');
   });
 
   it('supports an additional Docker root CA without coupling apt and pip layers', () => {

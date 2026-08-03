@@ -62,7 +62,7 @@ import { killAllProcesses } from './capabilities/shell.js';
 import { TelegramOutputChannel } from './channels/output-channel.js';
 import { createTelegramProgress } from './channels/telegram-progress.js';
 import { getAllRegisteredTools, loadDynamicToolsFromDb } from './tools/dynamic-registry.js';
-import { registerWebSocketRoute, broadcastProgressEvent, broadcastStreamEvent, broadcastArtifactEvent, broadcastWorkspaceEvent, broadcastTurnQueuedEvent, broadcastTurnTimeoutEvent, bindResolvedSessionToConnection, startWorkspacePush, stopWorkspacePush, sendToUser as wsSendToUser, type WsIncomingMessage } from './channels/websocket.js';
+import { registerWebSocketRoute, broadcastProgressEvent, broadcastStreamEvent, broadcastArtifactEvent, broadcastWorkspaceEvent, broadcastTurnQueuedEvent, broadcastTurnTimeoutEvent, bindResolvedSessionToConnection, startWorkspacePush, stopWorkspacePush, sendToUser as wsSendToUser, type StreamReasoningPayload, type WsIncomingMessage } from './channels/websocket.js';
 import { registerVoiceRoute } from './channels/voice.js';
 import { startPolling as startWeChatPolling, stopPolling as stopWeChatPolling, isWeChatUserId } from './channels/wechat.js';
 import { installBuiltinChannelPlugins } from './channels/plugins/index.js';
@@ -742,6 +742,7 @@ export function createMessageHandler(
       if (msg.channelType === 'websocket') {
         let wsStreamStarted = false;
         let wsLastStreamText = '';
+        let wsReasoning: StreamReasoningPayload | undefined;
         let wsStreamSegment = 0;
         const supportsArtifacts = msg.clientCapabilities?.includes('artifact_v1') === true;
         const requestBaseId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -750,6 +751,7 @@ export function createMessageHandler(
           wsStreamSegment += 1;
           requestId = `${requestBaseId}-${wsStreamSegment}`;
           wsLastStreamText = '';
+          wsReasoning = undefined;
         };
         progress = {
           // Early session binding (Issue #627). handleMessage fires this once,
@@ -773,6 +775,37 @@ export function createMessageHandler(
           },
           onToolStart: () => { markTurnActivity(); },
           onToolEnd: () => { markTurnActivity(); },
+          onReasoningChunk: (reasoning) => {
+            markTurnActivity();
+            const startedAt = wsReasoning?.startedAt ?? Date.now();
+            wsReasoning = {
+              provider: reasoning.provider,
+              ...(reasoning.summary ? { summary: reasoning.summary } : {}),
+              ...(reasoning.raw ? { raw: reasoning.raw } : {}),
+              streaming: true,
+              startedAt,
+            };
+            if (!wsStreamStarted) {
+              wsStreamStarted = true;
+              broadcastStreamEvent('stream_start', requestId, undefined, msg.userId, msg.sessionId, msg.tenantId);
+            }
+            broadcastStreamEvent('stream_chunk', requestId, wsLastStreamText, msg.userId, msg.sessionId, msg.tenantId, wsReasoning);
+          },
+          onReasoningEnd: (reasoning) => {
+            if (!wsReasoning) return;
+            markTurnActivity();
+            const completedAt = Date.now();
+            wsReasoning = {
+              provider: reasoning.provider,
+              ...(reasoning.summary ? { summary: reasoning.summary } : {}),
+              ...(reasoning.raw ? { raw: reasoning.raw } : {}),
+              streaming: false,
+              startedAt: wsReasoning.startedAt,
+              completedAt,
+              durationMs: Math.max(0, completedAt - wsReasoning.startedAt),
+            };
+            broadcastStreamEvent('stream_chunk', requestId, wsLastStreamText, msg.userId, msg.sessionId, msg.tenantId, wsReasoning);
+          },
           onStreamChunk: (accumulated: string) => {
             markTurnActivity();
             if (accumulated.trim().length === 0) {
@@ -783,7 +816,7 @@ export function createMessageHandler(
               wsStreamStarted = true;
               broadcastStreamEvent('stream_start', requestId, undefined, msg.userId, msg.sessionId, msg.tenantId);
             }
-            broadcastStreamEvent('stream_chunk', requestId, accumulated, msg.userId, msg.sessionId, msg.tenantId);
+            broadcastStreamEvent('stream_chunk', requestId, accumulated, msg.userId, msg.sessionId, msg.tenantId, wsReasoning);
           },
           onStreamEnd: (fullText: string) => {
             markTurnActivity();
@@ -800,7 +833,7 @@ export function createMessageHandler(
                 // Tool-call turns end the current stream with empty text. Preserve
                 // any visible preface as its own assistant message; otherwise clear
                 // the empty placeholder.
-                broadcastStreamEvent('stream_end', requestId, wsLastStreamText, msg.userId, msg.sessionId, msg.tenantId);
+                broadcastStreamEvent('stream_end', requestId, wsLastStreamText, msg.userId, msg.sessionId, msg.tenantId, wsReasoning);
                 wsStreamStarted = false;
                 advanceStreamSegment();
               }
@@ -813,14 +846,14 @@ export function createMessageHandler(
               broadcastStreamEvent('stream_start', requestId, undefined, msg.userId, msg.sessionId, msg.tenantId);
             }
             wsStreamed = true;
-            broadcastStreamEvent('stream_end', requestId, fullText, msg.userId, msg.sessionId, msg.tenantId);
+            broadcastStreamEvent('stream_end', requestId, fullText, msg.userId, msg.sessionId, msg.tenantId, wsReasoning);
           },
           onStreamReset: () => {
             markTurnActivity();
             if (!wsStreamStarted) return;
             // A retry must remove the incomplete segment instead of finalizing
             // wsLastStreamText as a durable assistant message.
-            broadcastStreamEvent('stream_end', requestId, '', msg.userId, msg.sessionId, msg.tenantId);
+            broadcastStreamEvent('stream_end', requestId, '', msg.userId, msg.sessionId, msg.tenantId, null);
             wsStreamStarted = false;
             advanceStreamSegment();
           },

@@ -75,6 +75,20 @@ describe("SettingsView", () => {
           data: {
             providers: [
               { id: "deepseek", name: "DeepSeek", apiType: "openai-compat", defaultModel: "deepseek-chat", hasKey: true, models: [{ id: "deepseek-chat", name: "DeepSeek Chat" }, { id: "deepseek-reasoner", name: "DeepSeek Reasoner", allowed: deepseekReasonerAllowed }] },
+              {
+                id: "dashscope",
+                name: "Qwen / Alibaba Cloud",
+                apiType: "openai-compat",
+                defaultModel: "qwen3.7-plus",
+                hasKey: false,
+                baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                regions: [
+                  { id: "cn", name: "China (Beijing)", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+                  { id: "us", name: "US (Virginia)", baseUrl: "https://dashscope-us.aliyuncs.com/compatible-mode/v1" },
+                  { id: "custom", name: "Workspace / subscription endpoint", baseUrl: "" },
+                ],
+                models: [{ id: "qwen3.7-plus", name: "Qwen 3.7 Plus" }],
+              },
               { id: "openai", name: "OpenAI", apiType: "openai-responses", defaultModel: "gpt-4.1", hasKey: false, models: [{ id: "gpt-4.1", name: "GPT-4.1" }] },
             ],
             current: { provider: "deepseek", model: "deepseek-chat" },
@@ -300,6 +314,26 @@ describe("SettingsView", () => {
     await waitFor(() => expect(screen.getByLabelText("Connection OK")).toBeInTheDocument());
   });
 
+  it("saves a DashScope key with a selected custom endpoint", async () => {
+    renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
+
+    await screen.findByRole("heading", { name: "Settings" });
+    clickCategory("providers");
+    fireEvent.click(screen.getByRole("button", { name: "Add key" }));
+    fireEvent.change(screen.getByTestId("settings-provider-select"), { target: { value: "dashscope" } });
+    fireEvent.change(await screen.findByTestId("settings-provider-region"), { target: { value: "custom" } });
+    fireEvent.change(await screen.findByTestId("settings-provider-endpoint"), {
+      target: { value: "https://workspace.example.com/compatible-mode/v1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Paste API key…"), { target: { value: "sk-dashscope-test" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save key" })[0]);
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/keys/dashscope", {
+      key: "sk-dashscope-test",
+      baseUrl: "https://workspace.example.com/compatible-mode/v1",
+    }));
+  });
+
   it("patches model role changes through the roles endpoint", async () => {
     renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
 
@@ -332,8 +366,8 @@ describe("SettingsView", () => {
     expect(screen.queryByTestId("settings-active-model-deepseek-chat")).not.toBeInTheDocument();
     expect(screen.getByTestId("settings-active-model-deepseek-reasoner")).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText("Search models or providers…"), { target: { value: "" } });
-    expect(screen.getByTestId("settings-active-model-deepseek-chat")).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByTestId("settings-active-model-deepseek-reasoner")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("settings-active-model-deepseek-chat")).toHaveAccessibleName("Remove DeepSeek Chat");
+    expect(screen.getByTestId("settings-active-model-deepseek-reasoner")).toHaveAccessibleName("Remove DeepSeek Reasoner");
     expect(screen.getByTestId("settings-save-active-models")).toBeDisabled();
     expect(screen.getByTestId("settings-save-active-models")).toHaveTextContent("Saved");
 
@@ -378,7 +412,7 @@ describe("SettingsView", () => {
     expect(addModel).toHaveTextContent("Add models · 1");
     fireEvent.click(addModel);
     const checkbox = await screen.findByTestId("settings-picker-model-deepseek-reasoner");
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
+    expect(checkbox).toHaveAccessibleName("Add DeepSeek Reasoner");
     fireEvent.click(checkbox);
     fireEvent.click(screen.getByTestId("settings-save-active-models"));
 
@@ -448,7 +482,7 @@ describe("SettingsView", () => {
     const liveCheckbox = await screen.findByTestId("settings-picker-model-deepseek-v4-pro-preview");
     expect(screen.getByText("live")).toBeInTheDocument();
     fireEvent.click(liveCheckbox);
-    expect(screen.getByTestId("settings-active-model-deepseek-v4-pro-preview")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("settings-active-model-deepseek-v4-pro-preview")).toHaveAccessibleName("Remove deepseek-v4-pro-preview");
     fireEvent.keyDown(screen.getByRole("button", { name: "More actions · DeepSeek" }), { key: "Enter", code: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Add custom model ID…" }));
     fireEvent.change(screen.getByPlaceholderText("Manual model ID"), { target: { value: "deepseek-private-preview" } });

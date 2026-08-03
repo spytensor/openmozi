@@ -1,5 +1,11 @@
 import type { ArtifactEvent } from '../artifacts/types.js';
 
+export interface ReasoningProgress {
+  provider: string;
+  summary?: string;
+  raw?: string;
+}
+
 /** Channel-neutral callbacks emitted while a Brain turn executes. */
 export interface ProgressCallback {
   onToolStart: (toolName: string) => void;
@@ -7,6 +13,10 @@ export interface ProgressCallback {
   onProcessingStart: () => void;
   onStreamChunk?: (accumulated: string) => void;
   onStreamEnd?: (fullText: string) => void;
+  /** Display-safe provider summary and/or provider-authored raw reasoning. */
+  onReasoningChunk?: (reasoning: ReasoningProgress) => void;
+  /** Marks the current provider reasoning segment complete before answer/tool output. */
+  onReasoningEnd?: (reasoning: ReasoningProgress) => void;
   /** Roll back a partial stream that must not remain visible or durable. */
   onStreamReset?: () => void;
   onArtifact?: (event: ArtifactEvent) => void;

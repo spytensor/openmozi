@@ -107,13 +107,23 @@ export interface WsUploadedAttachment {
  * - approval_request:  { type, id, description, sessionId?, required_level?, current_level?, denied_action?, tool? }
  * - approval_resolved: { type, id, status, sessionId?, originating_prompt?, permission_level? }
  */
+export interface StreamReasoningPayload {
+  provider: string;
+  summary?: string;
+  raw?: string;
+  streaming: boolean;
+  startedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+}
+
 export type WsOutgoingMessage =
   | { type: 'message'; role: 'assistant' | 'system'; content: string; sessionId?: string; turnId?: string; seq?: number }
   | { type: 'error'; message: string; sessionId?: string }
   | { type: 'turn_queue'; status: 'queued'; queueDepth: number; reason: 'session_busy' | 'user_concurrency_limit'; sessionId?: string; timestamp: number }
   | { type: 'stream_start'; requestId: string; sessionId?: string; turnId?: string; seq?: number }
-  | { type: 'stream_chunk'; requestId: string; content: string; sessionId?: string; turnId?: string; seq?: number }
-  | { type: 'stream_end'; requestId: string; content: string; sessionId?: string; turnId?: string; seq?: number }
+  | { type: 'stream_chunk'; requestId: string; content: string; reasoning?: StreamReasoningPayload | null; sessionId?: string; turnId?: string; seq?: number }
+  | { type: 'stream_end'; requestId: string; content: string; reasoning?: StreamReasoningPayload | null; sessionId?: string; turnId?: string; seq?: number }
   | { type: 'artifact_open'; artifact: ArtifactEnvelope; sessionId?: string; turnId?: string; seq?: number }
   | { type: 'artifact_patch'; artifactId: string; patch: ArtifactPatch; sessionId?: string; turnId?: string; seq?: number }
   | { type: 'artifact_close'; artifactId: string; sessionId?: string; turnId?: string; seq?: number }
@@ -1983,7 +1993,7 @@ const STREAM_COALESCE_MS = 50;
 interface PendingStreamFlush {
   timer: ReturnType<typeof setTimeout>;
   /** Newest chunk arrived during the cooldown window, or null if none pending. */
-  latest: { content: string; targetUserId?: string; sessionId?: string; tenantId: string } | null;
+  latest: { content: string; reasoning?: StreamReasoningPayload | null; targetUserId?: string; sessionId?: string; tenantId: string } | null;
 }
 
 const pendingStreamFlushes = new Map<string, PendingStreamFlush>();
@@ -2008,27 +2018,28 @@ export function broadcastStreamEvent(
   targetUserId?: string,
   sessionId?: string,
   tenantId = 'default',
+  reasoning?: StreamReasoningPayload | null,
 ): void {
   if (type !== 'stream_chunk') {
     // A start/end supersedes any buffered chunk for this request.
     clearPendingStreamFlush(requestId);
-    deliverStreamEvent(type, requestId, content, targetUserId, sessionId, tenantId);
+    deliverStreamEvent(type, requestId, content, targetUserId, sessionId, tenantId, reasoning);
     return;
   }
 
   const pending = pendingStreamFlushes.get(requestId);
   if (!pending) {
     // Leading edge: deliver now, then open a cooldown window for trailing chunks.
-    deliverStreamEvent(type, requestId, content, targetUserId, sessionId, tenantId);
+    deliverStreamEvent(type, requestId, content, targetUserId, sessionId, tenantId, reasoning);
     const entry: PendingStreamFlush = {
       latest: null,
       timer: setTimeout(function flushTrailing() {
         const current = pendingStreamFlushes.get(requestId);
         if (!current) return;
         if (current.latest) {
-          const { content: c, targetUserId: u, sessionId: s, tenantId: t } = current.latest;
+          const { content: c, reasoning: r, targetUserId: u, sessionId: s, tenantId: t } = current.latest;
           current.latest = null;
-          deliverStreamEvent('stream_chunk', requestId, c, u, s, t);
+          deliverStreamEvent('stream_chunk', requestId, c, u, s, t, r);
           // Keep throttling while chunks keep arriving.
           current.timer = setTimeout(flushTrailing, STREAM_COALESCE_MS);
         } else {
@@ -2042,7 +2053,7 @@ export function broadcastStreamEvent(
   }
 
   // Within cooldown: keep only the newest accumulated text.
-  pending.latest = { content: content ?? '', targetUserId, sessionId, tenantId };
+  pending.latest = { content: content ?? '', reasoning, targetUserId, sessionId, tenantId };
 }
 
 /**
@@ -2056,15 +2067,17 @@ function deliverStreamEvent(
   targetUserId?: string,
   sessionId?: string,
   tenantId = 'default',
+  reasoning?: StreamReasoningPayload | null,
 ): void {
   const turnId = resolveActiveTurnId(undefined, targetUserId, sessionId, tenantId);
   const msg: Extract<WsOutgoingMessage, { type: 'stream_start' | 'stream_chunk' | 'stream_end' }> = type === 'stream_start'
     ? { type, requestId, ...(sessionId ? { sessionId } : {}), ...(turnId ? { turnId } : {}) }
-    : { type: type as 'stream_chunk' | 'stream_end', requestId, content: content ?? '', ...(sessionId ? { sessionId } : {}), ...(turnId ? { turnId } : {}) };
+    : { type: type as 'stream_chunk' | 'stream_end', requestId, content: content ?? '', ...(reasoning !== undefined ? { reasoning } : {}), ...(sessionId ? { sessionId } : {}), ...(turnId ? { turnId } : {}) };
   if (sessionId && targetUserId) {
     const timestamp = Date.now();
     const eventKey = `stream:${requestId}`;
-    if (type === 'stream_end' && (content ?? '').trim().length === 0) {
+    const hasReasoning = Boolean(reasoning && ((reasoning.summary ?? '').trim() || (reasoning.raw ?? '').trim()));
+    if (type === 'stream_end' && (content ?? '').trim().length === 0 && !hasReasoning) {
       deleteTimelineItem(sessionId, eventKey, tenantId);
     } else {
       const saved = saveTimelineItem({
@@ -2083,8 +2096,10 @@ function deliverStreamEvent(
           timestamp,
           streaming: type !== 'stream_end',
           requestId,
+          ...(reasoning !== undefined ? { reasoning } : {}),
           ...(turnId ? { turnId } : {}),
         },
+        mergeDataOnUpdate: true,
       });
       if (saved.seq != null) msg.seq = saved.seq;
     }

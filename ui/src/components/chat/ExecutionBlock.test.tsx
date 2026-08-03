@@ -1682,29 +1682,29 @@ describe("live in-chat plan card (single plan surface)", () => {
     expect(card).not.toHaveTextContent("Generate final PDF report");
     expect(screen.getByTestId("execution-plan-card")).toBeInTheDocument();
     expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "running");
-    expect(trigger).toHaveAttribute("aria-haspopup", "dialog");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
 
-    // Clicking moves the same work object into one dedicated detail surface;
-    // the chat capsule itself never grows a competing inline copy.
+    // Clicking expands the same work object directly below its capsule.
     fireEvent.click(trigger);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByTestId("work-detail-surface")).toHaveAttribute("data-state", "running");
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Research CPI & PCE inflation");
     expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Generate final PDF report");
-    expect(card).not.toHaveTextContent("Generate final PDF report");
     const spineRows = screen.getAllByTestId("execution-step-label");
 
     // Second disclosure: clicking a phase expands that phase's tool rows.
     fireEvent.click(screen.getAllByTestId("execution-task-group")[0]);
     expect(screen.getAllByTestId("execution-step-label").length).toBeGreaterThan(spineRows.length);
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to conversation" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("work-detail-timeline")).not.toBeInTheDocument();
   });
 
   it("renders the same working capsule without plan chrome when the turn has no typed plan", () => {
-    renderWithLocale(<ExecutionBlock block={runningLifecycleBlock()} />);
+    const block = runningLifecycleBlock();
+    renderWithLocale(<ExecutionBlock block={block} />);
     expect(screen.queryByTestId("execution-live-plan")).not.toBeInTheDocument();
     const capsule = screen.getByTestId("execution-live-work");
     expect(capsule).toBeInTheDocument();
@@ -1712,7 +1712,7 @@ describe("live in-chat plan card (single plan surface)", () => {
     // process rows.
     expect(capsule).not.toHaveTextContent("/");
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(screen.getByTestId("work-detail-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("work-detail-timeline")).toBeInTheDocument();
     expect(screen.getAllByTestId("execution-step-label").length).toBeGreaterThan(0);
   });
 
@@ -1748,8 +1748,7 @@ describe("live in-chat plan card (single plan surface)", () => {
     expect(capsule.querySelector(".work-title-shimmer")).toHaveTextContent("Waiting for background command");
 
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(screen.getByTestId("execution-work-detail-title")).toHaveTextContent("Waiting for background command");
-    expect(screen.getByTestId("work-detail-dialog")).not.toHaveTextContent(processId);
+    expect(screen.getByTestId("work-detail-timeline")).not.toHaveTextContent(processId);
   });
 
   it("switches the work surface from active cobalt to verification state", () => {
@@ -1780,6 +1779,7 @@ describe("live in-chat plan card (single plan surface)", () => {
     expect(screen.getByTestId("execution-plan-card")).toHaveTextContent("Verifying");
 
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(screen.getByTestId("work-detail-surface")).toHaveAttribute("data-state", "verifying");
+    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "verifying");
+    expect(screen.getByTestId("work-detail-timeline")).toBeInTheDocument();
   });
 });

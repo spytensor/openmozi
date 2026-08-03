@@ -66,8 +66,6 @@
     --work-title-start: #f5f7ff;
     --work-title-mid: #cbc8ff;
     --work-title-end: #7696ff;
-    --work-detail-surface: #101010;
-    --work-detail-card: #181818;
     --radius-work: 18px;
     --motion-work-duration: 180ms;
     --motion-work-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -152,8 +150,6 @@
     --work-title-start: #18181b;
     --work-title-mid: #6658c7;
     --work-title-end: #315bc9;
-    --work-detail-surface: #ffffff;
-    --work-detail-card: #f7f7f8;
     --composer-shadow: 0 0 0 1px rgba(0,0,0,0.06), 0 8px 30px -12px rgba(0,0,0,0.12);
     --composer-shadow-empty: 0 0 0 1px rgba(0,0,0,0.08), 0 16px 40px -16px rgba(0,0,0,0.15);
     --composer-shadow-active: 0 0 0 1px rgba(0,0,0,0.15), 0 12px 35px -15px rgba(0,0,0,0.12);
@@ -262,13 +258,11 @@
     color: var(--work-active);
   }
 
-  .work-capsule,
-  .work-detail-shell {
+  .work-capsule {
     --work-state: var(--work-active);
   }
 
-  .work-capsule[data-state="verifying"],
-  .work-detail-shell[data-state="verifying"] {
+  .work-capsule[data-state="verifying"] {
     --work-state: var(--warning);
   }
 
@@ -297,18 +291,6 @@
 
   .work-capsule:active {
     transform: translateY(1px);
-  }
-
-  .work-detail-shell {
-    border: 1px solid color-mix(in srgb, var(--work-state) 24%, var(--border-medium));
-    border-radius: var(--radius-work);
-    background: var(--work-detail-surface);
-  }
-
-  .work-detail-card {
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-work);
-    background: var(--work-detail-card);
   }
 
   @media (prefers-reduced-motion: reduce) {

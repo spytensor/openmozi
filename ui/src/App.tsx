@@ -920,7 +920,7 @@ export default function App() {
                     </div>
                   </section>
                 ) : (
-                  <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="relative flex min-h-0 flex-1 flex-col">
                     <ChatView
                       sessionId={session.activeSessionId}
                       hasOlderHistory={session.timelineHasMore}

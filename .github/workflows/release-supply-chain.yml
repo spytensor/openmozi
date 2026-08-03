@@ -16,12 +16,12 @@ on:
           - stable
           - beta
       publish_update_feed:
-        description: Fail closed unless artifacts are signed, notarized and digest-backed
+        description: Build Developer ID-signed, Apple-notarized artifacts and publish the update feed
         required: true
         default: false
         type: boolean
       publish_github_release:
-        description: Create a GitHub Release and attach the verified macOS artifacts
+        description: Create a GitHub Release; unsigned builds include the Gatekeeper warning
         required: true
         default: false
         type: boolean
@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   macos_artifacts:
-    name: Signed macOS artifacts
+    name: macOS artifacts (signed or unsigned)
     runs-on: macos-14
     timeout-minutes: 90
     env:
@@ -238,9 +238,16 @@ jobs:
         run: |
           notes="release-assets/openmozi-${{ inputs.version }}-release-notes.md"
           if [ "${{ inputs.publish_update_feed }}" = "true" ]; then
-            echo "> **Verified macOS release:** the manifest records Developer ID signing and Apple notarization evidence." > "$notes"
+            echo "> **Verified macOS release:** this build is signed with an Apple Developer ID and notarized by Apple; the manifest records that evidence." > "$notes"
           else
-            echo "> **Unsigned macOS release:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing." > "$notes"
+            echo "> **Unsigned macOS release:** this build is not signed with an Apple Developer ID and is not notarized by Apple. Gatekeeper may report that MOZI is damaged or cannot be opened. Verify the published SHA-256 checksums before removing quarantine." > "$notes"
+            echo >> "$notes"
+            echo 'After copying the verified app to `/Applications`, run:' >> "$notes"
+            echo >> "$notes"
+            echo '```bash' >> "$notes"
+            echo 'xattr -dr com.apple.quarantine /Applications/MOZI.app' >> "$notes"
+            echo 'open -a /Applications/MOZI.app' >> "$notes"
+            echo '```' >> "$notes"
           fi
           echo >> "$notes"
           sed -n "/^## \[${{ inputs.version }}\]/,/^## \[/p" CHANGELOG.md | sed '$d' >> "$notes"

@@ -81,9 +81,10 @@ The plan/timeline in chat is a runtime record, not a marketing checklist. Two
 rules keep it reading as a system instead of a screenshot:
 
 - **Live work has one identity in two projections.** In chat it is a compact
-  rounded capsule; activating it opens the one work-detail dialog backed by the
-  same `ExecutionBlockModel`. Never render an inline expansion beside a second
-  detail surface, and never create another `View work` owner for the same turn.
+  rounded capsule; activating it expands the same `ExecutionBlockModel`
+  directly below that capsule in the conversation. Never open this non-blocking
+  information as a modal or page takeover, and never create another `View work`
+  owner for the same turn.
 - **The live capsule is visibly alive.** Running work uses the restrained
   `--work-active` border plus a shallow state tint; verification switches that
   same state role to `--warning`. The double edge is a border + outline, never

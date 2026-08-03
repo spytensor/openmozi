@@ -43,6 +43,8 @@ describe('core/providers', () => {
     'ANTHROPIC_API_KEY',
     'MINIMAX_API_KEY',
     'DEEPSEEK_API_KEY',
+    'DASHSCOPE_API_KEY',
+    'DASHSCOPE_BASE_URL',
     'MOONSHOT_API_KEY',
     'GOOGLE_API_KEY',
     'GEMINI_API_KEY',
@@ -195,6 +197,41 @@ describe('core/providers', () => {
     });
   });
 
+  it('registers DashScope as a first-party Qwen provider', () => {
+    const dashscope = getProvider('dashscope');
+    expect(dashscope).toMatchObject({
+      name: 'Qwen / Alibaba Cloud',
+      envKey: 'DASHSCOPE_API_KEY',
+      apiMode: 'openai-compat',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      defaultModel: 'qwen3.7-plus',
+    });
+    expect(dashscope?.regions?.map((region) => region.id)).toEqual(['cn', 'us', 'custom']);
+    expect(resolveSystemMessagePolicy('dashscope')).toBe('consolidate-leading');
+    expect(getModel('dashscope', 'qwen3.7-plus')).toMatchObject({
+      supportsTools: true,
+      supportsVision: true,
+      reasoning: true,
+      contextWindow: 1_000_000,
+    });
+    expect(getModel('dashscope', 'qwen3.8-max')).toMatchObject({
+      name: 'Qwen 3.8 Max',
+      tier: 'high',
+      supportsVision: true,
+      reasoning: true,
+      contextWindow: 1_000_000,
+    });
+    expect(getModel('dashscope', 'qwen3.7-flash')).toMatchObject({
+      name: 'Qwen 3.7 Flash',
+      tier: 'low',
+    });
+    expect(dashscope?.models.some((registeredModel) => registeredModel.id === 'qwen3.6-flash')).toBe(false);
+    expect(getModel('dashscope', 'qwen3.7-plus-202608')).toMatchObject({
+      id: 'qwen3.7-plus-202608',
+      supportsTools: true,
+    });
+  });
+
   it('getModel returns undefined for unknown provider/model family', () => {
     expect(getModel('openai', 'unknown-family-model')).toBeUndefined();
     expect(getModel('nonexistent', 'gpt-4.1')).toBeUndefined();
@@ -208,6 +245,7 @@ describe('core/providers', () => {
     expect(ids).toContain('openai');
     expect(ids).toContain('anthropic');
     expect(ids).toContain('minimax');
+    expect(ids).toContain('dashscope');
     expect(ids).toContain('moonshot');
     expect(ids).toContain('together');
     expect(ids).toContain('openrouter');
@@ -232,6 +270,7 @@ describe('core/providers', () => {
     expect(ids).toContain('openai');
     expect(ids).toContain('anthropic');
     expect(ids).toContain('google');
+    expect(ids).toContain('dashscope');
     expect(ids).toContain('openrouter');
     expect(ids).not.toContain('bedrock');
   });

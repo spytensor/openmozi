@@ -119,6 +119,51 @@ describe("MessageBubble", () => {
     expect(screen.getByTestId("mozi-avatar")).toBeInTheDocument();
   });
 
+  it("shows live raw reasoning expanded and completed summaries collapsed", () => {
+    const startedAt = Date.now() - 2000;
+    const { unmount } = renderWithLocale(
+      <MessageBubble
+        message={{
+          ...message("assistant", ""),
+          streaming: true,
+          requestId: "req-reasoning",
+          reasoning: {
+            provider: "deepseek",
+            raw: "Inspect the evidence before answering.",
+            streaming: true,
+            startedAt,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("message-reasoning-toggle")).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("message-reasoning-raw")).toHaveTextContent("Inspect the evidence before answering.");
+    expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
+
+    unmount();
+    renderWithLocale(
+      <MessageBubble
+        message={{
+          ...message("assistant", "Answer."),
+          reasoning: {
+            provider: "openai",
+            summary: "Compared the available evidence.",
+            streaming: false,
+            startedAt,
+            completedAt: startedAt + 2000,
+            durationMs: 2000,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Thought for 2\.0s/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("message-reasoning-summary")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("message-reasoning-toggle"));
+    expect(screen.getByTestId("message-reasoning-summary")).toHaveTextContent("Compared the available evidence.");
+  });
+
   it("uses the Lobe chat reading surface on the shared assistant content axis", () => {
     renderWithLocale(<MessageBubble message={message("assistant", "# 核心结论\n\n正文内容。")} />);
 
@@ -143,7 +188,7 @@ describe("MessageBubble", () => {
     const bubble = screen.getByTestId("message-user-bubble");
 
     expect(bubble).toHaveTextContent("Run the investigation.");
-    expect(bubble.className).toContain("bg-selection/15");
+    expect(bubble.className).toContain("bg-surface-card");
     expect(bubble.className).toContain("rounded-2xl");
   });
 

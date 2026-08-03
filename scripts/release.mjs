@@ -458,8 +458,8 @@ function buildMacReleaseAssets(version, channel, unsigned) {
 
   const notesPath = join(distPath, `openmozi-${version}-release-notes.md`);
   const trustNotice = unsigned
-    ? '> **Unsigned macOS release:** this build is not signed or notarized by Apple. Verify the published SHA-256 checksums before installing. After copying the verified app to `/Applications`, run `xattr -dr com.apple.quarantine /Applications/MOZI.app` to allow the first launch.\n\n'
-    : '> **Verified macOS release:** the manifest records Developer ID signing and Apple notarization evidence.\n\n';
+    ? '> **Unsigned macOS release:** this build is not signed with an Apple Developer ID and is not notarized by Apple. Gatekeeper may report that MOZI is damaged or cannot be opened. Verify the published SHA-256 checksums before removing quarantine. After copying the verified app to `/Applications`, run `xattr -dr com.apple.quarantine /Applications/MOZI.app`, then `open -a /Applications/MOZI.app`.\n\n'
+    : '> **Verified macOS release:** this build is signed with an Apple Developer ID and notarized by Apple; the manifest records that evidence.\n\n';
   writeFileSync(notesPath, `${trustNotice}${extractReleaseNotes(version)}\n`, 'utf-8');
 
   return {

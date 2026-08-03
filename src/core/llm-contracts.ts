@@ -140,6 +140,7 @@ export class IncompleteStreamError extends Error {
 /** Stream chunk from LLM */
 export type StreamChunk =
   | { type: 'text'; text: string }
+  | { type: 'reasoning'; text: string; kind: 'summary' | 'raw'; provider: string }
   | { type: 'tool_input_start'; toolCallId: string; toolName: string }
   | { type: 'tool_input_delta'; toolCallId: string; delta: string }
   | { type: 'tool_input_end'; toolCallId: string }

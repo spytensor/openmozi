@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import type { ChatMessage, ToolEvent, TaskUpdate, PlanStartedUpdate, ApprovalRequest, Artifact, MemoryUpdate, TimelineItem, SessionState, ContextCompressionState, TurnEnvelope } from "@/types";
+import type { ChatMessage, ChatReasoning, ToolEvent, TaskUpdate, PlanStartedUpdate, ApprovalRequest, Artifact, MemoryUpdate, TimelineItem, SessionState, ContextCompressionState, TurnEnvelope } from "@/types";
 import { genId } from "@/lib/utils";
 
 interface InboundMsg {
@@ -51,6 +51,26 @@ function shouldIgnoreSessionScopedMessage(msg: InboundMsg, activeSessionId: stri
   }
 
   return false;
+}
+
+function inboundReasoning(value: unknown): ChatReasoning | null | undefined {
+  if (value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const reasoning = value as Partial<ChatReasoning>;
+  if (typeof reasoning.provider !== "string" || typeof reasoning.startedAt !== "number") return undefined;
+  return {
+    provider: reasoning.provider,
+    ...(typeof reasoning.summary === "string" ? { summary: reasoning.summary } : {}),
+    ...(typeof reasoning.raw === "string" ? { raw: reasoning.raw } : {}),
+    streaming: reasoning.streaming === true,
+    startedAt: reasoning.startedAt,
+    ...(typeof reasoning.completedAt === "number" ? { completedAt: reasoning.completedAt } : {}),
+    ...(typeof reasoning.durationMs === "number" ? { durationMs: reasoning.durationMs } : {}),
+  };
+}
+
+function hasReasoningContent(reasoning: ChatReasoning | null | undefined): boolean {
+  return Boolean(reasoning && ((reasoning.summary ?? "").trim() || (reasoning.raw ?? "").trim()));
 }
 
 function normalizeTaskStatus(status: unknown): TaskUpdate["status"] {
@@ -391,6 +411,7 @@ export function useChat(activeSessionId?: string | null) {
         const frameSeq = cleanSeq(msg.seq);
         if (frameSeq != null) streamSeqRef.current.set(msg.requestId, frameSeq);
         const seq = streamSeqRef.current.get(msg.requestId);
+        const reasoning = inboundReasoning(msg.reasoning);
         // Backend sends fully accumulated text (not deltas), so replace directly
         streamingRef.current.set(msg.requestId, msg.content);
         if ((msg.content ?? "").trim().length > 0) {
@@ -401,7 +422,8 @@ export function useChat(activeSessionId?: string | null) {
           const updated = prev.map((item) => {
             if (item.type === "message" && (item.data as ChatMessage).requestId === msg.requestId) {
               found = true;
-              return { ...item, data: { ...(item.data as ChatMessage), content: msg.content, ...(turnId ? { turnId } : {}), ...(seq != null ? { seq } : {}) } };
+              const existing = item.data as ChatMessage;
+              return { ...item, data: { ...existing, content: msg.content, ...(reasoning !== undefined ? { reasoning: reasoning ?? undefined } : {}), ...(turnId ? { turnId } : {}), ...(seq != null ? { seq } : {}) } };
             }
             return item;
           });
@@ -413,6 +435,7 @@ export function useChat(activeSessionId?: string | null) {
             timestamp: now,
             streaming: true,
             requestId: msg.requestId,
+            ...(hasReasoningContent(reasoning) ? { reasoning: reasoning! } : {}),
             ...(turnId ? { turnId } : {}),
             ...(seq != null ? { seq } : {}),
           };
@@ -426,6 +449,7 @@ export function useChat(activeSessionId?: string | null) {
         const frameSeq = cleanSeq(msg.seq);
         if (frameSeq != null) streamSeqRef.current.set(msg.requestId, frameSeq);
         const seq = streamSeqRef.current.get(msg.requestId);
+        const incomingReasoning = inboundReasoning(msg.reasoning);
         streamingRef.current.delete(msg.requestId);
         streamTurnIdsRef.current.delete(msg.requestId);
         streamSeqRef.current.delete(msg.requestId);
@@ -438,12 +462,13 @@ export function useChat(activeSessionId?: string | null) {
             found = true;
             const existing = item.data as ChatMessage;
             const finalContent = (msg.content ?? "").trim().length > 0 ? msg.content : existing.content;
-            if ((finalContent ?? "").trim().length === 0) {
+            const finalReasoning = incomingReasoning === null ? undefined : incomingReasoning ?? existing.reasoning;
+            if ((finalContent ?? "").trim().length === 0 && !hasReasoningContent(finalReasoning)) {
               return [];
             }
-            return [{ ...item, data: { ...existing, content: finalContent, streaming: false, ...(turnId ? { turnId } : {}), ...(seq != null ? { seq } : {}) } }];
+            return [{ ...item, data: { ...existing, content: finalContent, reasoning: finalReasoning, streaming: false, ...(turnId ? { turnId } : {}), ...(seq != null ? { seq } : {}) } }];
           });
-          if (found || (msg.content ?? "").trim().length === 0) return updated;
+          if (found || ((msg.content ?? "").trim().length === 0 && !hasReasoningContent(incomingReasoning))) return updated;
           const finalMsg: ChatMessage = {
             id: msg.requestId,
             role: "assistant",
@@ -451,6 +476,7 @@ export function useChat(activeSessionId?: string | null) {
             timestamp: now,
             streaming: false,
             requestId: msg.requestId,
+            ...(hasReasoningContent(incomingReasoning) ? { reasoning: incomingReasoning! } : {}),
             ...(turnId ? { turnId } : {}),
             ...(seq != null ? { seq } : {}),
           };

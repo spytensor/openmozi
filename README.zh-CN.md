@@ -46,7 +46,10 @@ Composer 就是驾驶舱：选**项目**（任意文件夹或 git 仓库）、�
 
 桌面应用是使用 MOZI 的主要方式。请从 [GitHub Releases](https://github.com/spytensor/openmozi/releases) 下载最新的 Apple Silicon DMG 及校验文件。
 
-目前提供的是未签名的正式版本；由于尚未经过 Apple 公证，macOS 会阻止首次启动。先将 DMG 的 SHA-256 与发布的 `openmozi-<version>-SHA256SUMS.txt` 对照，确认一致后把 `MOZI.app` 拖入 `/Applications`，再对这份已验证的应用移除隔离标记：
+> [!WARNING]
+> 当前 macOS 下载包**没有使用 Apple Developer ID 签名，也没有经过 Apple 公证**。Gatekeeper 可能提示“MOZI 已损坏”“无法打开”或“无法验证开发者”。移除隔离标记前，必须先将 DMG 的 SHA-256 与发布的 `openmozi-<version>-SHA256SUMS.txt` 对照。校验值只能确认下载的是 GitHub 发布产物，不能替代 Apple 代码签名信任。
+
+校验一致后，把 `MOZI.app` 拖入 `/Applications`，再对这份已验证的应用移除隔离标记并打开：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/MOZI.app
@@ -83,7 +86,7 @@ pnpm start          # Web UI 在 http://localhost:9210
 
 ## LLM 提供商
 
-MOZI 兼容任何 OpenAI 风格 API——目录里有 26 个提供商，随时切换，数据和历史不丢。
+MOZI 兼容任何 OpenAI 风格 API——目录里有 27 个提供商，随时切换，数据和历史不丢。
 
 | 提供商 | 配置 | 备注 |
 |--------|------|------|
@@ -92,6 +95,7 @@ MOZI 兼容任何 OpenAI 风格 API——目录里有 26 个提供商，随时�
 | **Anthropic** | `ANTHROPIC_API_KEY` | Claude 系列 |
 | **Google Gemini** | `GEMINI_API_KEY` | Gemini Pro/Flash |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | DeepSeek V 系 / R 系 |
+| **Qwen / 阿里云百炼** | `DASHSCOPE_API_KEY` | 通过 Model Studio / DashScope 使用千问模型 |
 | **Moonshot** | `MOONSHOT_API_KEY` | Kimi 模型，长上下文 |
 | **Groq** | `GROQ_API_KEY` | 极速推理 |
 | **Ollama** | 本地安装 | 完全本地、完全私有 |

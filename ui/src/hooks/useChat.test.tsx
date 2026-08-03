@@ -129,6 +129,60 @@ describe("useChat streaming lifecycle", () => {
     });
   });
 
+  it("keeps provider reasoning visible without treating it as answer text", () => {
+    const { result } = renderHook(() => useChat());
+    const startedAt = Date.now();
+
+    act(() => {
+      result.current.handleWSMessage({ type: "stream_start", requestId: "req-reasoning" });
+      result.current.handleWSMessage({
+        type: "stream_chunk",
+        requestId: "req-reasoning",
+        content: "",
+        reasoning: {
+          provider: "deepseek",
+          raw: "Inspect the evidence.",
+          streaming: true,
+          startedAt,
+        },
+      });
+    });
+
+    expect(result.current.sessionState).toBe("WORKING");
+    expect(result.current.timeline[0]).toMatchObject({
+      type: "message",
+      data: {
+        content: "",
+        streaming: true,
+        reasoning: { provider: "deepseek", raw: "Inspect the evidence.", streaming: true },
+      },
+    });
+
+    act(() => {
+      result.current.handleWSMessage({
+        type: "stream_end",
+        requestId: "req-reasoning",
+        content: "The evidence is consistent.",
+        reasoning: {
+          provider: "deepseek",
+          raw: "Inspect the evidence.",
+          streaming: false,
+          startedAt,
+          completedAt: startedAt + 2000,
+          durationMs: 2000,
+        },
+      });
+    });
+
+    expect(result.current.timeline[0]).toMatchObject({
+      data: {
+        content: "The evidence is consistent.",
+        streaming: false,
+        reasoning: { raw: "Inspect the evidence.", streaming: false, durationMs: 2000 },
+      },
+    });
+  });
+
   it("keeps the assistant message when the stream ends with visible text", () => {
     const { result } = renderHook(() => useChat());
 

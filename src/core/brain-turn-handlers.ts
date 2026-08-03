@@ -3,7 +3,7 @@ import { IncompleteStreamError, type LLMClient, type ChatMessage, type ChatRespo
 import type { ToolContext } from '../tools/types.js';
 import { executeToolCalls, extractToolIntent, extractToolSkillName } from '../tools/executor.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
-import type { ProgressCallback } from './brain-progress.js';
+import type { ProgressCallback, ReasoningProgress } from './brain-progress.js';
 import { createTurnFileArtifactTracker, type TurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
 import { activeSkillScope, getActiveSkills } from '../skills/active-skills.js';
 import { formatActiveSkillSection } from '../memory/context-slots.js';
@@ -562,6 +562,21 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
   };
   let removeAbortListener: (() => void) | undefined;
   let iterator: AsyncIterator<StreamChunk> | undefined;
+  let reasoningProvider = '';
+  let reasoningSummary = '';
+  let reasoningRaw = '';
+  let hasReasoning = false;
+  let reasoningEnded = false;
+  const currentReasoning = (): ReasoningProgress => ({
+    provider: reasoningProvider,
+    summary: reasoningSummary || undefined,
+    raw: reasoningRaw || undefined,
+  });
+  const endReasoning = () => {
+    if (!hasReasoning || reasoningEnded) return;
+    reasoningEnded = true;
+    progress.onReasoningEnd?.(currentReasoning());
+  };
   if (params.abortSignal) {
     if (params.abortSignal.aborted) {
       failArtifactsForAbort();
@@ -602,7 +617,16 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
       if (next.done) break;
       const chunk = next.value;
       throwIfAborted(params.abortSignal, 'Request cancelled');
+      if (chunk.type === 'reasoning' && chunk.text) {
+        reasoningProvider = chunk.provider;
+        if (chunk.kind === 'summary') reasoningSummary += chunk.text;
+        else reasoningRaw += chunk.text;
+        hasReasoning = true;
+        reasoningEnded = false;
+        progress.onReasoningChunk?.(currentReasoning());
+      }
       if (chunk.type === 'text' && chunk.text) {
+        endReasoning();
         accumulated += chunk.text;
         const visible = rejectUnsupportedSandboxReferences(sanitizeVisibleOutput(accumulated)).content;
         if (!holdVisibleOutput && visible.length > 0 && !hasLegacyToolCallProtocol(accumulated)) {
@@ -654,6 +678,7 @@ export async function executeStreamingTurn(params: TurnParams): Promise<TurnResu
         finalResponse = chunk.response;
       }
     }
+    endReasoning();
     throwIfAborted(params.abortSignal, 'Request cancelled');
     liveArtifactInputs.flushAll();
   } catch (err) {

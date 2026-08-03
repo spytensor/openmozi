@@ -448,6 +448,53 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     ],
   }),
 
+  dashscope: defineProvider({
+    id: 'dashscope',
+    name: 'Qwen / Alibaba Cloud',
+    envKey: 'DASHSCOPE_API_KEY',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    apiMode: 'openai-compat',
+    // DashScope accepts the OpenAI message envelope but requires the system
+    // message to stay at messages[0]. Consolidation is therefore part of the
+    // provider contract, not a model-specific prompt workaround.
+    systemMessagePolicy: 'consolidate-leading',
+    defaultModel: 'qwen3.7-plus',
+    placeholder: 'sk-...',
+    hint: 'Qwen 3.8 and 3.7 via Alibaba Cloud Model Studio',
+    regions: [
+      { id: 'cn', name: 'China (Beijing)', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      { id: 'us', name: 'US (Virginia)', baseUrl: 'https://dashscope-us.aliyuncs.com/compatible-mode/v1' },
+      { id: 'custom', name: 'Workspace / subscription endpoint', baseUrl: '' },
+    ],
+    models: [
+      model({
+        id: 'qwen3.8-max', name: 'Qwen 3.8 Max', tier: 'high',
+        contextWindow: 1_000_000, maxOutputTokens: 65_536,
+        supportsVision: true, reasoning: true,
+      }),
+      model({
+        id: 'qwen3.7-plus', name: 'Qwen 3.7 Plus', tier: 'mid',
+        contextWindow: 1_000_000, maxOutputTokens: 65_536,
+        supportsVision: true, reasoning: true,
+      }),
+      model({
+        id: 'qwen3.7-max', name: 'Qwen 3.7 Max', tier: 'high',
+        contextWindow: 1_000_000, maxOutputTokens: 65_536,
+        reasoning: true,
+      }),
+      model({
+        id: 'qwen3.7-flash', name: 'Qwen 3.7 Flash', tier: 'low',
+        contextWindow: 1_000_000, maxOutputTokens: 65_536,
+        supportsVision: true, reasoning: true,
+      }),
+    ],
+    forwardCompat: [
+      { pattern: /^qwen3\.8-max(?:[.-].*)?$/i, templateModel: 'qwen3.8-max' },
+      { pattern: /^qwen3\.7-max(?:[.-].*)?$/i, templateModel: 'qwen3.7-max' },
+      { pattern: /^qwen[a-z0-9._:-]+$/i, templateModel: 'qwen3.7-plus' },
+    ],
+  }),
+
   moonshot: defineProvider({
     id: 'moonshot',
     name: 'Moonshot / Kimi',
@@ -934,6 +981,7 @@ export const WIZARD_PROVIDER_IDS = [
   'anthropic',
   'minimax',
   'deepseek',
+  'dashscope',
   'moonshot',
   'google',
   'groq',

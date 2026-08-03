@@ -23,6 +23,10 @@ const providers = WIZARD_PROVIDER_IDS
     hint: provider.hint ?? null,
     defaultModel: provider.defaultModel,
     apiMode: provider.apiMode,
+    ...(provider.regions?.length ? {
+      baseUrl: provider.baseUrl,
+      regions: provider.regions,
+    } : {}),
     models: provider.models.map((model) => ({
       id: model.id,
       name: model.name,

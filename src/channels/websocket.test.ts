@@ -1212,6 +1212,47 @@ describe('channels/websocket', () => {
       ]);
     });
 
+    it('persists provider reasoning on the same restorable assistant stream row', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-01T10:03:00.000Z'));
+      const startedAt = Date.now();
+
+      broadcastStreamEvent('stream_start', 'stream-reasoning', undefined, 'user-1', 'session-1', 'tenant-1');
+      broadcastStreamEvent('stream_chunk', 'stream-reasoning', '', 'user-1', 'session-1', 'tenant-1', {
+        provider: 'deepseek',
+        raw: 'Inspect the evidence.',
+        streaming: true,
+        startedAt,
+      });
+      vi.setSystemTime(new Date('2026-07-01T10:03:02.000Z'));
+      broadcastStreamEvent('stream_end', 'stream-reasoning', 'The evidence is consistent.', 'user-1', 'session-1', 'tenant-1', {
+        provider: 'deepseek',
+        raw: 'Inspect the evidence.',
+        streaming: false,
+        startedAt,
+        completedAt: Date.now(),
+        durationMs: 2000,
+      });
+
+      expect(getSessionTimeline('session-1', 20, 'tenant-1')).toEqual([
+        expect.objectContaining({
+          type: 'message',
+          data: expect.objectContaining({
+            content: 'The evidence is consistent.',
+            streaming: false,
+            reasoning: {
+              provider: 'deepseek',
+              raw: 'Inspect the evidence.',
+              streaming: false,
+              startedAt,
+              completedAt: Date.now(),
+              durationMs: 2000,
+            },
+          }),
+        }),
+      ]);
+    });
+
     it('updates an approval row to a terminal status in place on resolve', () => {
       // Mirrors the WS approve/reject persistence: the pending row is re-saved
       // under the same event_key with the terminal status and the original

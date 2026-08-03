@@ -28,6 +28,8 @@ export interface CatalogProvider {
   lightEligible?: boolean;
   embeddingEligible?: boolean;
   hasKey?: boolean;
+  baseUrl?: string;
+  regions?: Array<{ id: string; name: string; baseUrl: string }>;
   discovery?: {
     supported: boolean;
     source: "live" | "cache" | "catalog";

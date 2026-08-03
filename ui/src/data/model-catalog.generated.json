@@ -190,6 +190,24 @@
       "hint": "MiniMax-M3",
       "defaultModel": "MiniMax-M3",
       "apiMode": "anthropic",
+      "baseUrl": "https://api.minimax.io/anthropic/v1",
+      "regions": [
+        {
+          "id": "global",
+          "name": "Global (api.minimax.io)",
+          "baseUrl": "https://api.minimax.io/anthropic/v1"
+        },
+        {
+          "id": "cn",
+          "name": "China (api.minimaxi.com)",
+          "baseUrl": "https://api.minimaxi.com/anthropic/v1"
+        },
+        {
+          "id": "proxy",
+          "name": "Proxy / third-party",
+          "baseUrl": ""
+        }
+      ],
       "models": [
         {
           "id": "MiniMax-M3",
@@ -271,6 +289,81 @@
           "reasoning": true,
           "inputCostPer1M": 0.14,
           "outputCostPer1M": 0.28
+        }
+      ]
+    },
+    {
+      "id": "dashscope",
+      "name": "Qwen / Alibaba Cloud",
+      "hint": "Qwen 3.8 and 3.7 via Alibaba Cloud Model Studio",
+      "defaultModel": "qwen3.7-plus",
+      "apiMode": "openai-compat",
+      "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "regions": [
+        {
+          "id": "cn",
+          "name": "China (Beijing)",
+          "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        },
+        {
+          "id": "us",
+          "name": "US (Virginia)",
+          "baseUrl": "https://dashscope-us.aliyuncs.com/compatible-mode/v1"
+        },
+        {
+          "id": "custom",
+          "name": "Workspace / subscription endpoint",
+          "baseUrl": ""
+        }
+      ],
+      "models": [
+        {
+          "id": "qwen3.8-max",
+          "name": "Qwen 3.8 Max",
+          "tier": "high",
+          "contextWindow": 1000000,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "qwen3.7-plus",
+          "name": "Qwen 3.7 Plus",
+          "tier": "mid",
+          "contextWindow": 1000000,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "qwen3.7-max",
+          "name": "Qwen 3.7 Max",
+          "tier": "high",
+          "contextWindow": 1000000,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": false,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
+        },
+        {
+          "id": "qwen3.7-flash",
+          "name": "Qwen 3.7 Flash",
+          "tier": "low",
+          "contextWindow": 1000000,
+          "maxOutputTokens": 65536,
+          "supportsTools": true,
+          "supportsVision": true,
+          "reasoning": true,
+          "inputCostPer1M": null,
+          "outputCostPer1M": null
         }
       ]
     },

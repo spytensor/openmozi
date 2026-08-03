@@ -35,6 +35,16 @@ export interface Session {
 
 export type MessageRole = "user" | "assistant" | "system";
 
+export interface ChatReasoning {
+  provider: string;
+  summary?: string;
+  raw?: string;
+  streaming: boolean;
+  startedAt: number;
+  completedAt?: number;
+  durationMs?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: MessageRole;
@@ -45,6 +55,8 @@ export interface ChatMessage {
   seq?: number;
   streaming?: boolean;
   requestId?: string;
+  /** Provider-authored reasoning kept separate from the visible answer. */
+  reasoning?: ChatReasoning;
   /** Files the user attached to this message, shown as chips in the bubble. */
   attachments?: UploadedAttachment[];
 }
@@ -236,8 +248,8 @@ export interface TurnEnvelope {
 export type WSInboundMessage =
   | { type: "message"; role: MessageRole; content: string; turnId?: string; seq?: number; sessionId?: string }
   | { type: "stream_start"; requestId: string; turnId?: string; seq?: number; sessionId?: string }
-  | { type: "stream_chunk"; requestId: string; content: string; turnId?: string; seq?: number; sessionId?: string }
-  | { type: "stream_end"; requestId: string; content: string; turnId?: string; seq?: number; sessionId?: string }
+  | { type: "stream_chunk"; requestId: string; content: string; reasoning?: ChatReasoning | null; turnId?: string; seq?: number; sessionId?: string }
+  | { type: "stream_end"; requestId: string; content: string; reasoning?: ChatReasoning | null; turnId?: string; seq?: number; sessionId?: string }
   | { type: "tool_event"; phase: "start" | "end"; tool: string; status?: string; intent?: string; result?: string; sources?: ToolSourceRef[]; error?: string; elapsed_ms?: number; callId: string; taskId?: string; turnId?: string; seq?: number; agentId?: string; skillName?: string; skillDescription?: string; skillLoadOutcome?: "success" | "not_found" | "ineligible"; skillMissingBins?: string[]; skillMissingEnv?: string[]; skillLoadError?: string; timestamp?: number; sessionId?: string }
   | { type: "task_update"; task_id: string; parentTaskId?: string; rawStatus?: string; title: string; status: string; progress?: number; detail?: string; turnId?: string; seq?: number; timestamp?: number }
   | { type: "task_progress"; task_id: string; parentTaskId?: string; jobId?: string; adapterId?: string; runtimeLabel?: string; agentId?: string; agentColor?: string; agentIcon?: string; runDir?: string; rawStatus?: string; status: string; userStatus?: string; title: string; detail?: string; progress?: number; turnId?: string; seq?: number; lane?: string; sandboxProfile?: string; heartbeat?: boolean; elapsed_ms?: number; timestamp?: number; sessionId?: string }

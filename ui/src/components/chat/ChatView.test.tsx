@@ -405,6 +405,26 @@ describe("ChatView", () => {
     expect(screen.queryByText("Responding...")).not.toBeInTheDocument();
   });
 
+  it("uses streamed reasoning as the sole thinking surface", () => {
+    renderChat([
+      message("user", "Research OpenClaw", 1),
+      message("assistant", "", 2, {
+        streaming: true,
+        requestId: "req-reasoning",
+        reasoning: {
+          provider: "deepseek",
+          raw: "Identify primary sources.",
+          streaming: true,
+          startedAt: Date.now() - 1000,
+        },
+      }),
+    ], { sessionState: "WORKING" });
+
+    expect(screen.getByTestId("message-reasoning")).toHaveTextContent("Identify primary sources.");
+    expect(screen.queryByTestId("chat-thinking-indicator")).not.toBeInTheDocument();
+    expect(activityIndicatorCount()).toBe(0);
+  });
+
   it("keeps a single working indicator as the sole status owner until the current turn terminalizes", () => {
     renderChat([
       message("user", "Inspect this project", 1),
@@ -1289,9 +1309,11 @@ describe("single stable live plan surface", () => {
 
     // Exactly one stable consolidated capsule; the split blocks never render.
     expect(screen.getAllByTestId("execution-live-plan")).toHaveLength(1);
-    // The capsule opens the one turn-scoped detail surface; phase content
-    // never duplicates inside the chat card.
+    // The capsule expands in the conversation. It never creates a second
+    // page, modal, or duplicate work owner.
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("chat-work-detail-layer")).not.toBeInTheDocument();
     expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Research indices");
     expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Write summary");
     // No competing live surfaces: no bare live line, no generic indicator.

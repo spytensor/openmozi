@@ -4292,12 +4292,42 @@ export async function registerApiRoutes(
     if (typeof body.key !== 'string' || !body.key.trim()) {
       return reply.code(400).send({ success: false, error: 'Body must have "key" string field' });
     }
+    let normalizedBaseUrl: string | undefined;
+    if (body.baseUrl !== undefined) {
+      const providerDef = getProvider(provider);
+      if (!providerDef?.regions?.length) {
+        return reply.code(400).send({ success: false, error: 'This provider does not support a configurable endpoint' });
+      }
+      if (typeof body.baseUrl !== 'string' || !body.baseUrl.trim()) {
+        return reply.code(400).send({ success: false, error: 'Body baseUrl must be a non-empty URL string' });
+      }
+      try {
+        const parsed = new URL(body.baseUrl.trim());
+        if (parsed.protocol !== 'https:') {
+          return reply.code(400).send({ success: false, error: 'Provider endpoint must use HTTPS' });
+        }
+        parsed.hash = '';
+        parsed.search = '';
+        normalizedBaseUrl = parsed.toString().replace(/\/$/, '');
+      } catch {
+        return reply.code(400).send({ success: false, error: 'Body baseUrl must be a valid URL' });
+      }
+    }
     const masterSecret = resolveTenantMasterSecret({ createIfMissing: true });
     if (!masterSecret) {
       return reply.code(500).send({ success: false, error: 'Unable to initialize tenant API key encryption' });
     }
     upsertTenantApiKey(ctx.tenant_id, provider, body.key, masterSecret, ctx.user_id);
-    return reply.send({ success: true, provider });
+    if (normalizedBaseUrl) {
+      const raw = readConfigWithLegacyFallback(getConfigPath()).config;
+      const rawProviders = ensureRawConfigRecord(raw, 'providers');
+      const rawProvider = ensureRawConfigRecord(rawProviders, provider);
+      rawProvider.baseurl = normalizedBaseUrl;
+      writeConfigObject(getConfigPath(), raw);
+      loadConfig(getConfigPath());
+      clearModelRouterCache();
+    }
+    return reply.send({ success: true, provider, ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}) });
   });
 
   /**
@@ -4527,6 +4557,10 @@ export async function registerApiRoutes(
         lightEligible: isChatRoleEligibleProvider(provider),
         embeddingEligible: ['openai', 'ollama'].includes(provider.id),
         hasKey,
+        ...(provider.regions?.length ? {
+          baseUrl: resolveBaseUrl(provider.id, process.env, rawProviders),
+          regions: provider.regions,
+        } : {}),
         discovery: {
           supported: discovery.supported,
           source: discovery.source,

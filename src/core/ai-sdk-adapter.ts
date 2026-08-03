@@ -354,6 +354,10 @@ function supportsGoogleReasoningEffort(modelId: string | undefined): boolean {
   return /^gemini-2\.5(?:[.-].*)?$/i.test(modelId);
 }
 
+function isQwen38Max(modelId: string | undefined): boolean {
+  return Boolean(modelId && /^qwen3\.8-max(?:[.-].*)?$/i.test(modelId));
+}
+
 function inferReasoningModel(modelId: string | undefined): boolean | undefined {
   if (!modelId) return undefined;
   if (/^gpt-5(?:[.-].*)?(?:-codex)?$/i.test(modelId)) return true;
@@ -536,6 +540,15 @@ export function applyThinkOption(
   think: ModelThinkSetting | undefined,
   modelId?: string,
 ): void {
+  if (providerName === 'dashscope' && think === false) {
+    const providerOptions = options.providerOptions && typeof options.providerOptions === 'object' && !Array.isArray(options.providerOptions)
+      ? options.providerOptions as Record<string, unknown>
+      : {};
+    mergeProviderOption(providerOptions, 'dashscope', { enable_thinking: false });
+    options.providerOptions = providerOptions;
+    return;
+  }
+
   if (providerName === 'deepseek' && think === false) {
     const providerOptions = options.providerOptions && typeof options.providerOptions === 'object' && !Array.isArray(options.providerOptions)
       ? options.providerOptions as Record<string, unknown>
@@ -580,6 +593,17 @@ export function applyThinkOption(
       thinking: { type: 'enabled' },
       reasoningEffort: normalized.budgetTokens && normalized.budgetTokens > 4096 ? 'max' : 'high',
     });
+    options.providerOptions = providerOptions;
+    return;
+  }
+
+  if (providerName === 'dashscope') {
+    const dashscopeThinking = isQwen38Max(modelId)
+      ? normalized.budgetTokens === undefined
+        ? { reasoningEffort: normalized.effort === 'high' ? 'xhigh' : normalized.effort }
+        : { thinking_budget: normalized.budgetTokens }
+      : { enable_thinking: true, thinking_budget: normalized.budgetTokens ?? effortToThinkingBudget(normalized.effort) };
+    mergeProviderOption(providerOptions, 'dashscope', dashscopeThinking);
     options.providerOptions = providerOptions;
     return;
   }
@@ -877,6 +901,13 @@ export function createAIAdapter(
                 : '';
             if (reasoningDelta) {
               fullReasoning += reasoningDelta;
+              yieldedAnyChunk = true;
+              yield {
+                type: 'reasoning',
+                text: reasoningDelta,
+                kind: providerName === 'openai' || providerName === 'google' ? 'summary' : 'raw',
+                provider: providerName,
+              };
             }
             continue;
           }
@@ -1053,6 +1084,18 @@ export function createAIAdapter(
       }
       if (!resolvedReasoningText && fullReasoning.length > 0) {
         resolvedReasoningText = fullReasoning;
+      }
+
+      // Some providers expose reasoning only on the resolved result rather than
+      // as stream deltas. Surface it once so the presentation contract remains
+      // truthful without inventing a summary.
+      if (resolvedReasoningText && fullReasoning.length === 0) {
+        yield {
+          type: 'reasoning',
+          text: resolvedReasoningText,
+          kind: providerName === 'openai' || providerName === 'google' ? 'summary' : 'raw',
+          provider: providerName,
+        };
       }
 
       // Fallback for providers whose failure never appears as a thrown

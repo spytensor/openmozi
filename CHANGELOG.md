@@ -8,7 +8,7 @@ OpenMozi maintains its own version line.
 
 ### Added
 
-- Release queue reset after v1.4.1; new entries land here.
+- Release queue reset after v1.5.0; new entries land here.
 
 ### Changed
 
@@ -17,6 +17,31 @@ OpenMozi maintains its own version line.
 ### Fixed
 
 - None yet.
+
+## [v1.5.0] - 2026-08-03
+
+### Added
+
+- Qwen / Alibaba Cloud is now a first-class provider with DashScope China and
+  international endpoints, model discovery, and Qwen 3.8 Max metadata.
+- Supported models can expose their reasoning separately from the final answer;
+  live reasoning remains visible in a compact disclosure after completion.
+
+### Changed
+
+- Work details now expand directly in the conversation instead of opening a
+  separate page, and the live card title follows the current action.
+- Model activation uses explicit Add and Remove actions instead of an ambiguous
+  unlabeled switch.
+- macOS download and Release instructions now state the exact Apple signing and
+  notarization status and explain Gatekeeper's "damaged" warning.
+
+### Fixed
+
+- Provider endpoint selection is validated, saved, and reused consistently by
+  model discovery and model calls.
+- User cancellation reaches provider calls without adding an arbitrary global
+  wall-clock deadline to the turn.
 
 ## [v1.4.1] - 2026-08-03
 

@@ -515,6 +515,53 @@ describe('api routes local auth', () => {
     expect(openai.models.find(model => model.id === 'gpt-4.1')).toMatchObject({ allowed: false });
   });
 
+  it('exposes DashScope regions and persists its selected HTTPS endpoint with the key', async () => {
+    app = await createApp('invite');
+    const admin = await registerUser(app, { email: 'admin@example.com', password: 'AdminPass1' });
+    const headers = { cookie: cookieHeader(admin) };
+
+    const providers = await app.inject({ method: 'GET', url: '/api/providers', headers });
+    expect(providers.statusCode).toBe(200);
+    const dashscope = providers.json().providers.find((provider: { id: string }) => provider.id === 'dashscope');
+    expect(dashscope).toMatchObject({
+      name: 'Qwen / Alibaba Cloud',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      defaultModel: 'qwen3.7-plus',
+      regions: [
+        { id: 'cn', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+        { id: 'us', baseUrl: 'https://dashscope-us.aliyuncs.com/compatible-mode/v1' },
+        { id: 'custom', baseUrl: '' },
+      ],
+    });
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/keys/dashscope',
+      headers,
+      payload: { key: 'sk-dashscope-test', baseUrl: 'http://dashscope.example.com/v1' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().error).toContain('HTTPS');
+
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/keys/dashscope',
+      headers,
+      payload: {
+        key: 'sk-dashscope-test',
+        baseUrl: 'https://workspace.example.com/compatible-mode/v1/?ignored=1#ignored',
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({
+      success: true,
+      provider: 'dashscope',
+      baseUrl: 'https://workspace.example.com/compatible-mode/v1',
+    });
+    expect(loadConfig(join(tmpDir, 'mozi.json')).providers.dashscope?.baseurl)
+      .toBe('https://workspace.example.com/compatible-mode/v1');
+  });
+
   it('persists tenant allowed_models through the quota route with catalog validation', async () => {
     app = await createApp('invite');
     const admin = await registerUser(app, { email: 'admin@example.com', password: 'AdminPass1' });
