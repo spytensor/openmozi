@@ -619,9 +619,32 @@ function backfillConversationIds(sessionId: string, tenantId: string): void {
   })();
 }
 
+/**
+ * Conversation allowlist for `projection: 'conversation'`. Every type here is
+ * bounded per turn (task/artifact/approval rows upsert by event_key;
+ * memory_update's only writer is the per-turn extraction path). A NEW item
+ * type is excluded from the conversation page BY DEFAULT — add it here only
+ * after confirming its per-turn volume is bounded. This is the third
+ * recurrence of "high-volume process rows evict chat messages from the page
+ * window" (plan skeletons, then hero/approval cards, then messages); the
+ * allowlist is what prevents a fourth.
+ *
+ * Known bounded budget leak, deliberately NOT solved here: runtime-diagnostic
+ * messages (dropped post-window below) and legacy lifecycle task rows
+ * (dropped client-side) still consume page budget. Both are capped per turn.
+ *
+ * `tool_event` is special-cased rather than listed: legacy turns without a
+ * `session_turns` envelope have no run projection, so the chat surface still
+ * builds their execution blocks from tool rows — those stay. Envelope-backed
+ * turns serve tool rows exclusively via getSessionRunTimeline.
+ */
+const CONVERSATION_ITEM_TYPES = [
+  'message', 'plan_started', 'task_update', 'artifact', 'approval_request', 'memory_update',
+] as const;
+
 export function getSessionTimelinePage(
   sessionId: string,
-  options: { limit?: number; tenantId?: string; before?: string } = {},
+  options: { limit?: number; tenantId?: string; before?: string; projection?: 'full' | 'conversation' } = {},
 ): SessionTimelinePage {
   const db = getDb();
   const tenantId = options.tenantId ?? 'default';
@@ -629,14 +652,29 @@ export function getSessionTimelinePage(
   const before = decodeCursor(options.before);
   if (options.before && !before) throw new Error('Invalid timeline cursor');
   backfillConversationIds(sessionId, tenantId);
+  const conversationOnly = options.projection === 'conversation';
+  const typePlaceholders = CONVERSATION_ITEM_TYPES.map(() => '?').join(', ');
+  // Projection filter runs in SQL before ORDER BY/LIMIT on every page, so the
+  // (timestamp_ms, id) keyset cursor semantics are identical in both
+  // projections and previously issued mixed-stream cursors stay valid. NO
+  // tool_event row enters the conversation window — not even turn-less
+  // pre-#627 residue, which would otherwise be a re-eviction channel; legacy
+  // tool rows ride along via the bounded augmentation below.
+  const projectionClause = conversationOnly
+    ? `AND item_type IN (${typePlaceholders})`
+    : '';
+  const projectionParams = conversationOnly
+    ? [...CONVERSATION_ITEM_TYPES]
+    : [];
   const rows = db.prepare(`
     SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
     FROM session_timeline_events
     WHERE tenant_id = ? AND session_id = ?
+      ${projectionClause}
       AND (? IS NULL OR timestamp_ms < ? OR (timestamp_ms = ? AND id < ?))
     ORDER BY timestamp_ms DESC, id DESC
     LIMIT ?
-  `).all(tenantId, sessionId, before?.timestamp ?? null, before?.timestamp ?? null, before?.timestamp ?? null, before?.id ?? null, limit + 1) as TimelineRow[];
+  `).all(tenantId, sessionId, ...projectionParams, before?.timestamp ?? null, before?.timestamp ?? null, before?.timestamp ?? null, before?.id ?? null, limit + 1) as TimelineRow[];
   const hasMore = rows.length > limit;
   const selected = rows.slice(0, limit);
   const oldest = selected.at(-1);
@@ -690,7 +728,63 @@ export function getSessionTimelinePage(
       oldest.id,
     ) as TimelineRow[];
   }
-  const timeline = [...structural, ...[...selected].reverse()].flatMap((row) => {
+  // Legacy tool augmentation (conversation projection only): turns WITHOUT a
+  // session_turns envelope have no run projection — the chat surface still
+  // builds their execution blocks from tool rows — and turn-less pre-#627
+  // rows cannot be attributed at all. Serve both OUTSIDE the cursor budget
+  // (same pattern as the structural backfill above) so no legacy flood can
+  // evict conversation rows, CAPPED at the most recent rows: an unbounded
+  // legacy turn (thousands of tool results) must not balloon the restore
+  // payload. Beyond-cap rows of envelope-less turns are simply not shown —
+  // they have no run projection to fall back to, and messages always win.
+  // Cursor pages may re-serve augmented rows — the client dedupes by eventId.
+  const LEGACY_TOOL_AUGMENT_CAP = 500;
+  let legacyTools: TimelineRow[] = [];
+  if (conversationOnly && selected.length > 0 && oldest) {
+    // Turn-less rows have no run projection AND no turn to key on, so they are
+    // scoped to the current page's keyset interval [oldest, cursor) — they
+    // appear on the page where their chronological position falls, never
+    // teleported onto newer pages. On the LAST page the lower bound opens so
+    // orphans older than every conversation row still surface. Envelope-less
+    // TURN rows key on window membership instead (their skeleton rows anchor
+    // the turn in the window).
+    const orphanLowerBound = hasMore ? oldest : null;
+    const turnPlaceholders = windowTurnIds.length > 0 ? windowTurnIds.map(() => '?').join(', ') : "''";
+    legacyTools = (db.prepare(`
+      SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
+      FROM session_timeline_events
+      WHERE tenant_id = ? AND session_id = ?
+        AND item_type = 'tool_event'
+        AND (
+          (
+            turn_id IS NULL
+            AND (? IS NULL OR timestamp_ms > ? OR (timestamp_ms = ? AND id >= ?))
+            AND (? IS NULL OR timestamp_ms < ? OR (timestamp_ms = ? AND id < ?))
+          )
+          OR (
+            turn_id IN (${turnPlaceholders})
+            AND turn_id NOT IN (
+              SELECT turn_id FROM session_turns WHERE tenant_id = ? AND session_id = ?
+            )
+          )
+        )
+      ORDER BY timestamp_ms DESC, id DESC
+      LIMIT ?
+    `).all(
+      tenantId, sessionId,
+      orphanLowerBound?.timestamp_ms ?? null, orphanLowerBound?.timestamp_ms ?? null, orphanLowerBound?.timestamp_ms ?? null, orphanLowerBound?.id ?? null,
+      before?.timestamp ?? null, before?.timestamp ?? null, before?.timestamp ?? null, before?.id ?? null,
+      ...windowTurnIds,
+      tenantId, sessionId,
+      LEGACY_TOOL_AUGMENT_CAP,
+    ) as TimelineRow[]).reverse();
+  }
+  // Augmented rows (structural skeletons, legacy tools) can be NEWER than the
+  // oldest selected row — merge and re-sort so the page keeps its
+  // chronological contract for every caller, not just the React loader.
+  const merged = [...structural, ...legacyTools, ...[...selected].reverse()]
+    .sort((a, b) => a.timestamp_ms - b.timestamp_ms || a.id - b.id);
+  const timeline = merged.flatMap((row) => {
     const parsed = classifyInternalQaMessage(
       sanitizeTimelinePayload(row.item_type, parsePayload(row.payload)),
       row,

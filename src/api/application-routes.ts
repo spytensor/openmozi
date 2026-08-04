@@ -2474,7 +2474,11 @@ export async function registerApiRoutes(
     const query = request.query as Record<string, string>;
     const limit = Number(query.limit) || 100;
     try {
-      const page = getSessionTimelinePage(id, { limit, tenantId, before: query.before });
+      // Conversation projection: chat history pages over conversation rows
+      // only; tool_event rows of envelope-backed turns are served exclusively
+      // by GET /api/sessions/:id/runs/:turnId (the RunInspector's source).
+      // Keeps an active turn's tool flood from evicting messages on reload.
+      const page = getSessionTimelinePage(id, { limit, tenantId, before: query.before, projection: 'conversation' });
       // Issue #627: expose the server-authoritative turn envelopes alongside the
       // rendered timeline so a reconnecting client learns turn grouping and
       // terminal status without re-deriving them. Only on the first page (no

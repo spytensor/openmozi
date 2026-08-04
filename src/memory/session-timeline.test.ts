@@ -835,6 +835,135 @@ describe('memory/session-timeline — page window keeps turn structural rows (G�
   });
 });
 
+describe('memory/session-timeline — conversation projection (fourth-recurrence guard)', () => {
+  const save = (input: {
+    turnId?: string; eventKey: string; timestamp: number; type?: string; data?: Record<string, unknown>;
+  }) =>
+    saveTimelineItem({
+      tenantId: 't', sessionId: 'conv-session', chatId: 'c', turnId: input.turnId,
+      type: (input.type ?? 'tool_event') as 'tool_event', eventKey: input.eventKey, timestamp: input.timestamp,
+      data: input.data ?? { id: input.eventKey, callId: input.eventKey, tool: 'x', phase: 'end', timestamp: input.timestamp },
+    });
+  const message = (eventKey: string, timestamp: number, turnId?: string) =>
+    save({ turnId, eventKey, timestamp, type: 'message', data: { id: eventKey, role: 'user', content: `msg ${eventKey}`, timestamp } });
+
+  it('a 200-tool flood on an envelope-backed turn cannot evict messages from the conversation page', () => {
+    // The operator's real bug: 173 tool_events pushed all 32 messages out of
+    // the 100-row first page and the chat area rendered empty on switch-back.
+    startTurnEnvelope({ tenantId: 't', sessionId: 'conv-session', chatId: 'c', turnId: 'turn_live', origin: 'background', startedAt: 5000 });
+    for (let index = 0; index < 20; index++) message(`m:${index}`, 1000 + index);
+    for (let index = 0; index < 200; index++) {
+      save({ turnId: 'turn_live', eventKey: `tool:${index}`, timestamp: 5000 + index });
+    }
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
+    expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(20);
+    expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(0);
+    // The process projection still owns every tool row (writer evidence).
+    const run = getSessionRunTimeline('conv-session', 'turn_live', 't');
+    expect(run.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(200);
+    // The full projection (default) is unchanged for internal consumers.
+    const full = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100 });
+    expect(full.timeline.some((item) => item.type === 'tool_event')).toBe(true);
+  });
+
+  it('legacy turns without an envelope keep their tool rows outside the cursor budget', () => {
+    // Legacy sessions have no run projection: the chat surface builds their
+    // execution blocks from tool rows, so those must survive — but as an
+    // augmentation, never inside the page window where they could evict
+    // conversation rows.
+    message('legacy-q', 100, 'turn_legacy');
+    for (let index = 0; index < 30; index++) {
+      save({ turnId: 'turn_legacy', eventKey: `lt:${index}`, timestamp: 200 + index });
+    }
+    message('legacy-a', 300, 'turn_legacy');
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 2, projection: 'conversation' });
+    // Window = the 2 messages; the 30 legacy tool rows ride along like
+    // structural rows do.
+    expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(2);
+    expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(30);
+  });
+
+  it('admits memory_update rows and serves turn-less legacy tool rows via the augmentation, never the window', () => {
+    message('q', 100);
+    save({ eventKey: 'mem:1', timestamp: 101, type: 'memory_update', data: { id: 'mem-1', summary: 'remembered', timestamp: 101 } });
+    // Pre-#627 rows without a turn_id ride along outside the cursor budget.
+    save({ eventKey: 'orphan-tool', timestamp: 102 });
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
+    expect(page.timeline.filter((item) => item.type === 'memory_update')).toHaveLength(1);
+    expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(1);
+    // Chronological page contract holds even with augmented rows merged in.
+    const stamps = page.timeline.map((item) => item.timestamp);
+    expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
+  });
+
+  it('a turn-less legacy tool flood cannot evict messages either (review P1)', () => {
+    for (let index = 0; index < 10; index++) message(`nm:${index}`, 100 + index);
+    for (let index = 0; index < 150; index++) {
+      save({ eventKey: `orphan:${index}`, timestamp: 5000 + index });
+    }
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
+    expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(10);
+    // The orphan rows arrive as augmentation, not window occupants — and they
+    // fall inside this page's keyset interval, so all 150 ride along.
+    expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(150);
+  });
+
+  it('turn-less rows outside the page keyset interval stay on their own page (review round 2)', () => {
+    // An OLD orphan tool must not teleport onto the newest page; it appears
+    // when pagination reaches its chronological position.
+    save({ eventKey: 'ancient-orphan', timestamp: 10 });
+    for (let index = 0; index < 6; index++) message(`kp:${index}`, 1000 + index);
+
+    const first = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation' });
+    expect(first.timeline.some((item) => item.type === 'tool_event')).toBe(false);
+    expect(first.hasMore).toBe(true);
+    const second = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation', before: first.nextCursor! });
+    expect(second.timeline.some((item) => item.type === 'tool_event' && item.timestamp === 10)).toBe(true);
+  });
+
+  it('caps the legacy augmentation so an unbounded legacy turn cannot balloon the payload (review P2)', () => {
+    message('cap-q', 100, 'turn_hugelegacy');
+    for (let index = 0; index < 600; index++) {
+      save({ turnId: 'turn_hugelegacy', eventKey: `big:${index}`, timestamp: 1000 + index });
+    }
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
+    expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(1);
+    const tools = page.timeline.filter((item) => item.type === 'tool_event');
+    expect(tools).toHaveLength(500);
+    // The cap keeps the MOST RECENT legacy rows.
+    expect(tools.at(-1)?.timestamp).toBe(1599);
+  });
+
+  it('cursor pages walk the conversation stream without duplicates or stalls, including cursors minted by the full projection', () => {
+    startTurnEnvelope({ tenantId: 't', sessionId: 'conv-session', chatId: 'c', turnId: 'turn_flood', origin: 'background', startedAt: 1000 });
+    // Equal-timestamp interleaving: messages and excluded tool rows share timestamps.
+    for (let index = 0; index < 12; index++) {
+      message(`page:${index}`, 1000 + index);
+      save({ turnId: 'turn_flood', eventKey: `ptool:${index}`, timestamp: 1000 + index });
+    }
+
+    const first = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation' });
+    expect(first.timeline.filter((item) => item.type === 'message')).toHaveLength(5);
+    expect(first.hasMore).toBe(true);
+    const second = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation', before: first.nextCursor! });
+    const firstIds = new Set(first.timeline.map((item) => item.eventId));
+    expect(second.timeline.filter((item) => item.type === 'message')).toHaveLength(5);
+    expect(second.timeline.every((item) => !firstIds.has(item.eventId))).toBe(true);
+
+    // Deployment transition: a cursor minted by the FULL projection (old build)
+    // still resumes a conversation-projection walk without throwing.
+    const fullFirst = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5 });
+    const resumed = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation', before: fullFirst.nextCursor! });
+    expect(resumed.timeline.length).toBeGreaterThan(0);
+    expect(resumed.timeline.every((item) => item.type !== 'tool_event' || item.turnId !== 'turn_flood')).toBe(true);
+  });
+});
+
 describe('memory/session-timeline — turn-wide data-file demotion backstop (G2 HIGH-1)', () => {
   const saveArtifact = (eventKey: string, payload: Record<string, unknown>, timestamp = 100) =>
     saveTimelineItem({
