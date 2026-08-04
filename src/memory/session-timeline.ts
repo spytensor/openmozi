@@ -40,6 +40,11 @@ export interface SessionTimelinePage {
   hasMore: boolean;
 }
 
+export interface SessionRunTimeline {
+  claimedTurnIds: string[];
+  timeline: SessionTimelinePageItem[];
+}
+
 export interface SaveTimelineItemInput {
   tenantId?: string;
   sessionId: string;
@@ -77,6 +82,76 @@ function isRuntimeDiagnosticMessage(data: unknown): boolean {
     /^(Runtime Status|Agent Runtime — Commands)(?:\n|$)/.test(message.content.trim());
 }
 
+const LEGACY_VERIFIER_FAILURE_PROSE = /^(?:生成结果未能满足要求。|The generated result did not meet the request\.)/i;
+const OUTCOME_VERIFIER_PROSE = /(?:semantic verification|failed verification|automatic verification|quality (?:was|is) not verified|result failed verification|generated result (?:did not|failed to) meet|verification found that the result does not meet|语义校验|自动校验|质量未经校验|验证(?:发现|未能|没有)|生成结果未能满足要求)/i;
+
+/**
+ * Older builds persisted private-verifier verdicts as assistant prose.
+ * Classify only known historical shapes at the server boundary: either a
+ * verifier-coded outcome, or the older failed-background-turn signature that
+ * predates outcomes. The UI consumes this typed compatibility marker and never
+ * guesses message ownership from user-visible text.
+ */
+function classifyInternalQaMessage(
+  data: unknown,
+  row: TimelineRow,
+  tenantId: string,
+  sessionId: string,
+): unknown {
+  if (
+    row.item_type !== 'message'
+    || !row.turn_id
+    || !data
+    || typeof data !== 'object'
+    || Array.isArray(data)
+  ) return data;
+  const message = data as Record<string, unknown>;
+  if (
+    message.role !== 'assistant'
+    || typeof message.content !== 'string'
+    || (
+      !LEGACY_VERIFIER_FAILURE_PROSE.test(message.content.trim())
+      && !OUTCOME_VERIFIER_PROSE.test(message.content.trim())
+    )
+  ) return data;
+
+  const facts = getDb().prepare(`
+    SELECT turns.origin, turns.status,
+      CASE WHEN turns.outcome_json IS NULL THEN 0 ELSE 1 END AS has_outcome,
+      CASE WHEN json_valid(turns.outcome_json)
+        THEN json_extract(turns.outcome_json, '$.code') END AS outcome_code,
+      EXISTS(
+        SELECT 1 FROM session_timeline_events artifact
+        WHERE artifact.tenant_id = turns.tenant_id
+          AND artifact.session_id = turns.session_id
+          AND artifact.turn_id = turns.turn_id
+          AND artifact.item_type = 'artifact'
+          AND CASE WHEN json_valid(artifact.payload)
+            THEN json_extract(artifact.payload, '$.status') = 'completed'
+          ELSE 0 END
+      ) AS has_completed_artifact
+    FROM session_turns turns
+    WHERE turns.tenant_id = ? AND turns.session_id = ? AND turns.turn_id = ?
+  `).get(tenantId, sessionId, row.turn_id) as {
+    origin: string;
+    status: string;
+    has_outcome: number;
+    outcome_code: string | null;
+    has_completed_artifact: number;
+  } | undefined;
+  const verifierOutcome = facts?.origin === 'background'
+    && (facts.outcome_code === 'verification_failed' || facts.outcome_code === 'verification_incomplete')
+    && OUTCOME_VERIFIER_PROSE.test(message.content.trim());
+  const preOutcomeVerifier = facts?.origin === 'background'
+    && facts.status === 'failed'
+    && facts.has_outcome === 0
+    && facts.has_completed_artifact === 1
+    && LEGACY_VERIFIER_FAILURE_PROSE.test(message.content.trim());
+  return verifierOutcome || preOutcomeVerifier
+    ? { ...message, presentationRole: 'internal_qa' }
+    : data;
+}
+
 function messageKey(role: unknown, content: unknown): string | null {
   return typeof role === 'string' && typeof content === 'string' ? `${role}\u0000${content}` : null;
 }
@@ -105,6 +180,25 @@ function compactUndefined(value: unknown): unknown {
       .filter(([, entry]) => entry !== undefined)
       .map(([key, entry]) => [key, compactUndefined(entry)]),
   );
+}
+
+/** Product timeline messages may carry safe reasoning summaries and activity metadata, never private provider text. */
+function sanitizeTimelinePayload(type: SessionTimelineItemType, data: unknown): unknown {
+  if (type !== 'message' || !data || typeof data !== 'object' || Array.isArray(data)) return data;
+  const message = data as Record<string, unknown>;
+  const value = message.reasoning;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return data;
+  const reasoning = value as Record<string, unknown>;
+  const { raw, ...safe } = reasoning;
+  const hasPrivateReasoning = safe.hasPrivateReasoning === true
+    || (typeof raw === 'string' && raw.trim().length > 0);
+  return compactUndefined({
+    ...message,
+    reasoning: {
+      ...safe,
+      ...(hasPrivateReasoning ? { hasPrivateReasoning: true } : {}),
+    },
+  });
 }
 
 function dataString(data: Record<string, unknown>, key: string): string | undefined {
@@ -150,7 +244,7 @@ function reconcileApprovalPayload(data: unknown, tenantId: string): unknown {
 }
 
 function buildPayload(input: SaveTimelineItemInput, tenantId: string): unknown {
-  const next = compactUndefined(input.data ?? {});
+  const next = compactUndefined(sanitizeTimelinePayload(input.type, input.data ?? {}));
   if (!input.mergeDataOnUpdate) return next;
 
   const db = getDb();
@@ -170,7 +264,10 @@ function buildPayload(input: SaveTimelineItemInput, tenantId: string): unknown {
     typeof next === 'object' &&
     !Array.isArray(next)
   ) {
-    return { ...(previous as Record<string, unknown>), ...(next as Record<string, unknown>) };
+    return sanitizeTimelinePayload(input.type, {
+      ...(previous as Record<string, unknown>),
+      ...(next as Record<string, unknown>),
+    });
   }
   return next;
 }
@@ -594,7 +691,12 @@ export function getSessionTimelinePage(
     ) as TimelineRow[];
   }
   const timeline = [...structural, ...[...selected].reverse()].flatMap((row) => {
-    const parsed = parsePayload(row.payload);
+    const parsed = classifyInternalQaMessage(
+      sanitizeTimelinePayload(row.item_type, parsePayload(row.payload)),
+      row,
+      tenantId,
+      sessionId,
+    );
     if (row.item_type === 'message' && isRuntimeDiagnosticMessage(parsed)) return [];
     const data = row.item_type === 'approval_request'
       ? reconcileApprovalPayload(parsed, tenantId)
@@ -617,6 +719,85 @@ export function getSessionTimelinePage(
     hasMore,
     nextCursor: hasMore && oldest ? encodeCursor(oldest.timestamp_ms, oldest.id) : null,
   };
+}
+
+/**
+ * Read one complete user run without the session page limit. A detached plan's
+ * foreground `plan_started` turn and `turn_bg_<planId>` execution turn are one
+ * presentation run, so both identities are returned together.
+ */
+export function getSessionRunTimeline(
+  sessionId: string,
+  turnId: string,
+  tenantId = 'default',
+): SessionRunTimeline {
+  const db = getDb();
+  const claimed = new Set([turnId]);
+  const backgroundPlanId = /^turn_bg_(.+)$/.exec(turnId)?.[1];
+  const planRows = db.prepare(`
+    SELECT turn_id, payload
+    FROM session_timeline_events
+    WHERE tenant_id = ? AND session_id = ? AND item_type = 'plan_started'
+      AND (turn_id = ? OR (? IS NOT NULL AND json_extract(payload, '$.plan_id') = ?))
+    ORDER BY timestamp_ms ASC, id ASC
+  `).all(tenantId, sessionId, turnId, backgroundPlanId ?? null, backgroundPlanId ?? null) as Array<{
+    turn_id: string | null;
+    payload: string;
+  }>;
+  for (const row of planRows) {
+    if (row.turn_id) claimed.add(row.turn_id);
+    const planId = dataString(parsePayload(row.payload) as Record<string, unknown>, 'plan_id');
+    if (planId) claimed.add(`turn_bg_${planId}`);
+  }
+
+  const claimedTurnIds = [...claimed];
+  const placeholders = claimedTurnIds.map(() => '?').join(', ');
+  const rows = db.prepare(`
+    SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
+    FROM session_timeline_events
+    WHERE tenant_id = ? AND session_id = ? AND turn_id IN (${placeholders})
+    ORDER BY timestamp_ms ASC, id ASC
+  `).all(tenantId, sessionId, ...claimedTurnIds) as TimelineRow[];
+
+  const timeline = rows.flatMap((row) => {
+    const parsed = classifyInternalQaMessage(
+      sanitizeTimelinePayload(row.item_type, parsePayload(row.payload)),
+      row,
+      tenantId,
+      sessionId,
+    );
+    if (row.item_type === 'message' && isRuntimeDiagnosticMessage(parsed)) return [];
+    const data = row.item_type === 'approval_request'
+      ? reconcileApprovalPayload(parsed, tenantId)
+      : parsed;
+    if (row.item_type === 'message' && data && typeof data === 'object' && !Array.isArray(data)) {
+      const message = data as Record<string, unknown>;
+      if (row.conversation_id !== null) message.id = `conversation:${row.conversation_id}`;
+    }
+    return [{
+      eventId: row.id,
+      type: row.item_type,
+      timestamp: row.timestamp_ms,
+      ...(row.turn_id ? { turnId: row.turn_id } : {}),
+      ...(row.turn_seq != null ? { seq: row.turn_seq } : {}),
+      data,
+    } satisfies SessionTimelinePageItem];
+  });
+  return { claimedTurnIds, timeline };
+}
+
+/** Attempt failures are product timeline facts; terminal writers use this to
+ * count handled attempts without reading the parallel operator telemetry DB. */
+export function countTurnToolFailures(sessionId: string, turnId: string, tenantId = 'default'): number {
+  const row = getDb().prepare(`
+    SELECT COUNT(*) AS count
+    FROM session_timeline_events
+    WHERE tenant_id = ? AND session_id = ? AND turn_id = ?
+      AND item_type = 'tool_event'
+      AND json_extract(payload, '$.phase') = 'end'
+      AND json_extract(payload, '$.status') = 'error'
+  `).get(tenantId, sessionId, turnId) as { count: number };
+  return Number(row.count ?? 0);
 }
 
 export function linkLatestTimelineMessage(input: {

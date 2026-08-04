@@ -1,6 +1,6 @@
 import { fireEvent, screen, renderWithLocale, within } from "@/test/render";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Artifact, ChatMessage, SessionState, TimelineItem, ToolEvent } from "@/types";
+import type { Artifact, ChatMessage, SessionState, TimelineItem, ToolEvent, TurnEnvelope } from "@/types";
 import ChatView from "./ChatView";
 
 function message(
@@ -86,6 +86,7 @@ function renderChat(
     onSend?: (content: string) => void;
     onRegenerate?: (content: string) => void;
     onOpenMemory?: () => void;
+    onOpenRun?: (turnId: string) => void;
   } = {},
 ) {
   const onSend = options.onSend ?? vi.fn();
@@ -105,6 +106,7 @@ function renderChat(
       onSend={onSend}
       onRegenerate={onRegenerate}
       onOpenMemory={options.onOpenMemory}
+      onOpenRun={options.onOpenRun}
     />,
   );
 }
@@ -116,6 +118,130 @@ describe("ChatView", () => {
       configurable: true,
       value: vi.fn(),
     });
+  });
+
+  it("leaves terminal process details to the Workbench and renders one compact run summary", () => {
+    const onOpenRun = vi.fn();
+    const timeline: TimelineItem[] = [
+      { ...message("user", "Build the report", 1, { turnId: "turn-1" }), turnId: "turn-1" },
+      { ...message("assistant", "I will inspect the files.", 2, { turnId: "turn-1", reasoning: { provider: "test", summary: "Inspect inputs", hasPrivateReasoning: true, streaming: false, startedAt: 2, completedAt: 3, durationMs: 1 } }), turnId: "turn-1" },
+      { ...toolEvent("read-1", 3, "turn-1", { status: "error", error: "ENOENT /private/path" }), turnId: "turn-1" },
+      { ...message("assistant", "The report is ready.", 4, { turnId: "turn-1" }), turnId: "turn-1" },
+    ];
+    renderChat(timeline, {
+      onOpenRun,
+      timelineCapabilities: ["timeline_v1"],
+      turns: [{
+        turnId: "turn-1", sessionId: "session-1", chatId: "chat-1", origin: "user", status: "completed",
+        seqHighWater: 4, startedAt: 1, endedAt: 4,
+        outcome: { version: 1, state: "succeeded", code: "run_succeeded", verification: "passed", recoveredAttemptCount: 1, issues: [] },
+      }],
+    });
+
+    expect(screen.getByText("The report is ready.")).toBeInTheDocument();
+    expect(screen.queryByText("Inspect inputs")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("turn-fold-summary")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("run-summary"));
+    expect(onOpenRun).toHaveBeenCalledWith("turn-1");
+  });
+
+  it("keeps legacy process disclosure when the same session also contains a new run contract", () => {
+    const oldTurnId = "turn-old-without-envelope";
+    const newTurnId = "turn-new-contract";
+    renderChat([
+      { ...message("user", "Old request", 1, { turnId: oldTurnId, seq: 1 }), turnId: oldTurnId, seq: 1 },
+      { ...message("assistant", "", 2, {
+        turnId: oldTurnId,
+        seq: 2,
+        reasoning: { provider: "legacy", summary: "Legacy reasoning remains available", hasPrivateReasoning: true, streaming: false, startedAt: 2, completedAt: 3, durationMs: 1 },
+      }), turnId: oldTurnId, seq: 2 },
+      { ...message("assistant", "Old answer", 3, { turnId: oldTurnId, seq: 3 }), turnId: oldTurnId, seq: 3 },
+      { ...message("user", "New request", 4, { turnId: newTurnId, seq: 1 }), turnId: newTurnId, seq: 1 },
+      { ...toolEvent("new-tool", 5, newTurnId, { intent: "New run internal work", seq: 2 }), turnId: newTurnId, seq: 2 },
+      { ...message("assistant", "New answer", 6, { turnId: newTurnId, seq: 3 }), turnId: newTurnId, seq: 3 },
+    ], {
+      timelineCapabilities: ["timeline_v1"],
+      onOpenRun: vi.fn(),
+      turns: [{
+        turnId: newTurnId, sessionId: "session-1", chatId: "chat-1", origin: "user", status: "completed",
+        seqHighWater: 3, startedAt: 4, endedAt: 6,
+        outcome: { version: 1, state: "succeeded", code: "run_succeeded", verification: "passed", recoveredAttemptCount: 0, issues: [] },
+      }],
+    });
+
+    fireEvent.click(screen.getByTestId("reasoning-group-toggle"));
+    expect(screen.getByText("Legacy reasoning remains available")).toBeInTheDocument();
+    expect(screen.queryByText("New run internal work")).not.toBeInTheDocument();
+    expect(screen.getByText("New answer")).toBeInTheDocument();
+    expect(screen.getByTestId("run-summary")).toBeInTheDocument();
+  });
+
+  it("keeps answer, primary artifact, and run details on one MOZI track in that order", () => {
+    const onOpenRun = vi.fn();
+    const primary = artifactItem(2, {
+      id: "report",
+      title: "Market report.html",
+      plugin_id: "document_v1",
+      turnId: "turn-order",
+      data: { role: "primary", content_type: "html" },
+    });
+    primary.turnId = "turn-order";
+    primary.seq = 2;
+    const timeline: TimelineItem[] = [
+      { ...message("user", "Build the report", 1, { turnId: "turn-order", seq: 1 }), turnId: "turn-order", seq: 1 },
+      primary,
+      { ...message("assistant", "The report is ready.", 3, { turnId: "turn-order", seq: 3 }), turnId: "turn-order", seq: 3 },
+    ];
+    renderChat(timeline, {
+      onOpenRun,
+      timelineCapabilities: ["timeline_v1"],
+      turns: [{
+        turnId: "turn-order", sessionId: "session-1", chatId: "chat-1", origin: "user", status: "completed",
+        seqHighWater: 3, startedAt: 1, endedAt: 4,
+      }],
+    });
+
+    const answer = screen.getByText("The report is ready.");
+    const artifact = screen.getByText("Market report.html");
+    const completed = screen.getByTestId("run-summary");
+    expect(answer.compareDocumentPosition(artifact) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(artifact.compareDocumentPosition(completed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId("mozi-avatar")).toHaveLength(1);
+  });
+
+  it("treats a terminal envelope without outcome as Inspector-owned and suppresses unscoped legacy process rows", () => {
+    const onOpenRun = vi.fn();
+    const timeline: TimelineItem[] = [
+      { ...message("user", "Research the market", 1, { turnId: "turn-legacy-gap" }), turnId: "turn-legacy-gap" },
+      toolEvent("shell-raw", 2, undefined, {
+        tool: "shell_exec",
+        intent: 'curl -s "https://push2.eastmoney.com/api/qt/clist/get"',
+      }),
+      artifactItem(3, {
+        id: "supporting-note",
+        title: "Internal working note",
+        turnId: "turn-legacy-gap",
+        data: { role: "supporting", markdown: "private work" },
+      }),
+      { ...message("assistant", "Research complete.", 4, { turnId: "turn-legacy-gap" }), turnId: "turn-legacy-gap" },
+    ];
+
+    renderChat(timeline, {
+      onOpenRun,
+      timelineCapabilities: ["timeline_v1"],
+      turns: [{
+        turnId: "turn-legacy-gap", sessionId: "session-1", chatId: "chat-1", origin: "user",
+        status: "completed", seqHighWater: 4, startedAt: 1, endedAt: 4,
+      }],
+    });
+
+    expect(screen.getByTestId("run-summary")).toHaveTextContent("Run details");
+    expect(screen.queryByTestId("execution-block")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("turn-fold-summary")).not.toBeInTheDocument();
+    expect(screen.queryByText(/eastmoney|curl -s/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Internal working note")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("run-summary"));
+    expect(onOpenRun).toHaveBeenCalledWith("turn-legacy-gap");
   });
 
   it("renders a restored memory update as a quiet action that opens Memory", () => {
@@ -413,34 +539,38 @@ describe("ChatView", () => {
         requestId: "req-reasoning",
         reasoning: {
           provider: "deepseek",
-          raw: "Identify primary sources.",
+          hasPrivateReasoning: true,
           streaming: true,
           startedAt: Date.now() - 1000,
         },
       }),
     ], { sessionState: "WORKING" });
 
-    expect(screen.getByTestId("message-reasoning")).toHaveTextContent("Identify primary sources.");
+    expect(screen.getByTestId("reasoning-group")).toHaveTextContent("Working through the request…");
+    expect(screen.queryByText("Identify primary sources.")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-thinking-indicator")).not.toBeInTheDocument();
     expect(activityIndicatorCount()).toBe(0);
   });
 
   it("keeps a single working indicator as the sole status owner until the current turn terminalizes", () => {
+    const onOpenRun = vi.fn();
     renderChat([
       message("user", "Inspect this project", 1),
       message("assistant", "I will inspect the project first.", 2),
       toolEvent("inspect-1", 3, "turn-1"),
-    ], { sessionState: "WORKING", activeTurnId: "turn-1" });
+    ], { sessionState: "WORKING", activeTurnId: "turn-1", onOpenRun });
 
     // The consolidated working capsule is the sole status owner once the turn
     // has execution activity (four-region model, 2026-07-18): no generic
     // thinking line, no per-block summary, exactly one spinner.
-    expect(screen.getByTestId("execution-live-work")).toBeInTheDocument();
+    expect(screen.getByTestId("live-run-summary")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-thinking-indicator")).not.toBeInTheDocument();
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
     expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".animate-spin")).toHaveLength(1);
     expect(screen.getByTestId("mozi-avatar").querySelector(".animate-pulse")).toBeNull();
+    fireEvent.click(screen.getByTestId("live-run-summary"));
+    expect(onOpenRun).toHaveBeenCalledWith("turn-1");
   });
 
   it("anchors the working capsule at the top of the turn with narration streaming below", () => {
@@ -456,7 +586,7 @@ describe("ChatView", () => {
     // Four-region order (operator, 2026-07-18): user message → working
     // capsule → the answer/narration below it. The growing answer must not
     // push the capsule to the bottom.
-    const capsule = screen.getByTestId("execution-live-work");
+    const capsule = screen.getByTestId("live-run-summary");
     const narration = screen.getByText("Now generating the document.");
     expect(capsule.compareDocumentPosition(narration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const userMsg = screen.getByText("Organize this project");
@@ -464,6 +594,53 @@ describe("ChatView", () => {
     // No suppressed same-turn block resurfaces, and only one spinner exists.
     expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".animate-spin")).toHaveLength(1);
+  });
+
+  it("keeps current-run process in the Workbench and never promotes a shell command into the capsule", () => {
+    const turnId = "turn-market";
+    const scoped = (item: TimelineItem, seq: number): TimelineItem => ({
+      ...item,
+      turnId,
+      seq,
+      data: { ...item.data, turnId, seq },
+    });
+    const timeline: TimelineItem[] = [
+      scoped(message("user", "调研 A 股科技行情并制作热力图", 1), 1),
+      scoped(toolEvent("skill", 2, turnId, { tool: "use_skill", intent: "Load skill sector-chip-rating" }), 2),
+      scoped(message("assistant", "先加载分析技能。", 3), 3),
+      scoped(toolEvent("search", 4, turnId, { tool: "web_search", intent: "A 股科技行情" }), 4),
+      scoped(message("assistant", "数据有了，现在补行业板块明细。", 5), 5),
+      scoped(toolEvent("shell", 6, turnId, {
+        tool: "shell_exec",
+        phase: "start",
+        status: undefined,
+        intent: 'curl -s --max-time 20 "https://push2.eastmoney.com/api/qt/clist/get?pn=1"',
+      }), 6),
+    ];
+
+    renderWithLocale(
+      <ChatView
+        timeline={timeline}
+        sessionState="WORKING"
+        activeTool="shell_exec"
+        activeTurnId={turnId}
+        timelineCapabilities={["timeline_v1"]}
+        turns={[{ turnId, status: "active", locale: "zh-CN", startedAt: 1 }] as TurnEnvelope[]}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+        onSend={vi.fn()}
+        onRegenerate={vi.fn()}
+        onOpenRun={vi.fn()}
+      />,
+      { locale: "zh-CN" },
+    );
+
+    const capsule = screen.getByTestId("live-run-summary");
+    expect(capsule).toHaveTextContent("正在执行本地操作");
+    expect(capsule).not.toHaveTextContent("curl");
+    expect(capsule).not.toHaveTextContent("eastmoney");
+    expect(screen.queryByTestId("turn-fold-summary")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
   });
 
   it("does not show fallback thinking while a current-turn artifact is running", () => {
@@ -614,7 +791,7 @@ describe("ChatView", () => {
     );
 
     // The working capsule owns liveness; no extra indicator of any kind.
-    expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Search the project");
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("Searching public information");
     expect(screen.queryByTestId("chat-active-tool-line")).not.toBeInTheDocument();
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
     expect(activityIndicatorCount()).toBe(0);
@@ -639,7 +816,7 @@ describe("ChatView", () => {
       { locale: "en" },
     );
 
-    expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Search the project");
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("Searching public information");
 
     rerender(
       <ChatView
@@ -647,6 +824,7 @@ describe("ChatView", () => {
         sessionState="IDLE"
         activeTool={null}
         activeTurnId={null}
+        turns={[{ turnId: "turn-1", sessionId: "s", chatId: "c", origin: "background", status: "active", seqHighWater: 2, startedAt: 1 }]}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onSend={vi.fn()}
@@ -654,7 +832,7 @@ describe("ChatView", () => {
       />,
     );
 
-    expect(screen.getByTestId("execution-live-work")).toHaveTextContent("Search the project");
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("Searching public information");
     expect(screen.queryByTestId("chat-active-tool-line")).not.toBeInTheDocument();
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
     expect(screen.queryByText(/runtime restarted/i)).not.toBeInTheDocument();
@@ -749,10 +927,11 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
 
   it("groups interleaved model reasoning and execution into one card each per turn", () => {
     const turnId = "turn_reasoning";
-    const reasoning = (raw: string, startedAt: number, durationMs: number): Partial<ChatMessage> => ({
+    const reasoning = (summary: string, startedAt: number, durationMs: number): Partial<ChatMessage> => ({
       reasoning: {
         provider: "dashscope",
-        raw,
+        summary,
+        hasPrivateReasoning: true,
         streaming: false,
         startedAt,
         completedAt: startedAt + durationMs,
@@ -780,9 +959,8 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
     expect(screen.getAllByTestId("execution-summary")).toHaveLength(1);
 
     fireEvent.click(screen.getByTestId("reasoning-group-toggle"));
-    expect(screen.getAllByTestId("message-reasoning-toggle")).toHaveLength(3);
-    fireEvent.click(screen.getAllByTestId("message-reasoning-toggle")[0]);
     expect(screen.getByText("Plan the comparison.")).toBeInTheDocument();
+    expect(screen.queryByText("private:Plan the comparison.")).not.toBeInTheDocument();
   });
 
   it("renders a pre-answer failure before the answer (true chronology)", () => {
@@ -800,8 +978,7 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
     // A mid-turn error the turn moved past is normal process, so the completed
     // turn still reads as done (green), not as a failure.
     const foldSummary = within(rail).getByTestId("turn-fold-summary");
-    expect(within(rail).getByTestId("turn-fold-done-dot")).toBeInTheDocument();
-    expect(within(rail).queryByTestId("turn-fold-issue-dot")).not.toBeInTheDocument();
+    expect(within(rail).getByTestId("turn-fold-dot")).toBeInTheDocument();
     const answer = within(rail).getByText("here is the result");
     expect(foldSummary.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
@@ -937,7 +1114,7 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
     expect(within(fold).getByTestId("execution-technical-summary")).toBeInTheDocument();
   });
 
-  it("renders one failed process fold for a foreground plan and its failed background turn", () => {
+  it("suppresses historical verifier prose while preserving the delivered artifact", () => {
     const planId = "plan-verification-failed";
     const foregroundTurnId = "turn_foreground_plan";
     const backgroundTurnId = `turn_bg_${planId}`;
@@ -977,28 +1154,60 @@ describe("ChatView deterministic turn projection (Issue #625)", () => {
         type: "artifact", timestamp: 8, turnId: backgroundTurnId, seq: 4,
         data: { id: "guide", plugin_id: "document_v1", title: "Buyer's guide", status: "completed", data: { role: "primary", markdown: "guide" }, timestamp: 8, turnId: backgroundTurnId },
       },
-      idMessage("assistant", "The result failed verification.", backgroundTurnId, 5),
+      idMessage("assistant", "The result failed verification.", backgroundTurnId, 5, { presentationRole: "internal_qa" }),
     ];
 
     renderChat(timeline, {
       timelineCapabilities: CAPS,
       turns: [
         { turnId: foregroundTurnId, sessionId: "s", chatId: "c", origin: "user", status: "completed", seqHighWater: 4, startedAt: 1, locale: "en" },
-        { turnId: backgroundTurnId, sessionId: "s", chatId: "c", origin: "background", status: "failed", seqHighWater: 5, startedAt: 2, locale: "en" },
+        {
+          turnId: backgroundTurnId, sessionId: "s", chatId: "c", origin: "background", status: "failed", seqHighWater: 5, startedAt: 2, locale: "en",
+          outcome: { version: 1, state: "failed", code: "verification_failed", verification: "failed", recoveredAttemptCount: 0, issues: [] },
+        },
       ],
     });
 
-    expect(screen.getAllByTestId("turn-fold-summary")).toHaveLength(1);
-    expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
-    expect(screen.getByTestId("turn-fold-issue-dot")).toBeInTheDocument();
-    expect(screen.queryByTestId("turn-fold-done-dot")).not.toBeInTheDocument();
-    expect(screen.getByText("The result failed verification.")).toBeInTheDocument();
+    expect(screen.queryByTestId("turn-fold-summary")).not.toBeInTheDocument();
+    expect(screen.queryByText("The result failed verification.")).not.toBeInTheDocument();
+    expect(screen.getByText("Buyer's guide")).toBeInTheDocument();
+  });
 
-    fireEvent.click(screen.getByTestId("turn-fold-summary"));
-    const fold = screen.getByTestId("turn-fold-content");
-    expect(within(fold).getByText("Research providers")).toBeInTheDocument();
-    expect(within(fold).getAllByTestId("execution-block-embedded")).toHaveLength(1);
-    expect(within(fold).getByTestId("chat-view-all-artifacts")).toHaveTextContent("View all artifacts (2)");
+  it("suppresses historical prose classified by the server as internal QA", () => {
+    const turnId = "turn_bg_legacy_verifier";
+    const timeline: TimelineItem[] = [
+      idMessage("user", "生成行情 dashboard", turnId, 1),
+      {
+        type: "artifact", timestamp: 2, turnId, seq: 2,
+        data: { id: "dashboard", plugin_id: "document_v1", title: "行情 Dashboard", status: "completed", data: { role: "primary", markdown: "dashboard" }, timestamp: 2, turnId },
+      },
+      idMessage("assistant", "生成结果未能满足要求。数据虽已收集，但以下关键问题导致任务失败：", turnId, 3, { presentationRole: "internal_qa" }),
+    ];
+
+    renderChat(timeline, {
+      timelineCapabilities: CAPS,
+      turns: [
+        { turnId, sessionId: "s", chatId: "c", origin: "background", status: "completed", seqHighWater: 3, startedAt: 1, locale: "zh" },
+      ],
+    });
+
+    expect(screen.queryByText(/生成结果未能满足要求/)).not.toBeInTheDocument();
+    expect(screen.getByText("行情 Dashboard")).toBeInTheDocument();
+  });
+
+  it("does not treat ordinary MOZI prose about verification as an internal diagnostic", () => {
+    const turnId = "turn_normal_verification_wording";
+    renderChat([
+      idMessage("user", "检查登录流程", turnId, 1),
+      idMessage("assistant", "生成结果未能满足要求。这是用户要求保留的正式结论。", turnId, 2),
+    ], {
+      timelineCapabilities: CAPS,
+      turns: [
+        { turnId, sessionId: "s", chatId: "c", origin: "user", status: "completed", seqHighWater: 2, startedAt: 1, locale: "zh" },
+      ],
+    });
+
+    expect(screen.getByText("生成结果未能满足要求。这是用户要求保留的正式结论。")).toBeInTheDocument();
   });
 
   it("keeps legacy (uncapable) sessions on the frozen renderer", () => {
@@ -1330,7 +1539,31 @@ describe("one technical details per turn fold", () => {
 });
 
 describe("single stable live plan surface", () => {
+  it("shows latest-deduplicated plan progress instead of resetting completed work to zero", () => {
+    const timeline: TimelineItem[] = [
+      { type: "message", timestamp: 1, turnId: "t-progress", data: { id: "u-progress", role: "user", content: "go", timestamp: 1, turnId: "t-progress" } as ChatMessage },
+      { type: "plan_started", timestamp: 2, turnId: "t-progress", seq: 1, data: { plan_id: "progress-plan", goal: "Report", phases: [{ taskId: "p1", title: "Research", dependsOn: [] }, { taskId: "p2", title: "Write", dependsOn: ["p1"] }], timestamp: 2, turnId: "t-progress", seq: 1 } },
+      { type: "task_update", timestamp: 3, turnId: "t-progress", seq: 2, data: { id: "p1-old", task_id: "p1", title: "Research", status: "running", timestamp: 3, turnId: "t-progress", seq: 2 } },
+      { type: "task_update", timestamp: 4, turnId: "t-progress", seq: 3, data: { id: "p1-done", task_id: "p1", title: "Research", status: "completed", timestamp: 4, turnId: "t-progress", seq: 3 } },
+      { type: "task_update", timestamp: 5, turnId: "t-progress", seq: 4, data: { id: "p1-done-duplicate", task_id: "p1", title: "Research", status: "completed", timestamp: 5, turnId: "t-progress", seq: 4 } },
+      { type: "task_update", timestamp: 6, turnId: "t-progress", seq: 5, data: { id: "p2-running", task_id: "p2", title: "Write", status: "running", timestamp: 6, turnId: "t-progress", seq: 5 } },
+    ];
+    renderWithLocale(
+      <ChatView
+        timeline={timeline}
+        sessionState="WORKING"
+        activeTool={null}
+        activeTurnId="t-progress"
+        turns={[{ turnId: "t-progress", status: "active", startedAt: 1 }] as TurnEnvelope[]}
+      />,
+    );
+
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("1/2");
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("Write");
+  });
+
   it("renders exactly one consolidated plan card for the active turn — no per-block fragments, no extra live line", () => {
+    const onOpenRun = vi.fn();
     const timeline: TimelineItem[] = [
       { type: "message", timestamp: 1, data: { id: "u1", role: "user", content: "go", timestamp: 1, turnId: "t-live" } as ChatMessage },
       { type: "plan_started", timestamp: 2, turnId: "t-live", seq: 1, data: { plan_id: "p1", goal: "Weekly review", phases: [{ taskId: "d1", title: "Research indices", dependsOn: [] }, { taskId: "d2", title: "Write summary", dependsOn: ["d1"] }], timestamp: 2, turnId: "t-live", seq: 1 } },
@@ -1348,24 +1581,22 @@ describe("single stable live plan surface", () => {
         activeTool="web_search"
         activeTurnId="t-live"
         turns={[{ turnId: "t-live", status: "active" }] as TurnEnvelope[]}
+        onOpenRun={onOpenRun}
       />,
     );
 
     // Exactly one stable consolidated capsule; the split blocks never render.
-    expect(screen.getAllByTestId("execution-live-plan")).toHaveLength(1);
-    // The capsule expands in the conversation. It never creates a second
-    // page, modal, or duplicate work owner.
-    fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("chat-work-detail-layer")).not.toBeInTheDocument();
-    expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Research indices");
-    expect(screen.getByTestId("work-detail-timeline")).toHaveTextContent("Write summary");
+    expect(screen.getAllByTestId("live-run-summary")).toHaveLength(1);
+    expect(screen.queryByTestId("execution-live-plan")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("turn-fold-summary")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("live-run-summary"));
+    expect(onOpenRun).toHaveBeenCalledWith("t-live");
     // No competing live surfaces: no bare live line, no generic indicator.
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
     expect(screen.queryByTestId("chat-responding-status-line")).not.toBeInTheDocument();
   });
 
-  it("shows the card-level Verifying state while a verification step runs", () => {
+  it("keeps internal verification activity under the normal working state", () => {
     const timeline: TimelineItem[] = [
       { type: "message", timestamp: 1, data: { id: "u1", role: "user", content: "go", timestamp: 1, turnId: "t-v" } as ChatMessage },
       { type: "plan_started", timestamp: 2, turnId: "t-v", seq: 1, data: { plan_id: "pv", goal: "Note", phases: [{ taskId: "v1", title: "Research", dependsOn: [] }, { taskId: "v2", title: "Write", dependsOn: ["v1"] }], timestamp: 2, turnId: "t-v", seq: 1 } },
@@ -1382,11 +1613,156 @@ describe("single stable live plan surface", () => {
       />,
     );
 
-    expect(screen.getByTestId("execution-plan-verifying")).toHaveTextContent("Verifying");
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("Write");
+  });
+
+  it("keeps a terminal run entry when the run produced no assistant body", () => {
+    const onOpenRun = vi.fn();
+    const timeline: TimelineItem[] = [
+      { type: "message", timestamp: 1, turnId: "t-failed", data: { id: "u-failed", role: "user", content: "build it", timestamp: 1, turnId: "t-failed" } as ChatMessage },
+      { type: "task_update", timestamp: 2, turnId: "t-failed", seq: 1, data: { id: "failed-task", task_id: "build", title: "Build", status: "failed", timestamp: 2, turnId: "t-failed", seq: 1 } },
+    ];
+    renderWithLocale(
+      <ChatView
+        timeline={timeline}
+        sessionState="IDLE"
+        activeTool={null}
+        turns={[{
+          turnId: "t-failed", status: "failed", startedAt: 1, endedAt: 2,
+          outcome: { version: 1, state: "failed", code: "runtime_failed", verification: "not_run", recoveredAttemptCount: 0, issues: [{ id: "runtime", impact: "blocking", source: "runtime", code: "runtime_failed" }] },
+        }] as TurnEnvelope[]}
+        onOpenRun={onOpenRun}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("run-summary"));
+    expect(onOpenRun).toHaveBeenCalledWith("t-failed");
+  });
+
+  it("anchors a body-less terminal run before the next user turn", () => {
+    const timeline: TimelineItem[] = [
+      { type: "message", timestamp: 1, turnId: "turn-first", seq: 1, data: { id: "u-first", role: "user", content: "first request", timestamp: 1, turnId: "turn-first", seq: 1 } as ChatMessage },
+      { type: "task_update", timestamp: 2, turnId: "turn-first", seq: 2, data: { id: "failed", task_id: "work", title: "Work", status: "failed", timestamp: 2, turnId: "turn-first", seq: 2 } },
+      { type: "message", timestamp: 3, turnId: "turn-second", seq: 1, data: { id: "u-second", role: "user", content: "second request", timestamp: 3, turnId: "turn-second", seq: 1 } as ChatMessage },
+      { type: "message", timestamp: 4, turnId: "turn-second", seq: 2, data: { id: "a-second", role: "assistant", content: "second answer", timestamp: 4, turnId: "turn-second", seq: 2 } as ChatMessage },
+    ];
+    renderChat(timeline, {
+      onOpenRun: vi.fn(),
+      timelineCapabilities: ["timeline_v1"],
+      turns: [
+        { turnId: "turn-first", status: "failed", startedAt: 1, endedAt: 2 },
+        { turnId: "turn-second", status: "completed", startedAt: 3, endedAt: 4 },
+      ] as TurnEnvelope[],
+    });
+
+    const summaries = screen.getAllByTestId("run-summary");
+    const secondUser = screen.getByText("second request");
+    expect(summaries[0].compareDocumentPosition(secondUser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId("mozi-avatar")).toHaveLength(2);
+  });
+
+  it("keeps a terminal background run reachable even when it has no message row", () => {
+    const onOpenRun = vi.fn();
+    renderWithLocale(
+      <ChatView
+        timeline={[]}
+        sessionState="IDLE"
+        activeTool={null}
+        turns={[{
+          turnId: "turn-bg-only", status: "failed", origin: "background", startedAt: 1, endedAt: 2,
+          outcome: { version: 1, state: "failed", code: "runtime_failed", verification: "not_run", recoveredAttemptCount: 0, issues: [{ id: "runtime", impact: "blocking", source: "runtime", code: "runtime_failed" }] },
+        }] as TurnEnvelope[]}
+        onOpenRun={onOpenRun}
+      />,
+    );
+
+    expect(screen.queryByText("What would you like to work on?")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("run-summary"));
+    expect(onOpenRun).toHaveBeenCalledWith("turn-bg-only");
+  });
+
+  it("does not move a terminal run from an unloaded history page to the current bottom", () => {
+    renderWithLocale(
+      <ChatView
+        timeline={[{ type: "message", timestamp: 100, turnId: "turn-current", data: { id: "current", role: "user", content: "current page", timestamp: 100, turnId: "turn-current" } as ChatMessage }]}
+        sessionState="IDLE"
+        activeTool={null}
+        turns={[{
+          turnId: "turn-old", status: "completed", origin: "background", startedAt: 1, endedAt: 2,
+          outcome: { version: 1, state: "succeeded", code: "run_succeeded", verification: "passed", recoveredAttemptCount: 0, issues: [] },
+        }] as TurnEnvelope[]}
+        onOpenRun={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("run-summary")).not.toBeInTheDocument();
   });
 });
 
 describe("detached-plan turn linkage (turn_bg_<planId>)", () => {
+  it("keeps one independently clickable capsule for every concurrent active logical run", () => {
+    const onOpenRun = vi.fn();
+    const timeline: TimelineItem[] = [
+      { type: "message", timestamp: 1, turnId: "fg-old", data: { id: "u-old", role: "user", content: "old plan", timestamp: 1, turnId: "fg-old" } as ChatMessage },
+      { type: "plan_started", timestamp: 2, turnId: "fg-old", seq: 1, data: { plan_id: "old", goal: "Old report", phases: [{ taskId: "old-1", title: "Research old report", dependsOn: [] }], timestamp: 2, turnId: "fg-old", seq: 1 } },
+      { type: "task_update", timestamp: 3, turnId: "turn_bg_old", seq: 1, data: { id: "old-running", task_id: "old-1", title: "Research old report", status: "running", timestamp: 3, turnId: "turn_bg_old", seq: 1 } },
+      { type: "message", timestamp: 4, turnId: "fg-new", data: { id: "u-new", role: "user", content: "new plan", timestamp: 4, turnId: "fg-new" } as ChatMessage },
+      { type: "plan_started", timestamp: 5, turnId: "fg-new", seq: 1, data: { plan_id: "new", goal: "New report", phases: [{ taskId: "new-1", title: "Research new report", dependsOn: [] }], timestamp: 5, turnId: "fg-new", seq: 1 } },
+      { type: "task_update", timestamp: 6, turnId: "fg-new", seq: 2, data: { id: "new-running", task_id: "new-1", title: "Research new report", status: "running", timestamp: 6, turnId: "fg-new", seq: 2 } },
+    ];
+    renderWithLocale(
+      <ChatView
+        timeline={timeline}
+        sessionState="WORKING"
+        activeTool={null}
+        activeTurnId="fg-new"
+        turns={[
+          { turnId: "fg-old", status: "completed", origin: "user" },
+          { turnId: "turn_bg_old", status: "active", origin: "background", startedAt: 2 },
+          { turnId: "fg-new", status: "active", origin: "user", startedAt: 4 },
+        ] as TurnEnvelope[]}
+        onOpenRun={onOpenRun}
+      />,
+    );
+
+    const capsules = screen.getAllByTestId("live-run-summary");
+    expect(capsules).toHaveLength(2);
+    expect(screen.getAllByTestId("mozi-avatar")).toHaveLength(2);
+    expect(capsules[0]).toHaveTextContent("Research old report");
+    expect(capsules[1]).toHaveTextContent("Research new report");
+    fireEvent.click(capsules[0]);
+    fireEvent.click(capsules[1]);
+    expect(onOpenRun).toHaveBeenCalledWith("turn_bg_old");
+    expect(onOpenRun).toHaveBeenCalledWith("fg-new");
+  });
+
+  it("does not let a background capsule hide a new foreground thinking state", () => {
+    const timeline: TimelineItem[] = [
+      { type: "plan_started", timestamp: 1, turnId: "fg-old", data: { plan_id: "old", goal: "Old report", phases: [{ taskId: "old-1", title: "Research old report", dependsOn: [] }], timestamp: 1, turnId: "fg-old" } },
+      { type: "task_update", timestamp: 2, turnId: "turn_bg_old", data: { id: "old-running", task_id: "old-1", title: "Research old report", status: "running", timestamp: 2, turnId: "turn_bg_old" } },
+      { type: "message", timestamp: 3, turnId: "fg-new", data: { id: "new-user", role: "user", content: "answer this too", timestamp: 3, turnId: "fg-new" } as ChatMessage },
+    ];
+    renderWithLocale(
+      <ChatView
+        timeline={timeline}
+        sessionState="WORKING"
+        activeTool={null}
+        activeTurnId="fg-new"
+        turns={[
+          { turnId: "fg-old", status: "completed", origin: "user" },
+          { turnId: "turn_bg_old", status: "active", origin: "background", startedAt: 1 },
+          { turnId: "fg-new", status: "active", origin: "user", startedAt: 3 },
+        ] as TurnEnvelope[]}
+      />,
+    );
+
+    const capsules = screen.getAllByTestId("live-run-summary");
+    expect(capsules).toHaveLength(2);
+    expect(capsules[0]).toHaveTextContent("Research old report");
+    expect(capsules[1]).toHaveTextContent("Working");
+    expect(screen.queryByTestId("chat-thinking-indicator")).not.toBeInTheDocument();
+  });
+
   it("renders the consolidated live card when the plan sits on the foreground turn and work streams on the background turn", () => {
     const timeline: TimelineItem[] = [
       { type: "message", timestamp: 1, data: { id: "u1", role: "user", content: "go", timestamp: 1, turnId: "t-fg" } as ChatMessage },
@@ -1405,12 +1781,10 @@ describe("detached-plan turn linkage (turn_bg_<planId>)", () => {
       />,
     );
 
-    expect(screen.getAllByTestId("execution-live-plan")).toHaveLength(1);
-    fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    const detail = screen.getByTestId("work-detail-timeline");
-    expect(detail).toHaveTextContent("Research Nikkei");
-    expect(detail).toHaveTextContent("Write note");
+    expect(screen.getAllByTestId("live-run-summary")).toHaveLength(1);
+    expect(screen.getByTestId("live-run-summary")).toHaveTextContent("Research Nikkei");
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("turn-fold-summary")).not.toBeInTheDocument();
   });
 
   it("keeps the capsule alive from the background ENVELOPE after a session switch resets the foreground state", () => {
@@ -1438,7 +1812,7 @@ describe("detached-plan turn linkage (turn_bg_<planId>)", () => {
       />,
     );
 
-    expect(screen.getByTestId("execution-live-plan")).toBeInTheDocument();
+    expect(screen.getByTestId("live-run-summary")).toBeInTheDocument();
   });
 });
 

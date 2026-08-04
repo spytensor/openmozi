@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { X, Code2, Download, FileText, Maximize2, Minimize2, GripVertical } from "lucide-react";
+import { ArrowLeft, X, Code2, Download, FileText, Maximize2, Minimize2, GripVertical } from "lucide-react";
 import type { Artifact } from "@/types";
 import { cn } from "@/lib/utils";
 import { useLocale, type MessageKey } from "@/i18n";
@@ -36,6 +36,8 @@ interface ArtifactPanelProps {
   onResizeEnd?: () => void;
   onFullscreenChange: (fullscreen: boolean) => void;
   onClose: () => void;
+  /** Return to the previous Workbench item when this artifact was opened from a run. */
+  onBack?: () => void;
   /** Open another artifact in this panel (artifacts-index entries). */
   onOpenArtifact?: (artifact: Artifact) => void;
   /** Navigate to a continuation session created from a registered deliverable. */
@@ -59,6 +61,7 @@ export default function ArtifactPanel({
   onResizeEnd,
   onFullscreenChange,
   onClose,
+  onBack,
   onOpenArtifact,
   onOpenSession,
 }: ArtifactPanelProps) {
@@ -88,7 +91,11 @@ export default function ArtifactPanel({
     ? artifact.data.deliverableId
     : null;
 
-  useEffect(() => { setFileRevision(0); }, [artifact.id]);
+  useEffect(() => {
+    setFileRevision(0);
+    setShowCode(false);
+    setDownloadMenuOpen(false);
+  }, [artifact.id]);
 
   const saveNative = useCallback(async () => {
     if (!download) return;
@@ -251,6 +258,17 @@ export default function ArtifactPanel({
 
       {/* Header */}
       <div className="artifact-panel-header desktop-window-drag-region flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.04] bg-transparent shrink-0">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-md p-1.5 text-ink/30 outline-none transition-colors hover:bg-ink/[0.05] hover:text-ink/55 focus-visible:ring-2 focus-visible:ring-focus/40"
+            aria-label={t("common.back")}
+            title={t("common.back")}
+          >
+            <ArrowLeft size={14} />
+          </button>
+        )}
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-ink/[0.04] px-1.5 py-1 text-[11px] font-medium text-ink/48">
           <TypeIcon type={type} size={20} />
           <span>{typeLabel}</span>

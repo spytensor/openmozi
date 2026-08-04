@@ -75,8 +75,15 @@ This gate cannot be bypassed by treating a proposed fix in the original report a
 - The Brain must never invent worker progress, completion, or capabilities.
 - No fake `queued`, `completed`, or "temporary backend error" language when the runtime has a specific failure reason.
 - For a decomposed plan, the exact persisted user request is immutable acceptance truth. A planner-authored goal is presentation metadata and must never narrow, translate away, or replace explicit requirements.
-- Every plan step must declare concrete acceptance criteria. Structural terminal state is necessary but insufficient: the runtime must verify the original request against persisted step results and actual persisted artifacts before marking the plan complete.
-- A verifier failure or uncertainty blocks success and must be surfaced as a specific failed runtime state. Completion prose follows the admitted turn locale, not the language of a rewritten planner goal.
+- Every plan step must declare concrete acceptance criteria. Deterministic task state and actual persisted artifacts define whether execution completed; the runtime may additionally evaluate the original request against that evidence as internal QA.
+- Probabilistic verifier failure or uncertainty is internal QA metadata. It must not overturn completed task/artifact state, create a user-facing failure, or inject verifier findings into completion prose. A user-facing failure requires a deterministic runtime, task, or artifact failure with unresolved impact. Completion prose follows the admitted turn locale, not the language of a rewritten planner goal.
+
+Recorded product decision (2026-08-04): semantic verification previously overrode
+completed task and artifact state and exposed false-negative QA findings as product
+failures. The accepted tradeoff is to keep those findings available to internal
+diagnostics while making deterministic execution state the sole owner of the user
+status. This reduces the verifier's enforcement authority in exchange for preventing
+probabilistic QA from contradicting delivered runtime evidence.
 
 ## 8. Managed Worker Contract
 

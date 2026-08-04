@@ -7,6 +7,8 @@ import {
   findLatestWorkspaceDocumentOnTurn,
   getSessionTimeline,
   getSessionTimelinePage,
+  getSessionRunTimeline,
+  countTurnToolFailures,
   getUserRequestForTurn,
   getCompletedArtifactsForTurn,
   linkLatestTimelineMessage,
@@ -17,6 +19,8 @@ import {
   terminalizeStaleRunningArtifacts,
 } from './session-timeline.js';
 import { saveMessage } from './conversations.js';
+import { getDb } from '../store/db.js';
+import { setTurnEnvelopeStatus, startTurnEnvelope } from './turn-envelopes.js';
 
 let tmpDir: string;
 
@@ -30,6 +34,158 @@ afterEach(() => {
 });
 
 describe('memory/session-timeline', () => {
+  it('strips private reasoning text on writes and legacy reads', () => {
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'reasoning-session', chatId: 'chat-1', turnId: 'turn-1', type: 'message',
+      eventKey: 'message:reasoning', timestamp: 1,
+      data: {
+        id: 'reasoning-1', role: 'assistant', content: '', timestamp: 1,
+        reasoning: { provider: 'deepseek', raw: 'private chain', streaming: false, startedAt: 1, durationMs: 12 },
+      },
+    });
+
+    const stored = getDb().prepare(`
+      SELECT payload FROM session_timeline_events
+      WHERE tenant_id = ? AND session_id = ? AND event_key = ?
+    `).get('tenant-a', 'reasoning-session', 'message:reasoning') as { payload: string };
+    expect(stored.payload).not.toContain('private chain');
+    expect(getSessionTimelinePage('reasoning-session', { tenantId: 'tenant-a' }).timeline[0]?.data)
+      .toEqual(expect.objectContaining({ reasoning: expect.objectContaining({ hasPrivateReasoning: true }) }));
+
+    getDb().prepare(`
+      UPDATE session_timeline_events SET payload = ?
+      WHERE tenant_id = ? AND session_id = ? AND event_key = ?
+    `).run(JSON.stringify({
+      id: 'reasoning-1', role: 'assistant', content: '', timestamp: 1,
+      reasoning: { provider: 'legacy', summary: 'Safe summary', raw: 'legacy private chain', streaming: false, startedAt: 1 },
+    }), 'tenant-a', 'reasoning-session', 'message:reasoning');
+
+    for (const result of [
+      getSessionTimelinePage('reasoning-session', { tenantId: 'tenant-a' }).timeline,
+      getSessionRunTimeline('reasoning-session', 'turn-1', 'tenant-a').timeline,
+    ]) {
+      expect(JSON.stringify(result)).not.toContain('legacy private chain');
+      expect(result[0]?.data).toEqual(expect.objectContaining({
+        reasoning: expect.objectContaining({ summary: 'Safe summary', hasPrivateReasoning: true }),
+      }));
+    }
+  });
+
+  it('classifies only the known legacy verifier verdict as internal QA at the read boundary', () => {
+    startTurnEnvelope({
+      tenantId: 'tenant-a', sessionId: 'legacy-qa', chatId: 'chat-1', turnId: 'turn-bg',
+      origin: 'background', startedAt: 1,
+    });
+    setTurnEnvelopeStatus({
+      tenantId: 'tenant-a', sessionId: 'legacy-qa', turnId: 'turn-bg', status: 'failed', endedAt: 4,
+    });
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'legacy-qa', chatId: 'chat-1', turnId: 'turn-bg', type: 'artifact',
+      eventKey: 'artifact:dashboard', timestamp: 2,
+      data: { id: 'dashboard', status: 'completed', plugin_id: 'document_v1', data: { role: 'primary' } },
+    });
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'legacy-qa', chatId: 'chat-1', turnId: 'turn-bg', type: 'message',
+      eventKey: 'message:verifier', timestamp: 3,
+      data: { id: 'verifier', role: 'assistant', content: '生成结果未能满足要求。数据已收集。', timestamp: 3 },
+    });
+
+    for (const timeline of [
+      getSessionTimelinePage('legacy-qa', { tenantId: 'tenant-a' }).timeline,
+      getSessionRunTimeline('legacy-qa', 'turn-bg', 'tenant-a').timeline,
+    ]) {
+      const message = timeline.find((item) => item.type === 'message')?.data as Record<string, unknown>;
+      expect(message.presentationRole).toBe('internal_qa');
+    }
+
+    startTurnEnvelope({
+      tenantId: 'tenant-a', sessionId: 'real-answer', chatId: 'chat-2', turnId: 'turn-user',
+      origin: 'user', startedAt: 1,
+    });
+    setTurnEnvelopeStatus({
+      tenantId: 'tenant-a', sessionId: 'real-answer', turnId: 'turn-user', status: 'failed', endedAt: 3,
+    });
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'real-answer', chatId: 'chat-2', turnId: 'turn-user', type: 'message',
+      eventKey: 'message:answer', timestamp: 2,
+      data: { id: 'answer', role: 'assistant', content: '生成结果未能满足要求。这是用户要求保留的正式结论。', timestamp: 2 },
+    });
+    const realAnswer = getSessionTimelinePage('real-answer', { tenantId: 'tenant-a' }).timeline[0]?.data as Record<string, unknown>;
+    expect(realAnswer.presentationRole).toBeUndefined();
+
+    startTurnEnvelope({
+      tenantId: 'tenant-a', sessionId: 'outcome-qa', chatId: 'chat-3', turnId: 'turn-outcome',
+      origin: 'background', startedAt: 1,
+    });
+    setTurnEnvelopeStatus({
+      tenantId: 'tenant-a', sessionId: 'outcome-qa', turnId: 'turn-outcome', status: 'failed', endedAt: 3,
+      outcome: {
+        version: 1, state: 'failed', code: 'verification_failed', verification: 'failed',
+        recoveredAttemptCount: 0, issues: [],
+      },
+    });
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'outcome-qa', chatId: 'chat-3', turnId: 'turn-outcome', type: 'message',
+      eventKey: 'message:outcome-verifier', timestamp: 2,
+      data: { id: 'outcome-verifier', role: 'assistant', content: 'The result failed verification.', timestamp: 2 },
+    });
+    const outcomeQa = getSessionTimelinePage('outcome-qa', { tenantId: 'tenant-a' }).timeline[0]?.data as Record<string, unknown>;
+    expect(outcomeQa.presentationRole).toBe('internal_qa');
+
+    startTurnEnvelope({
+      tenantId: 'tenant-a', sessionId: 'modern-answer', chatId: 'chat-4', turnId: 'turn-modern',
+      origin: 'background', startedAt: 1,
+    });
+    setTurnEnvelopeStatus({
+      tenantId: 'tenant-a', sessionId: 'modern-answer', turnId: 'turn-modern', status: 'failed', endedAt: 4,
+      outcome: {
+        version: 1, state: 'failed', code: 'required_task_failed', verification: 'incomplete',
+        recoveredAttemptCount: 0, issues: [],
+      },
+    });
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'modern-answer', chatId: 'chat-4', turnId: 'turn-modern', type: 'artifact',
+      eventKey: 'artifact:partial', timestamp: 2,
+      data: { id: 'partial', status: 'completed', plugin_id: 'document_v1', data: { role: 'primary' } },
+    });
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'modern-answer', chatId: 'chat-4', turnId: 'turn-modern', type: 'message',
+      eventKey: 'message:modern-answer', timestamp: 3,
+      data: { id: 'modern-answer', role: 'assistant', content: 'The generated result did not meet the request. Here is the partial output.', timestamp: 3 },
+    });
+    const modernAnswer = getSessionTimelinePage('modern-answer', { tenantId: 'tenant-a' }).timeline
+      .find((item) => item.type === 'message')?.data as Record<string, unknown>;
+    expect(modernAnswer.presentationRole).toBeUndefined();
+  });
+
+  it('returns a complete foreground/background run and counts failed attempts without the session page limit', () => {
+    saveTimelineItem({
+      tenantId: 'tenant-a', sessionId: 'run-session', chatId: 'chat-1', turnId: 'turn-parent', type: 'plan_started',
+      eventKey: 'plan:run-plan', timestamp: 1,
+      data: { plan_id: 'run-plan', goal: 'Build report', phases: [], timestamp: 1 },
+    });
+    for (let index = 0; index < 125; index++) {
+      saveTimelineItem({
+        tenantId: 'tenant-a', sessionId: 'run-session', chatId: 'chat-1', turnId: 'turn_bg_run-plan', type: 'tool_event',
+        eventKey: `tool:${index}`, timestamp: 10 + index,
+        data: {
+          id: `tool-${index}`,
+          callId: `call-${index}`,
+          tool: 'file_read',
+          phase: 'end',
+          status: index === 4 ? 'error' : 'success',
+          timestamp: 10 + index,
+        },
+      });
+    }
+
+    const fromParent = getSessionRunTimeline('run-session', 'turn-parent', 'tenant-a');
+    expect(fromParent.claimedTurnIds).toEqual(expect.arrayContaining(['turn-parent', 'turn_bg_run-plan']));
+    expect(fromParent.timeline).toHaveLength(126);
+    expect(getSessionRunTimeline('run-session', 'turn_bg_run-plan', 'tenant-a').timeline).toHaveLength(126);
+    expect(countTurnToolFailures('run-session', 'turn_bg_run-plan', 'tenant-a')).toBe(1);
+  });
+
   it('paginates equal-timestamp rows with a stable row-id cursor and no loss', () => {
     for (let index = 0; index < 205; index++) {
       saveTimelineItem({

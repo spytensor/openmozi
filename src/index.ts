@@ -781,7 +781,7 @@ export function createMessageHandler(
             wsReasoning = {
               provider: reasoning.provider,
               ...(reasoning.summary ? { summary: reasoning.summary } : {}),
-              ...(reasoning.raw ? { raw: reasoning.raw } : {}),
+              ...(reasoning.raw ? { hasPrivateReasoning: true } : {}),
               streaming: true,
               startedAt,
             };
@@ -798,7 +798,7 @@ export function createMessageHandler(
             wsReasoning = {
               provider: reasoning.provider,
               ...(reasoning.summary ? { summary: reasoning.summary } : {}),
-              ...(reasoning.raw ? { raw: reasoning.raw } : {}),
+              ...(reasoning.raw ? { hasPrivateReasoning: true } : {}),
               streaming: false,
               startedAt: wsReasoning.startedAt,
               completedAt,

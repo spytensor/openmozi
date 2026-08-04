@@ -383,6 +383,39 @@ function activeWorkLifecycleBlock(): ExecutionBlockModel {
 }
 
 describe("ExecutionBlock", () => {
+  it("renders an unresolved tool failure as failed instead of blocked", () => {
+    renderWithLocale(<ExecutionBlock block={failedSearchBlock()} />);
+    fireEvent.click(screen.getByTestId("execution-summary"));
+    expect(screen.getByText(/A step failed:/).closest("[data-row-root]")?.querySelector("svg")).toHaveClass("text-danger");
+    expect(screen.queryByText(/A step hit an issue:/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["failed", "failed", "text-danger"],
+    ["timed_out", "failed", "text-danger"],
+    ["cancelled", "cancelled", "text-warning/80"],
+    ["blocked", "blocked", "text-warning"],
+  ] as const)("keeps worker %s task progress distinct in the inline timeline", (rawStatus, userStatus, tone) => {
+    const block: ExecutionBlockModel = {
+      ...failedSearchBlock(),
+      toolCount: 0,
+      taskCount: 1,
+      tools: [],
+      tasks: [{
+        id: `worker-${rawStatus}`,
+        task_id: `worker-${rawStatus}`,
+        title: `Worker ${rawStatus}`,
+        status: "failed",
+        rawStatus,
+        userStatus,
+        timestamp: 1,
+      }],
+    };
+    renderWithLocale(<ExecutionBlock block={block} />);
+    fireEvent.click(screen.getByTestId("execution-summary"));
+    expect(screen.getByText(`Worker ${rawStatus}`).closest("[data-row-root]")?.querySelector("svg")).toHaveClass(tone);
+  });
+
   it.each(["launching", "running"] as const)("renders the agent identity and live %s status", (status) => {
     renderWithLocale(<ExecutionBlock block={agentBlock(status)} />);
     expect(screen.getByTestId("agent-execution-block")).toHaveTextContent("reviewer");
@@ -468,7 +501,7 @@ describe("ExecutionBlock", () => {
 
     fireEvent.click(screen.getByTestId("execution-summary"));
 
-    expect(screen.getAllByText("A step hit an issue: search public information")).toHaveLength(1);
+    expect(screen.getAllByText("A step failed: search public information")).toHaveLength(1);
     expect(screen.getAllByText("Missing SEARCH1API_KEY (repeated 3 times)")).toHaveLength(1);
     expect(screen.getByText("×3")).toBeInTheDocument();
     expect(screen.queryByText(/IMPORTANT: Do NOT answer/)).not.toBeInTheDocument();
@@ -483,7 +516,7 @@ describe("ExecutionBlock", () => {
 
     fireEvent.click(screen.getByTestId("execution-summary"));
 
-    expect(screen.getAllByText("一步遇到问题：搜索公开资料")).toHaveLength(1);
+    expect(screen.getAllByText("一步执行失败：搜索公开资料")).toHaveLength(1);
     expect(screen.getAllByText("缺少 SEARCH1API_KEY（重复 3 次）")).toHaveLength(1);
     expect(screen.getByText("×3")).toBeInTheDocument();
   });
@@ -847,7 +880,7 @@ describe("ExecutionBlock", () => {
 
     renderWithLocale(<ExecutionBlock block={zombie} interrupted />);
 
-    expect(screen.getByText("Interrupted — runtime restarted before this finished")).toBeInTheDocument();
+    expect(screen.getByText("Run interrupted by a runtime restart")).toBeInTheDocument();
     expect(document.querySelector(".animate-spin")).toBeNull();
     expect(screen.queryByTestId("execution-lead")).not.toBeInTheDocument();
     expect(screen.queryByTestId("execution-live-line")).not.toBeInTheDocument();
@@ -1031,7 +1064,7 @@ describe("ExecutionBlock — nested task timeline (Issue #624)", () => {
   it("freezes an envelope-interrupted block instead of spinning (Issue #626)", () => {
     const { container } = renderWithLocale(<ExecutionBlock block={openRunningBlock("interrupted")} />);
     expect(screen.getByTestId("execution-summary")).toHaveTextContent(
-      "Interrupted — runtime restarted before this finished",
+      "Run interrupted by a runtime restart",
     );
     // No live spinner: the collapsed summary button is shown, not the live line.
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -1751,7 +1784,7 @@ describe("live in-chat plan card (single plan surface)", () => {
     expect(screen.getByTestId("work-detail-timeline")).not.toHaveTextContent(processId);
   });
 
-  it("switches the work surface from active cobalt to verification state", () => {
+  it("keeps internal verification activity under the normal working state", () => {
     const block: ExecutionBlockModel = {
       key: "turn-verifying",
       turnId: "turn-verifying",
@@ -1775,11 +1808,12 @@ describe("live in-chat plan card (single plan surface)", () => {
     };
 
     renderWithLocale(<ExecutionBlock block={block} />);
-    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "verifying");
-    expect(screen.getByTestId("execution-plan-card")).toHaveTextContent("Verifying");
+    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "running");
+    expect(screen.getByTestId("execution-plan-card")).toHaveTextContent("Working");
+    expect(screen.getByTestId("execution-plan-card")).not.toHaveTextContent("Verifying");
 
     fireEvent.click(screen.getByTestId("plan-capsule-toggle"));
-    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "verifying");
+    expect(screen.getByTestId("execution-plan-card")).toHaveAttribute("data-state", "running");
     expect(screen.getByTestId("work-detail-timeline")).toBeInTheDocument();
   });
 });

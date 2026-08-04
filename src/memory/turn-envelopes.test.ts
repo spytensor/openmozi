@@ -36,6 +36,36 @@ describe('memory/turn-envelopes', () => {
     expect(env?.endedAt).toBe(2000);
   });
 
+  it('persists a runtime-authored outcome separately from lifecycle', () => {
+    startTurnEnvelope({ sessionId: 's1', chatId: 'c1', turnId: 'turn_outcome', startedAt: 1000 });
+    setTurnEnvelopeStatus({
+      sessionId: 's1',
+      turnId: 'turn_outcome',
+      status: 'completed',
+      outcome: {
+        version: 1,
+        state: 'degraded',
+        code: 'verification_incomplete',
+        verification: 'incomplete',
+        recoveredAttemptCount: 2,
+        issues: [{
+          id: 'verification_incomplete',
+          impact: 'limited',
+          source: 'verification',
+          code: 'verification_incomplete',
+        }],
+      },
+    });
+    expect(getTurnEnvelope('s1', 'turn_outcome')).toMatchObject({
+      status: 'completed',
+      outcome: {
+        state: 'degraded',
+        verification: 'incomplete',
+        recoveredAttemptCount: 2,
+      },
+    });
+  });
+
   it('keeps the original started_at when the same turn is re-started (idempotent)', () => {
     startTurnEnvelope({ sessionId: 's1', chatId: 'c1', turnId: 'turn_1', startedAt: 1000 });
     startTurnEnvelope({ sessionId: 's1', chatId: 'c1', turnId: 'turn_1', startedAt: 5000 });
@@ -54,6 +84,7 @@ describe('memory/turn-envelopes', () => {
     // ended_at cleared in the DB; the row mapper surfaces NULL as undefined.
     expect(env?.endedAt == null).toBe(true);
     expect(env?.startedAt).toBe(1000);
+    expect(env?.outcome).toBeUndefined();
   });
 
   it('never resurrects a completed/failed/cancelled turn on re-start', () => {
@@ -100,6 +131,7 @@ describe('memory/turn-envelopes', () => {
     expect(count).toBe(2);
     expect(getTurnEnvelope('s1', 'active_turn')?.status).toBe('interrupted');
     expect(getTurnEnvelope('s1', 'waiting_turn')?.status).toBe('interrupted');
+    expect(getTurnEnvelope('s1', 'active_turn')?.outcome?.state).toBe('interrupted');
     // A genuinely completed turn is untouched.
     expect(getTurnEnvelope('s1', 'done_turn')?.status).toBe('completed');
     expect(getTurnEnvelope('s1', 'done_turn')?.endedAt).toBe(1300);

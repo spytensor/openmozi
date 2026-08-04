@@ -119,7 +119,7 @@ describe("MessageBubble", () => {
     expect(screen.getByTestId("mozi-avatar")).toBeInTheDocument();
   });
 
-  it("shows live raw reasoning expanded and completed summaries collapsed", () => {
+  it("shows private reasoning activity without receiving provider text", () => {
     const startedAt = Date.now() - 2000;
     const { unmount } = renderWithLocale(
       <MessageBubble
@@ -129,7 +129,7 @@ describe("MessageBubble", () => {
           requestId: "req-reasoning",
           reasoning: {
             provider: "deepseek",
-            raw: "Inspect the evidence before answering.",
+            hasPrivateReasoning: true,
             streaming: true,
             startedAt,
           },
@@ -138,7 +138,9 @@ describe("MessageBubble", () => {
     );
 
     expect(screen.getByTestId("message-reasoning-toggle")).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByTestId("message-reasoning-raw")).toHaveTextContent("Inspect the evidence before answering.");
+    expect(screen.queryByTestId("message-reasoning-raw")).not.toBeInTheDocument();
+    expect(screen.queryByText("Inspect the evidence before answering.")).not.toBeInTheDocument();
+    expect(screen.getByText("Working through the request…")).toBeInTheDocument();
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
 
     unmount();
@@ -190,6 +192,54 @@ describe("MessageBubble", () => {
     expect(bubble).toHaveTextContent("Run the investigation.");
     expect(bubble.className).toContain("bg-surface-card");
     expect(bubble.className).toContain("rounded-2xl");
+  });
+
+  it("renders compact GFM in the user bubble without changing the submitted source", () => {
+    const source = [
+      "## 调研范围",
+      "- [x] A 股",
+      "- [ ] 港股",
+      "",
+      "> 使用 `收盘价`",
+      "",
+      "| 市场 | 状态 |",
+      "| --- | --- |",
+      "| A股 | 开盘 |",
+      "",
+      "[来源](https://example.com)",
+    ].join("\n");
+    const onRegenerate = vi.fn();
+    renderWithLocale(<MessageBubble message={message("user", source)} onRegenerate={onRegenerate} />);
+
+    expect(screen.getByRole("heading", { name: "调研范围" })).toBeInTheDocument();
+    expect(screen.getByRole("table")).toHaveTextContent("A股");
+    expect(screen.getByText("收盘价").tagName).toBe("CODE");
+    expect(screen.getByRole("link", { name: "来源" })).toHaveAttribute("href", "https://example.com");
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+    expect(onRegenerate).toHaveBeenCalledWith(source);
+  });
+
+  it("keeps unsafe user Markdown inert", () => {
+    renderWithLocale(
+      <MessageBubble
+        message={message("user", [
+          '<img src="https://tracker.example/pixel" onerror="alert(1)">',
+          "![remote chart](https://tracker.example/chart.png)",
+          "[unsafe](javascript:alert(1))",
+          "```mermaid",
+          "graph TD; A-->B",
+          "```",
+        ].join("\n\n"))}
+      />,
+    );
+
+    const bubble = screen.getByTestId("message-user-bubble");
+    expect(bubble.querySelector("img")).toBeNull();
+    expect(bubble.querySelector("svg")).toBeNull();
+    expect(screen.getByTestId("message-user-blocked-image")).toHaveTextContent("remote chart");
+    expect(screen.queryByRole("link", { name: "unsafe" })).not.toBeInTheDocument();
+    expect(screen.getByText(/graph TD; A-->B/)).toBeInTheDocument();
   });
 
   it("copies message text to the clipboard", async () => {

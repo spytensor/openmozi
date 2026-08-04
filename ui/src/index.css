@@ -127,6 +127,7 @@
     --main-bg: #fafafa;
     --surface-base: #fafafa;
     --surface-elevated: #ffffff;
+    --surface-card: #ffffff;
     --surface-overlay: #ffffff;
     --surface-input: #f4f4f5;
     --surface-hover: #e4e4e7;
@@ -270,23 +271,16 @@
     overflow: hidden;
     border: 1px solid color-mix(in srgb, var(--work-state) 78%, transparent);
     border-radius: var(--radius-work);
-    outline: 2px solid color-mix(in srgb, var(--work-state) 24%, transparent);
-    outline-offset: 2px;
     background: color-mix(in srgb, var(--work-state) 7%, var(--surface-card));
     transition:
       background-color var(--motion-work-duration) var(--motion-work-ease),
       border-color var(--motion-work-duration) var(--motion-work-ease),
-      outline-color var(--motion-work-duration) var(--motion-work-ease),
       transform var(--motion-work-duration) var(--motion-work-ease);
   }
 
   .work-capsule:hover {
     background: color-mix(in srgb, var(--work-state) 10%, var(--surface-card));
     border-color: color-mix(in srgb, var(--work-state) 92%, transparent);
-  }
-
-  .work-capsule:focus-within {
-    outline-color: color-mix(in srgb, var(--work-state) 52%, transparent);
   }
 
   .work-capsule:active {

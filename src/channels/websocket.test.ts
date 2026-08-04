@@ -364,7 +364,7 @@ describe('channels/websocket', () => {
       });
     });
 
-    it('preserves concrete worker failure summaries for blocked tasks', () => {
+    it('preserves concrete worker failure summaries without calling them blocked', () => {
       const msg = buildWorkerTaskProgressMessage({
         type: 'worker_status',
         chatId: 'user-1',
@@ -378,10 +378,27 @@ describe('channels/websocket', () => {
 
       expect(msg).toMatchObject({
         status: 'failed',
-        userStatus: 'blocked',
+        userStatus: 'failed',
         title: 'Managed worker preflight failed: adapter unavailable',
         detail: 'Managed worker preflight failed: adapter unavailable',
       });
+    });
+
+    it.each([
+      ['timed_out', 'failed', 'Task timed out'],
+      ['cancelled', 'cancelled', 'Task cancelled'],
+      ['blocked', 'blocked', 'Task blocked'],
+    ] as const)('preserves the worker %s terminal meaning', (workerStatus, userStatus, title) => {
+      const msg = buildWorkerTaskProgressMessage({
+        type: 'worker_status',
+        chatId: 'user-1',
+        turnId: 'turn-1',
+        taskId: 'task-1',
+        workerStatus,
+        timestamp: 456,
+      });
+
+      expect(msg).toMatchObject({ status: 'failed', userStatus, title, rawStatus: workerStatus });
     });
   });
 
@@ -421,7 +438,7 @@ describe('channels/websocket', () => {
       ]);
     });
 
-    it('surfaces a failed turn as a blocked marker', () => {
+    it('surfaces a failed turn as a failed marker', () => {
       expect(buildTurnStateTaskProgressMessages({
         type: 'turn_state',
         chatId: 'user-1',
@@ -433,7 +450,7 @@ describe('channels/websocket', () => {
         {
           task_id: 'turn-1:failed',
           status: 'failed',
-          userStatus: 'blocked',
+          userStatus: 'failed',
           detail: 'boom',
         },
       ]);
@@ -720,6 +737,17 @@ describe('channels/websocket', () => {
         }),
         'self-minted background turn envelope',
       );
+      const terminal = client.sent.find((msg) => {
+        const turn = msg.turn as Record<string, unknown> | undefined;
+        return msg.type === 'turn_envelope'
+          && typeof turn?.turnId === 'string'
+          && (turn.turnId as string).startsWith('turn_bg_')
+          && turn.status === 'completed';
+      });
+      const terminalTurnId = (terminal?.turn as { turnId?: string } | undefined)?.turnId;
+      expect(terminalTurnId).toBeDefined();
+      expect(getTurnEnvelope(session.id, terminalTurnId!, 'tenant-1')?.outcome)
+        .toMatchObject({ state: 'succeeded', verification: 'not_required', issues: [] });
 
       // The locale is COALESCE-backfilled here, after the plan runner already
       // announced. Without an announce of its own, a live client keeps an
@@ -1212,7 +1240,7 @@ describe('channels/websocket', () => {
       ]);
     });
 
-    it('persists provider reasoning on the same restorable assistant stream row', () => {
+    it('persists safe reasoning metadata without exposing private provider text', () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-07-01T10:03:00.000Z'));
       const startedAt = Date.now();
@@ -1223,7 +1251,7 @@ describe('channels/websocket', () => {
         raw: 'Inspect the evidence.',
         streaming: true,
         startedAt,
-      });
+      } as never);
       vi.setSystemTime(new Date('2026-07-01T10:03:02.000Z'));
       broadcastStreamEvent('stream_end', 'stream-reasoning', 'The evidence is consistent.', 'user-1', 'session-1', 'tenant-1', {
         provider: 'deepseek',
@@ -1232,7 +1260,7 @@ describe('channels/websocket', () => {
         startedAt,
         completedAt: Date.now(),
         durationMs: 2000,
-      });
+      } as never);
 
       expect(getSessionTimeline('session-1', 20, 'tenant-1')).toEqual([
         expect.objectContaining({
@@ -1242,7 +1270,7 @@ describe('channels/websocket', () => {
             streaming: false,
             reasoning: {
               provider: 'deepseek',
-              raw: 'Inspect the evidence.',
+              hasPrivateReasoning: true,
               streaming: false,
               startedAt,
               completedAt: Date.now(),
@@ -1251,6 +1279,7 @@ describe('channels/websocket', () => {
           }),
         }),
       ]);
+      expect(JSON.stringify(getSessionTimeline('session-1', 20, 'tenant-1'))).not.toContain('Inspect the evidence.');
     });
 
     it('updates an approval row to a terminal status in place on resolve', () => {
@@ -1465,6 +1494,28 @@ describe('channels/websocket', () => {
       expect(persistedArtifact().status).toBe('failed');
       expect(persistedArtifact().data.code).toBe('rapid-2');
       expect(persistedArtifact().data.phase).toBe('failed');
+    });
+
+    it('persists output-role patches immediately because they control artifact reachability', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-01T10:30:00.000Z'));
+      broadcastArtifactEvent({
+        type: 'open',
+        artifact: {
+          id: 'artifact-role', plugin_id: 'document_v1', title: 'Report', status: 'completed',
+          collapsed_by_default: false, fallback_text: 'Report', data: { role: 'workspace' },
+          updated_at: '2026-07-01T10:30:00.000Z',
+        },
+      }, 'user-1', 'session-1', 'tenant-1');
+
+      vi.setSystemTime(new Date('2026-07-01T10:30:00.100Z'));
+      broadcastArtifactEvent({
+        type: 'patch', artifactId: 'artifact-role', patch: { data: { role: 'primary' } },
+      }, 'user-1', 'session-1', 'tenant-1');
+
+      const artifact = getSessionTimeline('session-1', 20, 'tenant-1')
+        .find((item) => item.type === 'artifact' && (item.data as { id?: string }).id === 'artifact-role');
+      expect((artifact?.data as { data?: { role?: string } }).data?.role).toBe('primary');
     });
 
     it('flushes the last throttled patch to the timeline when the artifact closes', () => {

@@ -44,7 +44,7 @@ const statusLabelKeys: Record<string, MessageKey> = {
   running: "inspect.status.running",
   queued: "inspect.status.queued",
   launching: "inspect.status.launching",
-  completed_pending_verify: "inspect.status.completedPendingVerify",
+  completed_pending_verify: "inspect.status.completed",
   succeeded: "inspect.status.succeeded",
   completed: "inspect.status.completed",
   failed: "inspect.status.failed",

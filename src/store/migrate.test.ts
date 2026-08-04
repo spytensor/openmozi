@@ -574,6 +574,29 @@ describe('store/migrate', () => {
     expect(row).toEqual({ turn_id: 'old_turn', turn_seq: null, content: 'hi' });
   });
 
+  it('scrubs legacy private reasoning while preserving the display-safe marker', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'mozi-migrate-'));
+    const dbPath = join(tmpDir, 'legacy-reasoning.db');
+    runMigrations(dbPath);
+    getDb().prepare(`
+      INSERT INTO session_timeline_events (
+        tenant_id, session_id, chat_id, item_type, event_key, timestamp_ms, payload
+      ) VALUES ('default', 'session-1', 'chat-1', 'message', 'message-1', 1, ?)
+    `).run(JSON.stringify({
+      id: 'message-1', role: 'assistant', content: '', timestamp: 1,
+      reasoning: { provider: 'legacy', raw: 'private chain', streaming: false, startedAt: 1 },
+    }));
+    closeDb();
+
+    runMigrations(dbPath);
+
+    const payload = JSON.parse((getDb().prepare(
+      "SELECT payload FROM session_timeline_events WHERE event_key = 'message-1'",
+    ).get() as { payload: string }).payload) as { reasoning: Record<string, unknown> };
+    expect(payload.reasoning.raw).toBeUndefined();
+    expect(payload.reasoning.hasPrivateReasoning).toBe(true);
+  });
+
   it('additively adds the locale column to a pre-#628 session_turns table without rewriting rows', () => {
     tmpDir = mkdtempSync(join(tmpdir(), 'mozi-migrate-'));
     const dbPath = join(tmpDir, 'legacy-turns.db');

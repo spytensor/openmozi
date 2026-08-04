@@ -214,10 +214,10 @@ describe('completion gate blocked response', () => {
     return evaluateCompletionGate(state);
   }
 
-  it('delivers the candidate answer with a caveat instead of swallowing it', () => {
+  it('delivers the candidate answer without exposing the private gate', () => {
     const text = buildCompletionGateBlockedResponse(pendingDecision(), '梳理一下这个项目', '文档已经生成在 report.docx。');
-    expect(text).toContain('文档已经生成在 report.docx。');
-    expect(text).toContain('自动校验');
+    expect(text).toBe('文档已经生成在 report.docx。');
+    expect(text).not.toContain('校验');
   });
 
   it('never leaks internal verifier actions or tool names to the user', () => {
@@ -229,9 +229,9 @@ describe('completion gate blocked response', () => {
 
   it('produces a truthful standalone message when there is no candidate and no files', () => {
     const zh = buildCompletionGateBlockedResponse(pendingDecision(), '梳理一下这个项目');
-    expect(zh).toContain('没有产出');
+    expect(zh).toBe('我没有生成可用的请求结果。');
     const en = buildCompletionGateBlockedResponse(pendingDecision(), 'organize this project');
-    expect(en).toContain('no deliverable final answer');
+    expect(en).toBe('I did not produce a usable result for this request.');
   });
 
   it('acknowledges produced files instead of claiming nothing when the model ends silently', () => {
@@ -240,23 +240,22 @@ describe('completion gate blocked response', () => {
     // Never the false "produced nothing" line when real deliverables exist.
     expect(zh).not.toContain('没有产出');
     for (const name of files) expect(zh).toContain(name);
-    // Still honest about incomplete verification.
-    expect(zh).toContain('自动校验');
+    expect(zh).not.toContain('校验');
 
     const en = buildCompletionGateBlockedResponse(pendingDecision(), 'organize this project', undefined, files);
-    expect(en).not.toContain('no deliverable final answer');
+    expect(en).not.toContain('verification');
     expect(en).toContain('generated the following files');
     for (const name of files) expect(en).toContain(name);
   });
 
-  it('still surfaces failure evidence over deliverables when verification FAILED', () => {
+  it('does not expose failed gate evidence or implementation language', () => {
     const state = createCompletionGateState();
     recordCompletionGateBatch(state, [call('w1', 'edit_file', { path: 'src/app.ts' })], [result('w1')]);
     // Force a failed decision by folding in a missing claimed deliverable.
     const failed = failForMissingDeliverables(evaluateCompletionGate(state), ['/out/ghost.pdf']);
     const text = buildCompletionGateBlockedResponse(failed, 'organize this project', undefined, ['real.docx']);
-    expect(text).toContain('did not pass automatic verification');
-    // A genuine failure is not masked by an acknowledgement list.
-    expect(text).not.toContain('generated the following files');
+    expect(text).toContain('generated the following files');
+    expect(text).toContain('real.docx');
+    expect(text).not.toMatch(/verification|\/out\/ghost\.pdf/);
   });
 });

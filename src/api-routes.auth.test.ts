@@ -983,7 +983,8 @@ describe('api route auth helpers', () => {
           type: 'message',
           eventKey: 'message:user',
           timestamp: 100,
-          data: { id: 'm', role: 'user', content: 'hi', timestamp: 100 },
+          turnId: 'turn-1',
+          data: { id: 'm', role: 'user', content: 'hi', timestamp: 100, turnId: 'turn-1' },
         });
       }
 
@@ -1001,6 +1002,21 @@ describe('api route auth helpers', () => {
 
       const foreignTimeline = await app.inject({ method: 'GET', url: `/api/sessions/${foreign.id}/timeline` });
       expect(foreignTimeline.statusCode).toBe(404);
+
+      const ownedRun = await app.inject({ method: 'GET', url: `/api/sessions/${owned.id}/runs/turn-1` });
+      expect(ownedRun.statusCode).toBe(200);
+      expect(ownedRun.json()).toMatchObject({
+        sessionId: owned.id,
+        runId: 'turn-1',
+        claimedTurnIds: ['turn-1'],
+      });
+      expect(ownedRun.json().timeline).toHaveLength(1);
+
+      const missingRun = await app.inject({ method: 'GET', url: `/api/sessions/${owned.id}/runs/missing-turn` });
+      expect(missingRun.statusCode).toBe(404);
+
+      const foreignRun = await app.inject({ method: 'GET', url: `/api/sessions/${foreign.id}/runs/turn-1` });
+      expect(foreignRun.statusCode).toBe(404);
 
       const foreignMessages = await app.inject({ method: 'GET', url: `/api/sessions/${foreign.id}/messages` });
       expect(foreignMessages.statusCode).toBe(404);

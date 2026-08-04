@@ -6,7 +6,7 @@ import { precheckTenantTokenQuota } from '../security/entitlements.js';
 import { getProvider, resolveRuntimeModel } from '../core/providers.js';
 import { getUserModelOverride } from '../channels/telegram.js';
 import { saveMessage } from '../memory/conversations.js';
-import { cloneLatestUserMessageToTurn, linkLatestTimelineMessage, saveTimelineItem } from '../memory/session-timeline.js';
+import { cloneLatestUserMessageToTurn, countTurnToolFailures, linkLatestTimelineMessage, saveTimelineItem } from '../memory/session-timeline.js';
 import {
   getOrCreateSessionForChat,
   getSession as getDbSession,
@@ -58,7 +58,7 @@ import type { RecoveryLoopStopReason } from '../core/recovery-policy.js';
 import { createTurnControl, type TurnState } from '../core/turn-control.js';
 import { startTurnEnvelope, setTurnEnvelopeStatus } from '../memory/turn-envelopes.js';
 import { inferTurnLocale } from '../core/turn-locale.js';
-import type { TurnOrigin, TurnStatus } from '../core/turn-envelope.js';
+import type { RunOutcome, TurnOrigin, TurnStatus } from '../core/turn-envelope.js';
 import { brainExecute } from '../core/brain-engine.js';
 import { getActiveTurnForChat, isTurnCancellationError, registerRunningTurn } from '../core/turn-cancellation.js';
 import { buildExecutionToolContext } from '../tools/execution-context.js';
@@ -87,6 +87,45 @@ const TURN_STATE_TO_ENVELOPE_STATUS: Partial<Record<TurnState, TurnStatus>> = {
   FAILED: 'failed',
   CANCELLED: 'cancelled',
 };
+
+function outcomeFromCompletion(
+  decision: CompletionGateDecision,
+  attemptFailureCount: number,
+  completionText: string,
+): RunOutcome {
+  const normalizedCompletion = completionText.trim();
+  const deliveredResult = decision.status === 'passed'
+    || decision.status === 'not_required'
+    || (normalizedCompletion.length > 0
+      && normalizedCompletion !== '我没有生成可用的请求结果。'
+      && normalizedCompletion !== 'I did not produce a usable result for this request.');
+  if (!deliveredResult) {
+    return {
+      version: 1,
+      state: 'failed',
+      code: 'no_usable_result',
+      verification: 'not_required',
+      // A failed terminal result cannot prove which failed attempts were
+      // recovered. Keep the count conservative; the trace still records them.
+      recoveredAttemptCount: 0,
+      issues: [{
+        id: 'no_usable_result',
+        impact: 'blocking',
+        source: 'runtime',
+        code: 'no_usable_result',
+        action: 'retry',
+      }],
+    };
+  }
+  return {
+    version: 1,
+    state: 'succeeded',
+    code: 'run_succeeded',
+    verification: decision.status === 'passed' ? 'passed' : 'not_required',
+    recoveredAttemptCount: attemptFailureCount,
+    issues: [],
+  };
+}
 
 /** Prune aged prompt snapshots once per tenant per process lifetime. */
 const prunedSnapshotTenants = new Set<string>();
@@ -347,6 +386,7 @@ export async function handleMessage(
   let tracedProvider: string | undefined;
   let tracedModel: string | undefined;
   const turnUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, llmCalls: 0 };
+  let runOutcome: RunOutcome | undefined;
   const turnUsageCollector = {
     add(usage: { input_tokens: number; output_tokens: number; cache_read_tokens?: number; cache_write_tokens?: number }): void {
       turnUsage.input += usage.input_tokens;
@@ -398,10 +438,18 @@ export async function handleMessage(
       // Mirror control-plane terminal/wait transitions into the durable turn
       // envelope so a reload learns the truthful terminal status. turn_state
       // events themselves are ephemeral; the envelope is the persisted record.
-      const envelopeStatus = TURN_STATE_TO_ENVELOPE_STATUS[snapshot.state];
+      const envelopeStatus = snapshot.state === 'CANCELLED' && runOutcome?.state === 'interrupted'
+        ? 'interrupted'
+        : TURN_STATE_TO_ENVELOPE_STATUS[snapshot.state];
       if (envelopeStatus) {
         try {
-          setTurnEnvelopeStatus({ tenantId, sessionId: dbSession.id, turnId, status: envelopeStatus });
+          setTurnEnvelopeStatus({
+            tenantId,
+            sessionId: dbSession.id,
+            turnId,
+            status: envelopeStatus,
+            ...(runOutcome ? { outcome: runOutcome } : {}),
+          });
         } catch (err) {
           logger.warn({ turnId, err: err instanceof Error ? err.message : String(err) }, 'Failed to persist turn envelope status');
         }
@@ -837,6 +885,18 @@ export async function handleMessage(
       } catch (err) {
         logger.warn({ turnId, err: err instanceof Error ? err.message : String(err) }, 'Failed to update prompt snapshot verifier state');
       }
+      // A detached-plan handoff completes only this foreground turn. The
+      // user-visible run stays active under `turn_bg_<planId>` and that
+      // background turn is the sole terminal outcome writer. Persisting a
+      // succeeded outcome here made Chat and the Workbench say "Completed"
+      // while the DAG was still running.
+      runOutcome = brainResult.detachedPlanRootId
+        ? undefined
+        : outcomeFromCompletion(
+            brainResult.completionGateDecision,
+            countTurnToolFailures(dbSession.id, turnId, tenantId),
+            responseText,
+          );
 
       // Post-brain-execution: save, extract memories, auto-title
       const totalTokens = brainResult.totalTokens ?? 0;
@@ -847,7 +907,7 @@ export async function handleMessage(
       }
 
       if (brainResult.recovered) {
-        publishTurnState(brainResult.recoveryMode === 'fallback' ? 'FAILED' : 'EXECUTING', `recovery: ${brainResult.recoveryMode}`);
+        publishTurnState('EXECUTING', `recovery: ${brainResult.recoveryMode}`);
       }
 
       startAutoMemoryExtraction(
@@ -883,10 +943,13 @@ export async function handleMessage(
         recovered: brainResult.recovered,
         recoveryMode: brainResult.recoveryMode,
       }, 'Brain execution complete');
-      if (brainResult.completionGateBlocked) {
+      if (runOutcome?.state === 'failed') {
         finishTurnTrace('failed', brainResult.completionGateDecision.summary, brainResult.completionGateDecision);
       } else {
         finishTurnTrace('success', undefined, brainResult.completionGateDecision);
+      }
+      if (runOutcome?.state === 'failed' && turnControl.state() !== 'FAILED' && turnControl.state() !== 'DONE') {
+        publishTurnState('FAILED', runOutcome.code);
       }
     }
 
@@ -925,8 +988,24 @@ export async function handleMessage(
     if (isTurnCancellationError(err) || abortSignal.aborted || isAbortLikeError(err)) {
       sessions.delete(msg.chatId);
       const message = err instanceof Error ? err.message : String(err);
-      finishTurnTrace(/timed? ?out/i.test(message) ? 'timeout' : 'cancelled', message);
-      publishTurnState('CANCELLED', message.slice(0, 200) || 'Request cancelled');
+      const interrupted = /runtime restarting|shutdown/i.test(message);
+      const timedOut = /timed? ?out/i.test(message);
+      runOutcome = {
+        version: 1,
+        state: interrupted ? 'interrupted' : timedOut ? 'failed' : 'cancelled',
+        code: interrupted ? 'runtime_interrupted' : timedOut ? 'runtime_failed' : 'user_cancelled',
+        verification: 'incomplete',
+        recoveredAttemptCount: 0,
+        issues: interrupted || timedOut ? [{
+          id: interrupted ? 'runtime_interrupted' : 'runtime_failed',
+          impact: 'blocking',
+          source: 'runtime',
+          code: interrupted ? 'runtime_interrupted' : 'runtime_failed',
+          action: 'retry',
+        }] : [],
+      };
+      finishTurnTrace(timedOut ? 'timeout' : 'cancelled', message);
+      publishTurnState(timedOut ? 'FAILED' : 'CANCELLED', message.slice(0, 200) || 'Request cancelled');
       progress.onStreamEnd?.('');
       logger.info({ chatId: msg.chatId, turnId, err: message }, 'Handler turn cancelled');
       return '';
@@ -935,6 +1014,20 @@ export async function handleMessage(
     // Reset session state on error
     sessions.delete(msg.chatId);
     const message = err instanceof Error ? err.message : String(err);
+    runOutcome = {
+      version: 1,
+      state: 'failed',
+      code: 'runtime_failed',
+      verification: 'incomplete',
+      recoveredAttemptCount: 0,
+      issues: [{
+        id: 'runtime_failed',
+        impact: 'blocking',
+        source: 'runtime',
+        code: 'runtime_failed',
+        action: 'retry',
+      }],
+    };
     finishTurnTrace(/timed? ?out/i.test(message) ? 'timeout' : 'failed', message);
     publishTurnState('FAILED', message.slice(0, 200));
     logger.error({ err: message, chatId: msg.chatId }, 'Handler error');

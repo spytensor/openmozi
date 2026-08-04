@@ -90,9 +90,10 @@ function isQuietCompletedPlanHandoff(block: ExecutionBlockModel, terminal?: Turn
 export function projectLegacyTimeline(
   timeline: TimelineItem[],
   turns: TurnEnvelope[] = [],
+  logicalTurnIdsByTurn?: ReadonlyMap<string, ReadonlySet<string>>,
 ): ChatRenderItem[] {
   const turnStatus = new Map(turns.map((turn) => [turn.turnId, turn.status]));
-  return buildChatRenderItems(timeline).flatMap((item) => {
+  return buildChatRenderItems(positionLegacyProductRows(timeline, logicalTurnIdsByTurn)).flatMap((item) => {
     if (item.kind !== "execution" || !item.block.turnId) return [item];
     const terminal = turnStatus.get(item.block.turnId);
     const block = applyTerminalStatus(item.block, terminal);
@@ -115,10 +116,10 @@ export function projectLegacyTimeline(
  *    backward pagination, or reconnect.
  *  - All events of one turn stay contiguous, so ChatView renders one MOZI avatar
  *    per turn.
- *  - True chronology is preserved: a failure that happened before the answer
- *    renders before the answer. Nothing is reordered for cosmetics (the frozen
- *    renderer's `normalizeTurnDisplayOrder` moved artifacts/failures after the
- *    answer — this reducer does not).
+ *  - Process chronology is preserved: a failure that happened before the answer
+ *    renders before the answer. Product rows are intentionally authored after
+ *    the final prose so the answer introduces its artifacts and memory receipt;
+ *    the original fact order remains available in Run Trace.
  *  - Server terminal state is consumed: an orphaned "running" block belonging to a
  *    turn the server marked terminal is shown per the envelope, not recomputed.
  *
@@ -191,7 +192,75 @@ function turnOrderValue(turnId: string, startedAtByTurn: Map<string, number>): n
   return startedAtByTurn.get(turnId) ?? (Number(turnId.split("_")[1]) || Number.MAX_SAFE_INTEGER);
 }
 
-function orderItems(timeline: TimelineItem[], turns: TurnEnvelope[]): OrderedItem[] {
+function logicalRunKey(turnKey: string, logicalTurnIdsByTurn?: ReadonlyMap<string, ReadonlySet<string>>): string {
+  const logicalTurns = logicalTurnIdsByTurn?.get(turnKey);
+  return logicalTurns ? [...logicalTurns].sort().join("\u0000") : turnKey;
+}
+
+function positionProductRowsAfterAnswer(
+  ordered: OrderedItem[],
+  logicalTurnIdsByTurn?: ReadonlyMap<string, ReadonlySet<string>>,
+): OrderedItem[] {
+  const lastAnswerByRun = new Map<string, OrderedItem>();
+  for (const entry of ordered) {
+    if (entry.item.type !== "message" || (entry.item.data as ChatMessage).role !== "assistant") continue;
+    lastAnswerByRun.set(logicalRunKey(entry.turnKey, logicalTurnIdsByTurn), entry);
+  }
+  if (lastAnswerByRun.size === 0) return ordered;
+
+  const productRowsByRun = new Map<string, OrderedItem[]>();
+  for (const entry of ordered) {
+    if (entry.item.type !== "artifact" && entry.item.type !== "memory_update") continue;
+    const key = logicalRunKey(entry.turnKey, logicalTurnIdsByTurn);
+    if (!lastAnswerByRun.has(key)) continue;
+    const bucket = productRowsByRun.get(key) ?? [];
+    bucket.push(entry);
+    productRowsByRun.set(key, bucket);
+  }
+  if (productRowsByRun.size === 0) return ordered;
+  for (const rows of productRowsByRun.values()) {
+    rows.sort((a, b) => Number(a.item.type === "memory_update") - Number(b.item.type === "memory_update"));
+  }
+
+  const moved = new Set([...productRowsByRun.values()].flat());
+  const result: OrderedItem[] = [];
+  for (const entry of ordered) {
+    if (!moved.has(entry)) result.push(entry);
+    const key = logicalRunKey(entry.turnKey, logicalTurnIdsByTurn);
+    if (lastAnswerByRun.get(key) === entry) result.push(...(productRowsByRun.get(key) ?? []));
+  }
+  return result;
+}
+
+function positionLegacyProductRows(
+  timeline: TimelineItem[],
+  logicalTurnIdsByTurn?: ReadonlyMap<string, ReadonlySet<string>>,
+): TimelineItem[] {
+  let currentUserTrack = "legacy:initial";
+  const keyed = timeline.map((item, index): OrderedItem => {
+    const explicitTurn = itemTurnId(item);
+    if (item.type === "message" && (item.data as ChatMessage).role === "user") {
+      currentUserTrack = explicitTurn
+        ? logicalRunKey(explicitTurn, logicalTurnIdsByTurn)
+        : `legacy:user:${index}`;
+    }
+    return {
+      item,
+      index,
+      turnKey: explicitTurn
+        ? logicalRunKey(explicitTurn, logicalTurnIdsByTurn)
+        : currentUserTrack,
+      sortSeq: itemSeq(item),
+    };
+  });
+  return positionProductRowsAfterAnswer(keyed).map((entry) => entry.item);
+}
+
+function orderItems(
+  timeline: TimelineItem[],
+  turns: TurnEnvelope[],
+  logicalTurnIdsByTurn?: ReadonlyMap<string, ReadonlySet<string>>,
+): OrderedItem[] {
   const startedAtByTurn = new Map(turns.map((turn) => [turn.turnId, turn.startedAt]));
   let lastTurnKey = "";
   let unscopedCounter = 0;
@@ -239,7 +308,7 @@ function orderItems(timeline: TimelineItem[], turns: TurnEnvelope[]): OrderedIte
     }
   }
 
-  return ordered.sort((a, b) => {
+  const chronological = ordered.sort((a, b) => {
     if (a.turnKey !== b.turnKey) {
       const order = turnOrderValue(a.turnKey, startedAtByTurn) - turnOrderValue(b.turnKey, startedAtByTurn);
       if (order !== 0) return order;
@@ -250,6 +319,10 @@ function orderItems(timeline: TimelineItem[], turns: TurnEnvelope[]): OrderedIte
     // is a stable, path-local tiebreak (never present in a persisted fixed log).
     return a.index - b.index;
   });
+  // Timeline order remains forensic truth in Trace. Chat is the authored
+  // response: its final prose introduces the deliverables, so product rows
+  // follow that prose even when create_artifact persisted them earlier.
+  return positionProductRowsAfterAnswer(chronological, logicalTurnIdsByTurn);
 }
 
 /**
@@ -259,8 +332,9 @@ function orderItems(timeline: TimelineItem[], turns: TurnEnvelope[]): OrderedIte
 export function projectTimelineByTurn(
   timeline: TimelineItem[],
   turns: TurnEnvelope[] = [],
+  logicalTurnIdsByTurn?: ReadonlyMap<string, ReadonlySet<string>>,
 ): ChatRenderItem[] {
-  const ordered = orderItems(timeline, turns);
+  const ordered = orderItems(timeline, turns, logicalTurnIdsByTurn);
   const turnStatus = new Map<string, TurnStatus>();
   for (const turn of turns) turnStatus.set(turn.turnId, turn.status);
 

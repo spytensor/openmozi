@@ -129,7 +129,7 @@ describe("useChat streaming lifecycle", () => {
     });
   });
 
-  it("keeps provider reasoning visible without treating it as answer text", () => {
+  it("keeps private reasoning activity visible without exposing provider text", () => {
     const { result } = renderHook(() => useChat());
     const startedAt = Date.now();
 
@@ -141,7 +141,7 @@ describe("useChat streaming lifecycle", () => {
         content: "",
         reasoning: {
           provider: "deepseek",
-          raw: "Inspect the evidence.",
+          hasPrivateReasoning: true,
           streaming: true,
           startedAt,
         },
@@ -154,7 +154,7 @@ describe("useChat streaming lifecycle", () => {
       data: {
         content: "",
         streaming: true,
-        reasoning: { provider: "deepseek", raw: "Inspect the evidence.", streaming: true },
+        reasoning: { provider: "deepseek", hasPrivateReasoning: true, streaming: true },
       },
     });
 
@@ -165,7 +165,7 @@ describe("useChat streaming lifecycle", () => {
         content: "The evidence is consistent.",
         reasoning: {
           provider: "deepseek",
-          raw: "Inspect the evidence.",
+          hasPrivateReasoning: true,
           streaming: false,
           startedAt,
           completedAt: startedAt + 2000,
@@ -178,9 +178,10 @@ describe("useChat streaming lifecycle", () => {
       data: {
         content: "The evidence is consistent.",
         streaming: false,
-        reasoning: { raw: "Inspect the evidence.", streaming: false, durationMs: 2000 },
+        reasoning: { hasPrivateReasoning: true, streaming: false, durationMs: 2000 },
       },
     });
+    expect(JSON.stringify(result.current.timeline)).not.toContain("Inspect the evidence.");
   });
 
   it("keeps the assistant message when the stream ends with visible text", () => {

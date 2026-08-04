@@ -13,11 +13,20 @@ import { resolve } from "node:path";
  */
 const css = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
 const doc = readFileSync(resolve(process.cwd(), "../docs/DESIGN.md"), "utf8");
+const tailwind = readFileSync(resolve(process.cwd(), "tailwind.config.ts"), "utf8");
 
 function darkToken(name: string): string {
   // The dark theme is the first :root block; the light theme overrides later.
   const match = css.match(new RegExp(`--${name}:\\s*([^;]+);`));
   if (!match) throw new Error(`token --${name} not found in index.css`);
+  return match[1].trim();
+}
+
+function lightToken(name: string): string {
+  const lightTheme = css.match(/\[data-theme="light"\]\s*\{([\s\S]*?)\n\s*\}/)?.[1];
+  if (!lightTheme) throw new Error("light theme block not found in index.css");
+  const match = lightTheme.match(new RegExp(`--${name}:\\s*([^;]+);`));
+  if (!match) throw new Error(`light token --${name} not found in index.css`);
   return match[1].trim();
 }
 
@@ -36,6 +45,26 @@ describe("design tokens match the design doc", () => {
       expect(darkToken(name), `--${name}`).toBe(value);
       expect(doc, `docs/DESIGN.md must quote --${name}`).toContain(value);
     }
+  });
+
+  it("defines the complete light surface ladder used by shared components", () => {
+    const expected: Record<string, string> = {
+      "surface-base": "#fafafa",
+      "surface-elevated": "#ffffff",
+      "surface-card": "#ffffff",
+      "surface-overlay": "#ffffff",
+      "surface-input": "#f4f4f5",
+      "surface-hover": "#e4e4e7",
+      "surface-active": "#d4d4d8",
+    };
+    for (const [name, value] of Object.entries(expected)) {
+      expect(lightToken(name), `light --${name}`).toBe(value);
+    }
+    expect(doc).toContain("`--surface-card #ffffff`");
+  });
+
+  it("registers the surface-card utility consumed by product components", () => {
+    expect(tailwind).toContain('"surface-card": "var(--surface-card)"');
   });
 
   it("pins the radii the doc quotes", () => {

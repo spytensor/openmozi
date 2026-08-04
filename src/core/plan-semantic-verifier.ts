@@ -14,6 +14,7 @@ import {
 } from '../tools/workspace-policy.js';
 
 const FRESHNESS_REQUEST = /\b(?:latest|recent|newest|up[- ]to[- ]date)\b|\bcurrent\s+(?:data|information|news|release|figures?|numbers?|rates?|prices?|version|status|forecast|expectations?|yields?|indicators?)\b|\b(?:today|as of now|real[- ]time)\b|最新|(?:当前|近期|最近|截至|实时).{0,12}(?:数据|信息|新闻|版本|价格|利率|收益率|指标|预期|预测|状态)/i;
+const SELF_CONTAINED_REQUEST = /\bself[- ]contained\b|\boffline\b|\bno external (?:resources?|dependencies)\b|自包含|不依赖外部(?:资源|依赖)?/i;
 const RESEARCH_STEP = /\b(research|collect|gather|investigate|source|look up|survey)\b|研究|收集|调查|来源|查找|搜索/i;
 const MAX_STEP_OUTPUT_CHARS = 3500;
 const MAX_EVIDENCE_CHARS = 2500;
@@ -40,6 +41,8 @@ export interface PlanSemanticVerification {
   verdict: 'not_required' | 'passed' | 'failed' | 'uncertain';
   summary: string;
   findings: string[];
+  /** Deterministic acceptance facts that may change the runtime terminal state. */
+  blockingFindings: string[];
   evidenceIds: string[];
   checkedAt: string;
   asOf: string;
@@ -303,16 +306,17 @@ function deterministicFindings(
   material: StepMaterial[],
   artifacts: ArtifactMaterial[],
   year: number,
-): string[] {
-  const findings: string[] = [];
+): { blocking: string[]; advisory: string[] } {
+  const blocking: string[] = [];
+  const advisory: string[] = [];
   for (const step of material) {
-    if (!step.task.done_criteria.trim()) findings.push(`Step "${step.task.title}" has no acceptance criteria.`);
-    if (!step.output) findings.push(`Step "${step.task.title}" has no persisted result output.`);
+    if (!step.task.done_criteria.trim()) blocking.push(`Step "${step.task.title}" has no acceptance criteria.`);
+    if (!step.output) blocking.push(`Step "${step.task.title}" has no persisted result output.`);
     const expectedSentences = exactSentenceRequirement(step.task.done_criteria);
     if (expectedSentences !== null && step.output) {
       const actualSentences = countPersistedSentences(step.output);
       if (actualSentences !== expectedSentences) {
-        findings.push(
+        blocking.push(
           `Step "${step.task.title}" requires exactly ${expectedSentences} sentences, but its complete persisted result contains ${actualSentences}.`,
         );
       }
@@ -325,28 +329,29 @@ function deterministicFindings(
     for (const step of required) {
       const successful = step.evidence.filter((item) => !item.isError && item.content.trim());
       if (successful.length === 0) {
-        findings.push(`No persisted source evidence for step "${step.task.title}".`);
+        blocking.push(`No persisted source evidence for step "${step.task.title}".`);
         continue;
       }
       const searches = successful.filter((item) => item.tool === 'web_search');
       if (searches.length > 0 && !searches.some((item) => item.query?.includes(String(year)))) {
-        findings.push(`No web search for step "${step.task.title}" included runtime year ${year}.`);
+        advisory.push(`No web search for step "${step.task.title}" included runtime year ${year}.`);
       }
     }
   }
 
   for (const artifact of artifacts) {
     if (artifact.readError) {
-      findings.push(`Artifact "${artifact.title}" could not be verified from its persisted file: ${artifact.readError}.`);
+      blocking.push(`Artifact "${artifact.title}" could not be read from its persisted file: ${artifact.readError}.`);
     }
     if (artifact.remoteDependencies.length > 0) {
-      findings.push(`Artifact "${artifact.title}" loads remote runtime dependencies: ${artifact.remoteDependencies.join(', ')}`);
+      const finding = `Artifact "${artifact.title}" loads remote runtime dependencies: ${artifact.remoteDependencies.join(', ')}`;
+      (SELF_CONTAINED_REQUEST.test(request) ? blocking : advisory).push(finding);
     }
     if (artifact.placeholders.length > 0) {
-      findings.push(`Artifact "${artifact.title}" still contains unresolved placeholders: ${artifact.placeholders.join(', ')}`);
+      blocking.push(`Artifact "${artifact.title}" still contains unresolved placeholders: ${artifact.placeholders.join(', ')}`);
     }
   }
-  return findings;
+  return { blocking, advisory };
 }
 
 function extractJsonObject(text: string): unknown {
@@ -358,20 +363,35 @@ function extractJsonObject(text: string): unknown {
 }
 
 function buildEvidenceBlock(material: StepMaterial[], artifacts: ArtifactMaterial[]): { text: string; ids: Set<string> } {
-  let remaining = MAX_TOTAL_EVIDENCE_CHARS;
   const ids = new Set<string>();
   const sections: string[] = [];
+  const evidenceCount = material.reduce((count, step) => count + step.evidence.length, 0);
+  const coreCount = material.length + artifacts.length;
+  const corePool = evidenceCount > 0 ? Math.floor(MAX_TOTAL_EVIDENCE_CHARS * 0.6) : MAX_TOTAL_EVIDENCE_CHARS;
+  const coreQuota = coreCount > 0 ? Math.max(1, Math.floor(corePool / coreCount)) : 0;
+  const stepOutputs = material.map((step) => Array.from(step.output)
+    .slice(0, Math.min(MAX_STEP_OUTPUT_CHARS, coreQuota))
+    .join(''));
+  const artifactExcerpts = artifacts.map((artifact) => Array.from(artifact.excerpt)
+    .slice(0, Math.min(MAX_ARTIFACT_EXCERPT_CHARS, coreQuota))
+    .join(''));
+  let remaining = Math.max(
+    0,
+    MAX_TOTAL_EVIDENCE_CHARS
+      - stepOutputs.reduce((sum, output) => sum + output.length, 0)
+      - artifactExcerpts.reduce((sum, excerpt) => sum + excerpt.length, 0),
+  );
+  let remainingEvidence = evidenceCount;
 
-  for (const step of material) {
-    // Code-point slice: UTF-16 .slice can split a surrogate pair at the budget boundary.
-    const output = Array.from(step.output).slice(0, Math.min(MAX_STEP_OUTPUT_CHARS, remaining)).join('');
-    remaining -= output.length;
-    if (output) ids.add(`result:${step.task.id}`);
+  for (const [stepIndex, step] of material.entries()) {
+    const output = stepOutputs[stepIndex] ?? '';
+    if (step.output) ids.add(`result:${step.task.id}`);
     const evidenceLines: string[] = [];
     for (const item of step.evidence) {
-      if (remaining <= 0) break;
-      const content = Array.from(item.content).slice(0, Math.min(MAX_EVIDENCE_CHARS, remaining)).join('');
+      const fairShare = remainingEvidence > 0 ? Math.max(1, Math.floor(remaining / remainingEvidence)) : 0;
+      const content = Array.from(item.content).slice(0, Math.min(MAX_EVIDENCE_CHARS, fairShare)).join('');
       remaining -= content.length;
+      remainingEvidence -= 1;
       ids.add(item.id);
       evidenceLines.push([
         `Evidence ID: ${item.id}`,
@@ -381,6 +401,7 @@ function buildEvidenceBlock(material: StepMaterial[], artifacts: ArtifactMateria
         `Observed: ${item.observedAt}`,
         `Tool error: ${item.isError}`,
         `Content:\n${content || '(empty)'}`,
+        content.length < item.content.length ? '(source observation truncated for verifier context)' : null,
       ].filter((line): line is string => line !== null).join('\n'));
     }
     sections.push([
@@ -389,13 +410,13 @@ function buildEvidenceBlock(material: StepMaterial[], artifacts: ArtifactMateria
       `Objective: ${step.task.objective}`,
       `Done criteria: ${step.task.done_criteria || '(none)'}`,
       `Persisted result:\n${output || '(no persisted output)'}`,
+      output.length < step.output.length ? '(persisted result truncated for verifier context; the result exists)' : null,
       evidenceLines.length > 0 ? `Persisted source observations:\n${evidenceLines.join('\n\n')}` : 'Persisted source observations: (none)',
-    ].join('\n'));
+    ].filter((line): line is string => line !== null).join('\n'));
   }
 
-  for (const artifact of artifacts) {
-    const excerpt = Array.from(artifact.excerpt).slice(0, Math.max(0, remaining)).join('');
-    remaining -= excerpt.length;
+  for (const [artifactIndex, artifact] of artifacts.entries()) {
+    const excerpt = artifactExcerpts[artifactIndex] ?? '';
     ids.add(artifact.id);
     sections.push([
       `## Persisted artifact: ${artifact.title}`,
@@ -409,7 +430,8 @@ function buildEvidenceBlock(material: StepMaterial[], artifacts: ArtifactMateria
       artifact.size !== undefined ? `Bytes: ${artifact.size}` : null,
       `Remote runtime dependencies: ${artifact.remoteDependencies.join(', ') || '(none)'}`,
       `Unresolved placeholders: ${artifact.placeholders.join(', ') || '(none)'}`,
-      excerpt,
+      `Persisted artifact excerpt:\n${excerpt || '(empty)'}`,
+      excerpt.length < artifact.excerpt.length ? '(persisted artifact truncated for verifier context; the artifact exists)' : null,
     ].filter((line): line is string => line !== null).join('\n'));
   }
   return { text: sections.join('\n\n'), ids };
@@ -438,7 +460,8 @@ export async function verifyPlanSemantics(input: VerifyPlanSemanticsInput): Prom
   const checkedAt = now.toISOString();
   const material = collectStepMaterial(input.steps);
   const artifacts = collectArtifactMaterial(input);
-  const hardFindings = deterministicFindings(input.originalRequest, material, artifacts, now.getFullYear());
+  const deterministic = deterministicFindings(input.originalRequest, material, artifacts, now.getFullYear());
+  const hardFindings = [...deterministic.blocking, ...deterministic.advisory];
 
   if (!input.client) {
     const failed = hardFindings.length > 0;
@@ -454,6 +477,7 @@ export async function verifyPlanSemantics(input: VerifyPlanSemanticsInput): Prom
         ...hardFindings,
         'Quality verification did not run because no verifier model was available.',
       ],
+      blockingFindings: deterministic.blocking,
       evidenceIds: [],
       checkedAt,
       asOf: checkedAt,
@@ -516,6 +540,7 @@ export async function verifyPlanSemantics(input: VerifyPlanSemanticsInput): Prom
         ? `Runtime acceptance verification failed on persisted execution evidence. ${parsed.summary}`
         : parsed.summary,
       findings,
+      blockingFindings: deterministic.blocking,
       evidenceIds: validEvidenceIds,
       checkedAt,
       asOf: checkedAt,
@@ -531,6 +556,7 @@ export async function verifyPlanSemantics(input: VerifyPlanSemanticsInput): Prom
         ? 'Runtime acceptance verification failed on persisted execution evidence; the verifier also did not produce a valid verdict.'
         : 'The verifier did not produce a valid quality verdict.',
       findings: [...hardFindings, err instanceof Error ? err.message : String(err)],
+      blockingFindings: deterministic.blocking,
       evidenceIds: [],
       checkedAt,
       asOf: checkedAt,

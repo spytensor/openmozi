@@ -9,6 +9,7 @@ export default {
         base: "rgb(var(--mozi-app-bg) / <alpha-value>)",
         surface: "rgb(var(--mozi-surface-base) / <alpha-value>)",
         elevated: "rgb(var(--mozi-surface-elevated) / <alpha-value>)",
+        "surface-card": "var(--surface-card)",
         inputSurface: "rgb(var(--mozi-surface-input) / <alpha-value>)",
         hover: "rgb(var(--mozi-surface-hover) / <alpha-value>)",
         active: "rgb(var(--mozi-surface-active) / <alpha-value>)",

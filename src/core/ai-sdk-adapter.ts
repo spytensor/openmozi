@@ -905,7 +905,10 @@ export function createAIAdapter(
               yield {
                 type: 'reasoning',
                 text: reasoningDelta,
-                kind: providerName === 'openai' || providerName === 'google' ? 'summary' : 'raw',
+                // `reasoning-delta` is not a display-safety guarantee. Keep it
+                // private unless a future provider contract exposes an
+                // explicitly reviewed summary field.
+                kind: 'raw',
                 provider: providerName,
               };
             }
@@ -1093,7 +1096,7 @@ export function createAIAdapter(
         yield {
           type: 'reasoning',
           text: resolvedReasoningText,
-          kind: providerName === 'openai' || providerName === 'google' ? 'summary' : 'raw',
+          kind: 'raw',
           provider: providerName,
         };
       }

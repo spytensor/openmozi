@@ -27,7 +27,7 @@ import { isTurnLifecycleTask } from "./execution";
  *    or cancelled node is always present (never pruned).
  */
 
-export type TaskNodeState = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type TaskNodeState = "queued" | "running" | "succeeded" | "failed" | "blocked" | "cancelled";
 
 export interface TaskToolLeaf {
   kind: "tool";
@@ -71,6 +71,7 @@ function isQueuedRaw(rawStatus?: string): boolean {
  */
 export function taskNodeState(task: TaskUpdate): TaskNodeState {
   if (isCancelledRaw(task.rawStatus)) return "cancelled";
+  if (task.rawStatus === "blocked" || task.userStatus === "blocked") return "blocked";
   switch (task.status) {
     case "failed":
       return "failed";

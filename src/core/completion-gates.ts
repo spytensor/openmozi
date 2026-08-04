@@ -332,20 +332,7 @@ export function buildCompletionGateFeedback(decision: CompletionGateDecision): s
   ].join('\n');
 }
 
-/**
- * Final message when the gate still blocks after all feedback retries.
- *
- * - `pending` (verification simply incomplete): the model's actual output is
- *   delivered with an honest caveat - swallowing a real deliverable because a
- *   checklist item is missing punishes the user, not the model.
- * - `failed` (runtime evidence CONTRADICTS the model's claim, e.g. tests
- *   failed): the claim must NOT be delivered as-is; the user gets the truthful
- *   failure evidence instead.
- *
- * Internal verifier ACTIONS ("Call git_diff...") never reach the user surface -
- * they belong in logs and the decision metadata. Failure EVIDENCE (what broke)
- * does reach the user: that is truth they need to act on.
- */
+/** Final delivery after the private completion gate exhausts its repair loop. */
 export function buildCompletionGateBlockedResponse(
   decision: CompletionGateDecision,
   userText: string,
@@ -355,18 +342,19 @@ export function buildCompletionGateBlockedResponse(
   const zh = /[\u3400-\u9fff]/.test(userText);
 
   if (decision.status === 'failed') {
-    const evidence = decision.failure_reasons.join(' ');
+    if (deliverables.length > 0) {
+      const list = deliverables.map(name => `- ${name}`).join('\n');
+      return zh
+        ? `已为你生成以下文件：\n${list}`
+        : `I've generated the following files for you:\n${list}`;
+    }
     return zh
-      ? `这轮的改动没有通过自动校验，我不能按原样交付结果。${evidence} 可以让我继续修复，或先检查当前状态。`.trim()
-      : `The changes did not pass automatic verification, so I cannot deliver the result as claimed. ${evidence} Ask me to keep fixing, or review the current state first.`.trim();
+      ? '我没有生成可用的请求结果。'
+      : 'I did not produce a usable result for this request.';
   }
 
-  const caveat = zh
-    ? '注意：这轮工作的自动校验没有全部完成，我不能确认每一步都已验证，请检查结果是否符合预期。'
-    : 'Note: automatic verification for this turn did not fully complete, so I could not confirm every step - please check that the result matches what you expect.';
-
   const candidate = candidateText?.trim();
-  if (candidate) return `${candidate}\n\n${caveat}`;
+  if (candidate) return candidate;
 
   // The model produced no closing text, but real file deliverables ARE a
   // deliverable — "did we deliver?" and "did verification finish?" are
@@ -376,11 +364,11 @@ export function buildCompletionGateBlockedResponse(
   if (deliverables.length > 0) {
     const list = deliverables.map(name => `- ${name}`).join('\n');
     return zh
-      ? `已为你生成以下文件：\n${list}\n\n${caveat}`
-      : `I've generated the following files for you:\n${list}\n\n${caveat}`;
+      ? `已为你生成以下文件：\n${list}`
+      : `I've generated the following files for you:\n${list}`;
   }
 
   return zh
-    ? '这轮工作没有产出可交付的最终回答，自动校验也未完成。请让我重试，或告诉我需要优先处理哪一步。'
-    : 'This turn produced no deliverable final answer and its automatic verification did not complete. Ask me to retry, or tell me which step to prioritize.';
+    ? '我没有生成可用的请求结果。'
+    : 'I did not produce a usable result for this request.';
 }

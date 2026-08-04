@@ -42,6 +42,7 @@ import { loadTaskMetadata, loadTaskResult, persistTaskMetadata, persistTaskResul
 import type { DecomposeTaskInput } from './dag-bridge.js';
 import { addSessionScopeGrant, createSession, updateSessionPermissionLevel } from '../memory/sessions.js';
 import { saveTimelineItem } from '../memory/session-timeline.js';
+import { getDb } from '../store/db.js';
 
 const PLAN: DecomposeTaskInput = {
   goal: 'Quarterly tax update report',
@@ -95,13 +96,14 @@ describe('core/plan-runner', () => {
       verdict: 'passed',
       summary: 'Persisted results satisfy the original request.',
       findings: [],
+      blockingFindings: [],
       evidenceIds: ['result:test'],
       checkedAt: '2026-07-19T00:00:00.000Z',
       asOf: '2026-07-19T00:00:00.000Z',
     });
-    hoisted.deliverAssistantMessageMock.mockClear();
+    hoisted.deliverAssistantMessageMock.mockReset().mockReturnValue({ delivered: 1 });
     hoisted.deliverBackgroundTaskUpdateMock.mockClear();
-    hoisted.broadcastArtifactEventMock.mockClear();
+    hoisted.broadcastArtifactEventMock.mockReset();
   });
 
   afterEach(() => {
@@ -155,6 +157,8 @@ describe('core/plan-runner', () => {
       planGoal: PLAN.goal,
       turnId: `turn_bg_${created.rootTaskId}`,
     }));
+    expect(getTurnEnvelope(ctx.sessionId!, planBackgroundTurnId(created.rootTaskId), 'default')?.outcome)
+      .toMatchObject({ state: 'succeeded', verification: 'passed', issues: [] });
   });
 
   it('detached run passes live session permission context into DAG execution', async () => {
@@ -200,7 +204,7 @@ describe('core/plan-runner', () => {
     });
     hoisted.executeDagMock.mockImplementationOnce(async (tasks: TaskRecord[], ...args: unknown[]) => {
       for (const task of tasks) updateStatus(task.id, 'completed', task.tenant_id);
-      const options = args[5] as { toolContext: { onArtifact: (event: unknown) => void } };
+      const options = args.at(-1) as { toolContext: { onArtifact: (event: unknown) => void } };
       options.toolContext.onArtifact({
         type: 'open',
         artifact: {
@@ -215,7 +219,7 @@ describe('core/plan-runner', () => {
       expect(artifactPersisted).toBe(true);
       return {
         required: true, passed: true, outcome: 'passed', verdict: 'passed', summary: 'Artifact verified.', findings: [],
-        evidenceIds: ['artifact:artifact-persist-order'], checkedAt: new Date().toISOString(), asOf: new Date().toISOString(),
+        evidenceIds: ['artifact:artifact-persist-order'], blockingFindings: [], checkedAt: new Date().toISOString(), asOf: new Date().toISOString(),
       };
     });
     const ctx = makeCtx({ userId: 'user-plan-test', permissionLevel: 'L3_FULL_ACCESS' });
@@ -226,6 +230,35 @@ describe('core/plan-runner', () => {
 
     expect(hoisted.verifyPlanSemanticsMock).toHaveBeenCalledTimes(1);
     expect(getById(created.rootTaskId, 'default')?.status).toBe('completed');
+  });
+
+  it('identifies the affected artifact when durable delivery fails', async () => {
+    hoisted.broadcastArtifactEventMock.mockRejectedValueOnce(new Error('timeline write failed'));
+    hoisted.executeDagMock.mockImplementationOnce(async (tasks: TaskRecord[], ...args: unknown[]) => {
+      for (const task of tasks) updateStatus(task.id, 'completed', task.tenant_id);
+      const options = args.at(-1) as { toolContext: { onArtifact: (event: unknown) => void } };
+      options.toolContext.onArtifact({
+        type: 'open',
+        artifact: {
+          id: 'artifact-undelivered', plugin_id: 'document_v1', title: 'Report', status: 'completed',
+          collapsed_by_default: false, fallback_text: '', data: { markdown: '# Report' },
+          updated_at: new Date().toISOString(),
+        },
+      });
+      return 'All steps done.';
+    });
+    const ctx = makeCtx({ userId: 'user-plan-test', permissionLevel: 'L3_FULL_ACCESS' });
+    const created = createPlanTasks(PLAN, ctx);
+
+    startDetachedPlanRun(created.rootTaskId, ctx);
+    await waitForRunToFinish(created.rootTaskId);
+
+    expect(getTurnEnvelope('sess-plan-test', planBackgroundTurnId(created.rootTaskId), 'default')?.outcome)
+      .toMatchObject({
+        state: 'failed',
+        code: 'artifact_delivery_failed',
+        issues: [expect.objectContaining({ source: 'artifact', affectedArtifactIds: ['artifact-undelivered'] })],
+      });
   });
 
   it('detached run completes the plan, persists the result, and delivers a completion message', async () => {
@@ -333,6 +366,85 @@ describe('core/plan-runner', () => {
     expect(promote![4]).toBe(bgTurnId);
   });
 
+  it("does not terminalize a successful run when its completion message cannot be persisted", async () => {
+    executeDagMarks('completed', 'All steps done.');
+    hoisted.deliverAssistantMessageMock.mockImplementation(() => {
+      throw new Error('timeline write failed');
+    });
+    const ctx = makeCtx();
+    const created = createPlanTasks(PLAN, ctx);
+
+    startDetachedPlanRun(created.rootTaskId, ctx);
+    await waitForRunToFinish(created.rootTaskId);
+
+    expect(getById(created.rootTaskId, 'default')?.status).toBe('failed');
+    expect(getTurnEnvelope('sess-plan-test', planBackgroundTurnId(created.rootTaskId), 'default')).toMatchObject({
+      status: 'failed',
+      outcome: { state: 'failed', code: 'runtime_failed' },
+    });
+    const persisted = loadTaskResult(created.rootTaskId);
+    expect(persisted?.success).not.toBe(true);
+    expect(persisted?.output).toContain('timeline write failed');
+    expect(persisted?.metadata?.completion_content).toBe('The run stopped before it could deliver the requested result.');
+    expect(persisted?.metadata?.completion_content_safe).toBe(true);
+    const callerOutcome = await waitForPlanRun(created.rootTaskId, 'default');
+    expect(callerOutcome.content).toBe('The run stopped before it could deliver the requested result.');
+    expect(callerOutcome.content).not.toContain('timeline write failed');
+  });
+
+  it('does not trust raw completion content persisted by an older failed runner', async () => {
+    const created = createPlanTasks(PLAN, makeCtx({ locale: 'zh-CN' }));
+    updateStatus(created.rootTaskId, 'failed', 'default');
+    persistTaskResult(created.rootTaskId, {
+      task_id: created.rootTaskId,
+      success: false,
+      output: 'sqlite /private/legacy.db adapter secret',
+      tokens_used: 0,
+      elapsed_ms: 0,
+      completed_at: new Date().toISOString(),
+      metadata: {
+        completion_content: 'sqlite /private/legacy.db adapter secret',
+        retryable_failure: false,
+      },
+    });
+
+    const outcome = await waitForPlanRun(created.rootTaskId, 'default');
+    expect(outcome.content).toBe('任务执行中断，未能交付请求结果。');
+    expect(outcome.content).not.toMatch(/sqlite|legacy\.db|adapter secret/i);
+  });
+
+  it.each([
+    ['root', (rootTaskId: string, backgroundTurnId: string) => `
+      CREATE TRIGGER fail_plan_root_terminal
+      BEFORE UPDATE ON tasks
+      WHEN NEW.id = '${rootTaskId}' AND NEW.status = 'completed'
+      BEGIN SELECT RAISE(ABORT, 'root terminal write failed'); END
+    `],
+    ['envelope', (rootTaskId: string, backgroundTurnId: string) => `
+      CREATE TRIGGER fail_plan_envelope_terminal
+      BEFORE UPDATE ON session_turns
+      WHEN NEW.turn_id = '${backgroundTurnId}' AND NEW.status = 'completed'
+      BEGIN SELECT RAISE(ABORT, 'envelope terminal write failed'); END
+    `],
+  ] as const)('atomically fails the run when the %s terminal write fails after result persistence', async (_target, triggerSql) => {
+    executeDagMarks('completed', 'All steps done.');
+    const ctx = makeCtx();
+    const created = createPlanTasks(PLAN, ctx);
+    const backgroundTurnId = planBackgroundTurnId(created.rootTaskId);
+    getDb().exec(triggerSql(created.rootTaskId, backgroundTurnId));
+
+    startDetachedPlanRun(created.rootTaskId, ctx);
+    await waitForRunToFinish(created.rootTaskId);
+
+    expect(getById(created.rootTaskId, 'default')?.status).toBe('failed');
+    expect(getTurnEnvelope('sess-plan-test', backgroundTurnId, 'default')).toMatchObject({
+      status: 'failed',
+      outcome: { state: 'failed', code: 'runtime_failed' },
+    });
+    expect(loadTaskResult(created.rootTaskId)).toMatchObject({ success: false });
+    expect(loadTaskResult(created.rootTaskId)?.output).toMatch(/terminal write failed/);
+  });
+
   it('demotes a cross-step primary data file at completion, unblocking the report promotion (G2 HIGH-1)', async () => {
     // Per-step trackers cannot see each other: step 1 hero-carded the raw
     // dataset, step 3 authored the sandpack report. Without the turn-wide
@@ -410,7 +522,7 @@ describe('core/plan-runner', () => {
     expect(promote).toBeUndefined();
   });
 
-  it('does not turn structural DAG success into success when latest-data evidence is missing', async () => {
+  it('keeps semantic verification private when deterministic execution succeeded', async () => {
     hoisted.verifyPlanSemanticsMock.mockResolvedValueOnce({
       required: true,
       passed: false,
@@ -418,6 +530,7 @@ describe('core/plan-runner', () => {
       verdict: 'failed',
       summary: 'Runtime acceptance verification failed.',
       findings: ['No persisted source evidence for the research step.'],
+      blockingFindings: [],
       evidenceIds: [],
       checkedAt: '2026-07-19T00:00:00.000Z',
       asOf: '2026-07-19T00:00:00.000Z',
@@ -440,9 +553,9 @@ describe('core/plan-runner', () => {
     startDetachedPlanRun(created.rootTaskId, makeCtx());
     await waitForRunToFinish(created.rootTaskId);
 
-    expect(getById(created.rootTaskId, 'default')!.status).toBe('failed');
+    expect(getById(created.rootTaskId, 'default')!.status).toBe('completed');
     const result = loadTaskResult(created.rootTaskId);
-    expect(result?.success).toBe(false);
+    expect(result?.success).toBe(true);
     expect(result?.metadata).toMatchObject({
       structurally_succeeded: true,
       semantic_verification: {
@@ -453,15 +566,45 @@ describe('core/plan-runner', () => {
       },
     });
     const delivered = hoisted.deliverAssistantMessageMock.mock.calls[0][0];
-    expect(delivered.content).toContain('Plan finished with problems');
-    expect(delivered.content).toContain('Semantic verification');
-    expect(getTurnEnvelope('sess-plan-test', `turn_bg_${created.rootTaskId}`, 'default')?.status).toBe('failed');
-    // The quality check is internal machinery — it never gets its own timeline
-    // row. The failure reaches the user only through the final message (asserted
-    // above) and the failed turn envelope, never a "结果质量校验" step.
+    expect(delivered.content).toContain('Plan completed');
+    expect(delivered.content).not.toMatch(/semantic verification|failed verification/i);
+    expect(getTurnEnvelope('sess-plan-test', `turn_bg_${created.rootTaskId}`, 'default')).toMatchObject({
+      status: 'completed',
+      outcome: { state: 'succeeded', code: 'run_succeeded', verification: 'not_required', issues: [] },
+    });
     const verificationRows = hoisted.deliverBackgroundTaskUpdateMock.mock.calls
       .filter((call) => String(call[0]?.taskId ?? '').endsWith(':verification'));
     expect(verificationRows).toHaveLength(0);
+  });
+
+  it('fails on deterministic acceptance facts without exposing verifier language', async () => {
+    hoisted.verifyPlanSemanticsMock.mockResolvedValueOnce({
+      required: true,
+      passed: false,
+      outcome: 'failed',
+      verdict: 'failed',
+      summary: 'Runtime acceptance verification failed.',
+      findings: ['Artifact "/private/report.html" still contains unresolved placeholders.'],
+      blockingFindings: ['Artifact "/private/report.html" still contains unresolved placeholders.'],
+      evidenceIds: [],
+      checkedAt: '2026-07-19T00:00:00.000Z',
+      asOf: '2026-07-19T00:00:00.000Z',
+    });
+    executeDagMarks('completed', 'The requested deliverable is available.');
+    const created = createPlanTasks(PLAN, makeCtx());
+
+    startDetachedPlanRun(created.rootTaskId, makeCtx());
+    await waitForRunToFinish(created.rootTaskId);
+
+    expect(getById(created.rootTaskId, 'default')?.status).toBe('failed');
+    expect(loadTaskResult(created.rootTaskId)?.success).toBe(false);
+    const content = hoisted.deliverAssistantMessageMock.mock.calls[0][0].content as string;
+    expect(content).toContain('A required delivery condition was not met.');
+    expect(content).not.toMatch(/verification|verifier|\/private\/report\.html/i);
+    expect(getTurnEnvelope('sess-plan-test', `turn_bg_${created.rootTaskId}`, 'default')).toMatchObject({
+      status: 'failed',
+      outcome: { state: 'failed', code: 'deterministic_acceptance_failed' },
+    });
   });
 
   it('completes with an honest quality_unverified marker when the verifier cannot render a verdict', async () => {
@@ -472,6 +615,7 @@ describe('core/plan-runner', () => {
       verdict: 'uncertain',
       summary: 'The deliverable was produced, but its quality was not verified because the verifier returned invalid JSON.',
       findings: ['Bad Request: unexpected end of hex escape'],
+      blockingFindings: [],
       evidenceIds: [],
       checkedAt: '2026-07-22T00:00:00.000Z',
       asOf: '2026-07-22T00:00:00.000Z',
@@ -491,12 +635,10 @@ describe('core/plan-runner', () => {
       semantic_verification: { outcome: 'unverified' },
     });
     const content = hoisted.deliverAssistantMessageMock.mock.calls[0][0].content as string;
-    expect(content).toContain('quality was not verified');
-    expect(content).toContain('invalid JSON');
-    expect(content).not.toMatch(/passed verification|succeeded|successfully/i);
+    expect(content).toContain('Plan completed');
+    expect(content).not.toMatch(/quality was not verified|invalid JSON|verification/i);
     expect(getTurnEnvelope('sess-plan-test', `turn_bg_${created.rootTaskId}`, 'default')?.status).toBe('completed');
-    // Unverified quality also never gets a timeline row — the honesty lives in
-    // the final message (asserted above), not a "结果质量校验" step.
+    // Internal quality state never gets a timeline row or completion prose.
     const verificationRows = hoisted.deliverBackgroundTaskUpdateMock.mock.calls
       .filter((call) => String(call[0]?.taskId ?? '').endsWith(':verification'));
     expect(verificationRows).toHaveLength(0);
@@ -568,7 +710,13 @@ describe('core/plan-runner', () => {
 
     expect(getById(created.rootTaskId, 'default')!.status).toBe('failed');
     const delivered = hoisted.deliverAssistantMessageMock.mock.calls[0][0];
-    expect(delivered.content).toContain('Plan finished with problems');
+    expect(delivered.content).toContain('The requested result was not fully delivered');
+    const failedStepId = getPlanSteps(created.rootTaskId, 'default').find((step) => step.status === 'failed')?.id;
+    expect(getTurnEnvelope('sess-plan-test', planBackgroundTurnId(created.rootTaskId), 'default')?.outcome)
+      .toMatchObject({
+        state: 'failed',
+        issues: [expect.objectContaining({ source: 'task', sourceId: failedStepId })],
+      });
   });
 
   it('marks transient-only failure retryable and re-enters only failed steps', async () => {
@@ -630,7 +778,7 @@ describe('core/plan-runner', () => {
 
     expect(getById(created.rootTaskId, 'default')!.status).toBe('failed');
     const delivered = hoisted.deliverAssistantMessageMock.mock.calls[0][0];
-    expect(delivered.content).toContain('Plan finished with problems');
+    expect(delivered.content).toContain('The requested result was not fully delivered');
     expect(delivered.content).not.toContain('Plan completed');
     // Cancellations are named distinctly from generic failures — per problem
     // step by title, never as "Steps: N/N" tallies (presentation matrix).
@@ -660,6 +808,8 @@ describe('core/plan-runner', () => {
     expect(hoisted.deliverAssistantMessageMock).not.toHaveBeenCalled();
     expect(getTurnEnvelope(makeCtx().sessionId!, planBackgroundTurnId(created.rootTaskId), 'default')?.status)
       .toBe('cancelled');
+    expect(getTurnEnvelope(makeCtx().sessionId!, planBackgroundTurnId(created.rootTaskId), 'default')?.outcome)
+      .toMatchObject({ state: 'cancelled', issues: [] });
   });
 
   it('mixed completed + cancelled reports partial honest stats', async () => {
@@ -696,11 +846,24 @@ describe('core/plan-runner', () => {
     await waitForRunToFinish(created.rootTaskId);
 
     const delivered = hoisted.deliverAssistantMessageMock.mock.calls[0][0];
-    expect(delivered.content).toContain('Plan finished with problems');
+    expect(delivered.content).toContain('The requested result was not fully delivered');
     expect(delivered.content).toContain('Collect policy sources — failed');
     expect(delivered.content).toContain('Draft analysis — blocked by an earlier step');
     expect(delivered.content).not.toContain('已完成: 研究报告已经交付');
     expect(loadTaskResult(created.rootTaskId)?.metadata).toMatchObject({ blocked: 1, failed: 1 });
+  });
+
+  it('keeps raw DAG exceptions out of user-facing completion prose', async () => {
+    hoisted.executeDagMock.mockRejectedValueOnce(new Error('sqlite /private/runtime.db adapter secret'));
+    const created = createPlanTasks(PLAN, makeCtx());
+
+    startDetachedPlanRun(created.rootTaskId, makeCtx());
+    await waitForRunToFinish(created.rootTaskId);
+
+    const content = hoisted.deliverAssistantMessageMock.mock.calls[0][0].content as string;
+    expect(content).toContain('The requested result was not fully delivered');
+    expect(content).not.toMatch(/sqlite|\/private\/runtime\.db|adapter secret|Execution error/i);
+    expect(loadTaskResult(created.rootTaskId)?.output).toContain('/private/runtime.db');
   });
 
   it('refuses a second concurrent run of the same plan', async () => {

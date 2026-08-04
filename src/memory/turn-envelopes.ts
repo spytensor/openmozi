@@ -13,6 +13,7 @@ import {
   isTerminalTurnStatus,
   type TurnEnvelope,
   type TurnOrigin,
+  type RunOutcome,
   type TurnStatus,
 } from '../core/turn-envelope.js';
 
@@ -42,6 +43,16 @@ interface TurnRow {
   locale: string | null;
   started_at: number;
   ended_at: number | null;
+  outcome_json: string | null;
+}
+
+function parseOutcome(value: string | null): RunOutcome | undefined {
+  if (!value) return undefined;
+  const parsed = JSON.parse(value) as RunOutcome;
+  if (parsed.version !== 1 || !Array.isArray(parsed.issues)) {
+    throw new Error('Invalid persisted RunOutcome');
+  }
+  return parsed;
 }
 
 function rowToEnvelope(row: TurnRow): TurnEnvelope {
@@ -56,6 +67,7 @@ function rowToEnvelope(row: TurnRow): TurnEnvelope {
     locale: row.locale ?? undefined,
     startedAt: row.started_at,
     endedAt: row.ended_at ?? undefined,
+    outcome: parseOutcome(row.outcome_json),
   };
 }
 
@@ -84,6 +96,7 @@ export function startTurnEnvelope(input: StartTurnEnvelopeInput): void {
       chat_id = excluded.chat_id,
       status = CASE WHEN session_turns.status = 'interrupted' THEN 'active' ELSE session_turns.status END,
       ended_at = CASE WHEN session_turns.status = 'interrupted' THEN NULL ELSE session_turns.ended_at END,
+      outcome_json = CASE WHEN session_turns.status = 'interrupted' THEN NULL ELSE session_turns.outcome_json END,
       -- Locale is stamped once at turn birth; a re-start keeps the original and
       -- only backfills if the first record had no signal (COALESCE keeps LHS).
       locale = COALESCE(session_turns.locale, excluded.locale),
@@ -111,6 +124,7 @@ export function setTurnEnvelopeStatus(input: {
   turnId: string;
   status: TurnStatus;
   endedAt?: number;
+  outcome?: RunOutcome;
 }): void {
   const db = getDb();
   const tenantId = input.tenantId ?? 'default';
@@ -121,9 +135,19 @@ export function setTurnEnvelopeStatus(input: {
     UPDATE session_turns
     SET status = ?,
         ended_at = CASE WHEN ? IS NOT NULL THEN ? ELSE ended_at END,
+        outcome_json = CASE WHEN ? IS NOT NULL THEN ? ELSE outcome_json END,
         updated_at = datetime('now')
     WHERE tenant_id = ? AND session_id = ? AND turn_id = ?
-  `).run(input.status, endedAt, endedAt, tenantId, input.sessionId, input.turnId);
+  `).run(
+    input.status,
+    endedAt,
+    endedAt,
+    input.outcome ? 1 : null,
+    input.outcome ? JSON.stringify(input.outcome) : null,
+    tenantId,
+    input.sessionId,
+    input.turnId,
+  );
 }
 
 /**
@@ -204,12 +228,30 @@ export function terminalizeStaleActiveTurns(tenantId?: string): number {
   const result = tenantId
     ? db.prepare(`
         UPDATE session_turns
-        SET status = 'interrupted', ended_at = COALESCE(ended_at, ?), updated_at = datetime('now')
+        SET status = 'interrupted', ended_at = COALESCE(ended_at, ?),
+            outcome_json = json_object(
+              'version', 1, 'state', 'interrupted', 'code', 'runtime_interrupted',
+              'verification', 'incomplete', 'recoveredAttemptCount', 0, 'issues',
+              json_array(json_object(
+                'id', 'runtime_interrupted', 'impact', 'blocking', 'source', 'runtime',
+                'code', 'runtime_interrupted', 'action', 'retry'
+              ))
+            ),
+            updated_at = datetime('now')
         WHERE tenant_id = ? AND status IN ('active', 'awaiting_approval')
       `).run(Date.now(), tenantId)
     : db.prepare(`
         UPDATE session_turns
-        SET status = 'interrupted', ended_at = COALESCE(ended_at, ?), updated_at = datetime('now')
+        SET status = 'interrupted', ended_at = COALESCE(ended_at, ?),
+            outcome_json = json_object(
+              'version', 1, 'state', 'interrupted', 'code', 'runtime_interrupted',
+              'verification', 'incomplete', 'recoveredAttemptCount', 0, 'issues',
+              json_array(json_object(
+                'id', 'runtime_interrupted', 'impact', 'blocking', 'source', 'runtime',
+                'code', 'runtime_interrupted', 'action', 'retry'
+              ))
+            ),
+            updated_at = datetime('now')
         WHERE status IN ('active', 'awaiting_approval')
       `).run(Date.now());
   return result.changes;

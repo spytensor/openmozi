@@ -38,7 +38,8 @@ export type MessageRole = "user" | "assistant" | "system";
 export interface ChatReasoning {
   provider: string;
   summary?: string;
-  raw?: string;
+  /** The provider performed private reasoning but supplied no display-safe text. */
+  hasPrivateReasoning?: boolean;
   streaming: boolean;
   startedAt: number;
   completedAt?: number;
@@ -57,6 +58,8 @@ export interface ChatMessage {
   requestId?: string;
   /** Provider-authored reasoning kept separate from the visible answer. */
   reasoning?: ChatReasoning;
+  /** Server-classified non-product prose retained only for historical compatibility. */
+  presentationRole?: "internal_qa";
   /** Files the user attached to this message, shown as chips in the bubble. */
   attachments?: UploadedAttachment[];
 }
@@ -120,6 +123,8 @@ export interface TaskUpdate {
     | "working"
     | "verifying"
     | "done"
+    | "failed"
+    | "cancelled"
     | "blocked";
   detail?: string;
   rawStatus?: string;
@@ -226,6 +231,29 @@ export type TurnStatus =
   | "cancelled"
   | "interrupted";
 
+export type RunOutcomeState = "succeeded" | "degraded" | "blocked" | "failed" | "cancelled" | "interrupted";
+export type RunVerificationState = "not_required" | "passed" | "incomplete" | "failed";
+
+export interface RunIssue {
+  id: string;
+  impact: "limited" | "blocking";
+  source: "task" | "tool" | "artifact" | "verification" | "runtime";
+  sourceId?: string;
+  code: string;
+  params?: Record<string, string | number | boolean>;
+  affectedArtifactIds?: string[];
+  action?: "retry" | "provide_input";
+}
+
+export interface RunOutcome {
+  version: 1;
+  state: RunOutcomeState;
+  code: string;
+  verification: RunVerificationState;
+  recoveredAttemptCount: number;
+  issues: RunIssue[];
+}
+
 /** Server-authoritative Turn Envelope, returned by the timeline restore API. */
 export interface TurnEnvelope {
   turnId: string;
@@ -242,6 +270,15 @@ export interface TurnEnvelope {
   locale?: string;
   startedAt: number;
   endedAt?: number;
+  outcome?: RunOutcome;
+}
+
+export interface SessionRunDetail {
+  sessionId: string;
+  runId: string;
+  claimedTurnIds: string[];
+  turns: TurnEnvelope[];
+  timeline: TimelineItem[];
 }
 
 // WS inbound

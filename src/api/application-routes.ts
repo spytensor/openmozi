@@ -21,7 +21,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyRateLimit from '@fastify/rate-limit';
 import { getBuildInfo } from '../runtime/build-info.js';
 import { deleteSessionMessage, getAccessibleChatIdsForUser, getHistory, getSessionHistory } from '../memory/conversations.js';
-import { deleteTimelineForSessionMessage, findFileArtifactSourceCandidates, getSessionTimelinePage } from '../memory/session-timeline.js';
+import { deleteTimelineForSessionMessage, findFileArtifactSourceCandidates, getSessionRunTimeline, getSessionTimelinePage } from '../memory/session-timeline.js';
 import { getSessionTurns } from '../memory/turn-envelopes.js';
 import { getLatestContextCheckpoint } from '../memory/context-checkpoints.js';
 import {
@@ -2484,6 +2484,21 @@ export async function registerApiRoutes(
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : 'Invalid timeline cursor' });
     }
+  });
+
+  app.get('/api/sessions/:id/runs/:turnId', async (request, reply) => {
+    const tenantContext = getRequestTenantContext(request as { tenantContext?: { tenant_id: string; user_id: string; roles: string[] } });
+    const tenantId = tenantContext?.tenant_id ?? 'default';
+    const { id, turnId } = request.params as Record<string, string>;
+    if (!enforceSessionOwnership(reply, id, tenantId, tenantContext?.user_id)) return reply;
+    const run = getSessionRunTimeline(id, turnId, tenantId);
+    const sessionTurns = getSessionTurns(id, tenantId);
+    if (run.timeline.length === 0 && !sessionTurns.some((turn) => turn.turnId === turnId)) {
+      return reply.code(404).send({ error: 'Run not found' });
+    }
+    const claimed = new Set(run.claimedTurnIds);
+    const turns = sessionTurns.filter((turn) => claimed.has(turn.turnId));
+    return reply.send({ sessionId: id, runId: turnId, ...run, turns });
   });
 
   app.get('/api/sessions/:id/context-checkpoint', async (request, reply) => {

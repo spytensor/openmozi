@@ -174,6 +174,54 @@ describe('plan semantic verifier', () => {
     expect(messages[1].content).toContain(`${'a'.repeat(20)}😀`);
   });
 
+  it('reserves verifier context for every persisted result and artifact', async () => {
+    const steps = Array.from({ length: 9 }, (_, index) => create({
+      tenant_id: 'default',
+      title: `Build section ${index + 1}`,
+      objective: `Build section ${index + 1}`,
+      done_criteria: `Section ${index + 1} is persisted`,
+    }));
+    for (const [index, step] of steps.entries()) {
+      persistTaskResult(step.id, {
+        task_id: step.id,
+        success: true,
+        output: `${index === steps.length - 1 ? 'LAST_STEP_MARKER ' : ''}${'x'.repeat(5_000)}`,
+        tokens_used: 0,
+        elapsed_ms: 5,
+        completed_at: '2026-08-04T10:00:00.000Z',
+      });
+    }
+    const artifactDir = join(getWorkspaceDir(), 'artifacts', 'fair-budget-test');
+    mkdirSync(artifactDir, { recursive: true });
+    const artifactPath = join(artifactDir, 'dashboard.html');
+    writeFileSync(artifactPath, `ARTIFACT_MARKER ${'y'.repeat(8_000)}`);
+    saveTimelineItem({
+      tenantId: 'default', sessionId: 'session-budget', chatId: 'chat-budget', turnId: 'turn-budget',
+      type: 'artifact', eventKey: 'artifact:budget', timestamp: Date.now(),
+      data: {
+        id: 'budget', plugin_id: 'sandpack_v1', title: 'Budget dashboard', status: 'completed',
+        persisted_path: artifactPath, data: { code: '<h1>stale snapshot</h1>' },
+      },
+    });
+    const lastResultId = `result:${steps[steps.length - 1]!.id}`;
+    const client = scriptedClient(JSON.stringify({
+      verdict: 'passed', summary: 'The persisted result is present.', findings: [], evidence_ids: [lastResultId],
+    }));
+
+    await verifyPlanSemantics({
+      rootTaskId: 'budget-root', tenantId: 'default', sessionId: 'session-budget', turnId: 'turn-budget',
+      originalRequest: 'Build the dashboard.', planGoal: 'Build the dashboard.', steps, client,
+      now: new Date('2026-08-04T10:00:00.000Z'),
+    });
+
+    const [messages] = (client.chat as ReturnType<typeof vi.fn>).mock.calls[0] as [Array<{ content: string }>];
+    const verifierInput = messages[1].content;
+    expect(verifierInput).toContain('LAST_STEP_MARKER');
+    expect(verifierInput).toContain('ARTIFACT_MARKER');
+    expect(verifierInput).toContain('(persisted result truncated for verifier context; the result exists)');
+    expect(verifierInput).toContain('(persisted artifact truncated for verifier context; the artifact exists)');
+  });
+
   it('degrades uncertain and deterministic verifier errors without retrying', async () => {
     const uncertain = scriptedClient('{"verdict":"uncertain","summary":"Evidence is incomplete.","findings":[],"evidence_ids":[]}');
     const uncertainReport = await verifyPlanSemantics({
@@ -236,6 +284,7 @@ describe('plan semantic verifier', () => {
 
     expect(report).toMatchObject({ passed: false, outcome: 'failed' });
     expect(report.findings[0]).toContain('No persisted source evidence');
+    expect(report.blockingFindings[0]).toContain('No persisted source evidence');
     expect(client.chat).toHaveBeenCalledTimes(1);
   });
 
@@ -256,6 +305,7 @@ describe('plan semantic verifier', () => {
 
     expect(report.passed).toBe(false);
     expect(report.findings[0]).toContain('runtime year 2026');
+    expect(report.blockingFindings).toEqual([]);
     expect(client.chat).toHaveBeenCalledTimes(1);
   });
 
@@ -355,6 +405,7 @@ describe('plan semantic verifier', () => {
     expect(report).toMatchObject({ passed: false, verdict: 'failed' });
     expect(report.findings.join('\n')).toContain('requires exactly 2 sentences');
     expect(report.findings.join('\n')).toContain('contains 3');
+    expect(report.blockingFindings.join('\n')).toContain('requires exactly 2 sentences');
     expect(client.chat).toHaveBeenCalledTimes(1);
   });
 
@@ -489,7 +540,8 @@ describe('plan semantic verifier', () => {
     });
 
     expect(report).toMatchObject({ passed: false, verdict: 'failed' });
-    expect(report.findings.join('\n')).toContain('could not be verified from its persisted file');
+    expect(report.findings.join('\n')).toContain('could not be read from its persisted file');
+    expect(report.blockingFindings.join('\n')).toContain('could not be read from its persisted file');
     expect(client.chat).toHaveBeenCalledTimes(1);
   });
 

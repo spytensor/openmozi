@@ -286,11 +286,74 @@ describe("App session timeline restore", () => {
     expect(screen.getByTestId("composer-reading-rail")).toHaveClass("max-w-[960px]", "px-4");
   });
 
+  it("keeps a recovered terminal envelope when its timeline is empty", async () => {
+    const turn = {
+      turnId: "turn-envelope-only", sessionId: "session-restore", chatId: "restore-chat", origin: "user" as const,
+      status: "interrupted" as const, seqHighWater: 0, startedAt: 100, endedAt: 200,
+      outcome: { version: 1 as const, state: "interrupted" as const, code: "runtime_interrupted", verification: "incomplete" as const, recoveredAttemptCount: 0, issues: [] },
+    };
+    mocks.fetchTimeline.mockResolvedValue({ timeline: [], turns: [turn] });
+
+    renderWithLocale(<App />);
+
+    expect(await screen.findByTestId("run-summary")).toBeInTheDocument();
+    expect(mocks.fetchMessages).toHaveBeenCalledWith("session-restore");
+  });
+
   it("renders no floating execution HUD — the chat owns the plan surface", async () => {
     renderWithLocale(<App />);
     await screen.findByText("Restored final answer");
 
     expect(screen.queryByTestId("execution-float-anchor")).toBeNull();
+  });
+
+  it("opens a terminal run in the Workbench, renders its output, and returns to the same run", async () => {
+    const turn = {
+      turnId: "turn-restore", sessionId: "session-restore", chatId: "restore-chat", origin: "user" as const,
+      status: "completed" as const, seqHighWater: 4, startedAt: 100, endedAt: 400,
+      outcome: { version: 1 as const, state: "succeeded" as const, code: "run_succeeded", verification: "passed" as const, recoveredAttemptCount: 0, issues: [] },
+    };
+    const output: TimelineItem = {
+      type: "artifact", timestamp: 350, turnId: "turn-restore",
+      data: { id: "run-output", plugin_id: "document_v1", title: "Rendered report", status: "completed", data: { role: "primary", markdown: "# Report" }, timestamp: 350, turnId: "turn-restore" },
+    };
+    mocks.fetchTimeline.mockResolvedValue({ timeline: restoredTimeline, turns: [turn] });
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/api/sessions/session-restore/runs/turn-restore") {
+        return Promise.resolve({ data: { sessionId: "session-restore", runId: "turn-restore", claimedTurnIds: ["turn-restore"], turns: [turn], timeline: [...restoredTimeline, output] }, error: null });
+      }
+      if (url === "/api/sessions/session-restore/permission-level") {
+        return Promise.resolve({ data: { sessionId: "session-restore", permission_level: "L1_READ_WRITE" }, error: null });
+      }
+      return Promise.resolve({ data: { skills: [] }, error: null });
+    });
+
+    renderWithLocale(<App />);
+    fireEvent.click(await screen.findByTestId("run-summary"));
+    expect(await screen.findByTestId("run-inspector")).toBeInTheDocument();
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/sessions/session-restore/runs/turn-restore");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Outputs" }));
+    fireEvent.click(screen.getByTestId("artifact-card"));
+    expect(await screen.findByTestId("artifact-panel")).toBeInTheDocument();
+    expect(screen.getAllByText("Rendered report").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("artifact-markdown-document")).toHaveTextContent("Report");
+
+    // This artifact came from the run endpoint and is absent from the paged
+    // chat timeline. A direct live patch must still update the open Workbench.
+    act(() => {
+      mocks.wsOnMessage.current?.({
+        type: "artifact_patch",
+        artifactId: "run-output",
+        patch: { status: "completed", data: { markdown: "# Report updated live" } },
+      });
+    });
+    expect(screen.getByTestId("artifact-markdown-document")).toHaveTextContent("Report updated live");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByTestId("run-inspector")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Outputs" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("run-tab-outputs")).toBeInTheDocument();
   });
 
   it("opens the existing Settings memory category from a live memory notice", async () => {

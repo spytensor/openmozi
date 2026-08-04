@@ -30,6 +30,42 @@ export type TurnStatus =
   | 'cancelled'
   | 'interrupted';
 
+/**
+ * User-facing terminal result for one run. This is deliberately separate from
+ * lifecycle: a completed turn may have delivered a verified result or a real
+ * result with an unresolved limitation. Attempt-level tool errors never write
+ * this contract directly; the runtime terminalizer is the sole writer.
+ */
+export type RunOutcomeState =
+  | 'succeeded'
+  | 'degraded'
+  | 'blocked'
+  | 'failed'
+  | 'cancelled'
+  | 'interrupted';
+
+export type RunVerificationState = 'not_required' | 'passed' | 'incomplete' | 'failed';
+
+export interface RunIssue {
+  id: string;
+  impact: 'limited' | 'blocking';
+  source: 'task' | 'tool' | 'artifact' | 'verification' | 'runtime';
+  sourceId?: string;
+  code: string;
+  params?: Record<string, string | number | boolean>;
+  affectedArtifactIds?: string[];
+  action?: 'retry' | 'provide_input';
+}
+
+export interface RunOutcome {
+  version: 1;
+  state: RunOutcomeState;
+  code: string;
+  verification: RunVerificationState;
+  recoveredAttemptCount: number;
+  issues: RunIssue[];
+}
+
 /** Server-authoritative envelope for one turn. */
 export interface TurnEnvelope {
   turnId: string;
@@ -49,6 +85,8 @@ export interface TurnEnvelope {
   locale?: string;
   startedAt: number;
   endedAt?: number;
+  /** Runtime-authored terminal truth. Absent for active and legacy turns. */
+  outcome?: RunOutcome;
 }
 
 export const TURN_ORIGINS: readonly TurnOrigin[] = [

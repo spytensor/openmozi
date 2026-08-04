@@ -216,7 +216,7 @@ describe("projectTimelineByTurn — determinism across ingestion paths", () => {
   });
 });
 
-describe("projectTimelineByTurn — chronology and no reordering", () => {
+describe("projectTimelineByTurn — process chronology and response authorship", () => {
   it("renders a pre-answer failure BEFORE the answer (no cosmetic move)", () => {
     const log: TimelineItem[] = [
       userMsg("turn_1", "do it", 1),
@@ -231,7 +231,7 @@ describe("projectTimelineByTurn — chronology and no reordering", () => {
     expect(execIdx).toBeLessThan(answerIdx);
   });
 
-  it("keeps an artifact before the answer when it happened before the answer", () => {
+  it("places an artifact after the answer that introduces it", () => {
     const log: TimelineItem[] = [
       userMsg("turn_1", "make a report", 1),
       artifact("turn_1", "art-1", 2),
@@ -240,7 +240,7 @@ describe("projectTimelineByTurn — chronology and no reordering", () => {
     const shape = renderShape(projectTimelineByTurn(log)) as any[];
     const artIdx = shape.findIndex((s) => s.type === "artifact");
     const answerIdx = shape.findIndex((s) => s.role === "assistant");
-    expect(artIdx).toBeLessThan(answerIdx);
+    expect(artIdx).toBeGreaterThan(answerIdx);
   });
 
   it("keeps the assistant stream/final inside the same turn as its tools", () => {
@@ -561,7 +561,7 @@ describe("plan forwarding across handoff-split blocks", () => {
 });
 
 describe("deliverable positioning (artifacts after the process)", () => {
-  it("moves a pre-opened artifact after the turn's execution block, before the answer", () => {
+  it("moves a pre-opened artifact after the turn's answer", () => {
     const timeline: TimelineItem[] = [
       { type: "message", timestamp: 1, turnId: "t-ord", seq: 0, data: { id: "u1", role: "user", content: "draw", timestamp: 1, turnId: "t-ord", seq: 0 } },
       // create_artifact pre-opens the card BEFORE the tool events finish.
@@ -571,6 +571,53 @@ describe("deliverable positioning (artifacts after the process)", () => {
     ];
     const items = projectTimelineByTurn(timeline, [{ turnId: "t-ord", status: "completed" }] as TurnEnvelope[]);
     const kinds = items.map((item) => (item.kind === "execution" ? "execution" : (item.item.type === "message" ? (item.item.data as { role?: string }).role : item.item.type)));
-    expect(kinds).toEqual(["user", "execution", "artifact", "assistant"]);
+    expect(kinds).toEqual(["user", "execution", "assistant", "artifact"]);
+  });
+
+  it("positions a detached background deliverable after its foreground answer", () => {
+    const timeline: TimelineItem[] = [
+      { type: "message", timestamp: 1, turnId: "turn-parent", seq: 0, data: { id: "u1", role: "user", content: "build", timestamp: 1, turnId: "turn-parent", seq: 0 } },
+      { type: "artifact", timestamp: 2, turnId: "turn-bg", seq: 0, data: { id: "a1", plugin_id: "document_v1", title: "Report", status: "completed", data: { role: "primary" }, timestamp: 2, turnId: "turn-bg", seq: 0 } },
+      { type: "message", timestamp: 3, turnId: "turn-parent", seq: 1, data: { id: "m1", role: "assistant", content: "报告已完成。", timestamp: 3, turnId: "turn-parent", seq: 1 } },
+    ];
+    const logical = new Map<string, ReadonlySet<string>>([
+      ["turn-parent", new Set(["turn-parent", "turn-bg"])],
+      ["turn-bg", new Set(["turn-parent", "turn-bg"])],
+    ]);
+    const items = projectTimelineByTurn(timeline, [], logical);
+    const kinds = items.map((item) => item.kind === "execution"
+      ? "execution"
+      : item.item.type === "message" ? (item.item.data as { role?: string }).role : item.item.type);
+    expect(kinds).toEqual(["user", "assistant", "artifact"]);
+  });
+
+  it("places the memory receipt after the answer's artifacts", () => {
+    const timeline: TimelineItem[] = [
+      userMsg("turn_1", "make a report", 1),
+      { type: "memory_update", timestamp: 2, turnId: "turn_1", seq: 2, data: { count: 1, added: 1, reinforced: 0, updated: 0, factIds: [1], timestamp: 2, turnId: "turn_1", seq: 2 } },
+      artifact("turn_1", "art-1", 3),
+      assistantMsg("turn_1", "done", 4),
+    ];
+    const kinds = projectTimelineByTurn(timeline).map((item) => item.kind === "execution"
+      ? "execution"
+      : item.item.type === "message" ? (item.item.data as { role?: string }).role : item.item.type);
+    expect(kinds).toEqual(["user", "assistant", "artifact", "memory_update"]);
+  });
+
+  it("applies the same authored product order on a mixed legacy timeline", () => {
+    const logical = new Map<string, ReadonlySet<string>>([
+      ["turn-parent", new Set(["turn-parent", "turn-bg"])],
+      ["turn-bg", new Set(["turn-parent", "turn-bg"])],
+    ]);
+    const timeline: TimelineItem[] = [
+      { type: "message", timestamp: 1, data: { id: "u", role: "user", content: "build", timestamp: 1, turnId: "turn-parent" } },
+      { type: "memory_update", timestamp: 2, data: { count: 1, added: 1, reinforced: 0, updated: 0, factIds: [1], timestamp: 2 } },
+      { type: "artifact", timestamp: 3, data: { id: "a", plugin_id: "document_v1", title: "Report", status: "completed", data: { role: "primary" }, timestamp: 3, turnId: "turn-bg" } },
+      { type: "message", timestamp: 4, data: { id: "m", role: "assistant", content: "done", timestamp: 4, turnId: "turn-parent" } },
+    ];
+    const kinds = projectLegacyTimeline(timeline, [], logical).map((item) => item.kind === "execution"
+      ? "execution"
+      : item.item.type === "message" ? (item.item.data as { role?: string }).role : item.item.type);
+    expect(kinds).toEqual(["user", "assistant", "artifact", "memory_update"]);
   });
 });

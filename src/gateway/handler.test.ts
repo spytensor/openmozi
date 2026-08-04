@@ -19,7 +19,7 @@ import { getTurnEnvelope, getSessionTurns } from '../memory/turn-envelopes.js';
 import { broadcastStreamEvent } from '../channels/websocket.js';
 import { MoziConfigSchema } from '../config/index.js';
 import { loadDelegationSystemPrompt } from '../system-prompt.js';
-import { createPlanTasks } from '../core/plan-runner.js';
+import { createPlanTasks, waitForPlanRun } from '../core/plan-runner.js';
 import { updateStatus } from '../store/task-dag.js';
 
 // Mock model-router so handleMessage always uses our fallback client
@@ -149,6 +149,15 @@ describe('gateway/handler', () => {
     const client = makeMockClient('Hello from LLM');
     const result = await handleMessage(makeMsg('hi', 'simple_test'), 'You are helpful.', client);
     expect(result).toBe('Hello from LLM');
+    const session = listSessions('user_1', { tenantId: 'default' })[0];
+    const envelope = getSessionTurns(session.id, 'default').at(-1);
+    expect(envelope?.status).toBe('completed');
+    expect(envelope?.outcome).toMatchObject({
+      version: 1,
+      state: 'succeeded',
+      verification: 'not_required',
+      issues: [],
+    });
   });
 
   it('injects structured Web agent mentions immediately before the current user message', async () => {
@@ -262,6 +271,79 @@ describe('gateway/handler', () => {
       expect(system).toContain('Use only these currently exposed tools.');
       expect(system).not.toContain('Runtime Capability Contract');
       expect(system).not.toContain('Brain-only turn prompt');
+    }
+  });
+
+  it('does not write a terminal outcome on a foreground turn that handed work to a detached plan', async () => {
+    const previousInlineMode = process.env.MOZI_TEST_INLINE_DAG;
+    delete process.env.MOZI_TEST_INLINE_DAG;
+    let requestedPlan = false;
+    const respond = async (): Promise<ChatResponse> => {
+      if (!requestedPlan) {
+        requestedPlan = true;
+        return {
+          content: '',
+          tool_calls: [{
+            id: 'tc_detached_outcome',
+            type: 'function',
+            function: {
+              name: 'decompose_task',
+              arguments: JSON.stringify({
+                goal: 'Produce one short note',
+                subtasks: [
+                  { title: 'Draft note', objective: 'Draft one sentence', done_criteria: 'draft returned', depends_on: [] },
+                  { title: 'Review note', objective: 'Review the sentence', done_criteria: 'review returned', depends_on: [0] },
+                ],
+              }),
+            },
+          }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+          model: 'mock-model',
+          stop_reason: 'tool-calls',
+        };
+      }
+      return { content: 'The note is complete.', usage: { input_tokens: 1, output_tokens: 1 }, model: 'mock-model', stop_reason: 'end' };
+    };
+    const client: LLMClient = {
+      provider: 'mock',
+      chat: vi.fn(respond),
+      async *chatStream(): AsyncGenerator<StreamChunk> {
+        yield { type: 'done', response: await respond() };
+      },
+    };
+    const delegationPrompt = loadDelegationSystemPrompt(MoziConfigSchema.parse({ workspace: { dir: tmpDir } }));
+
+    try {
+      await handleMessage(
+        makeMsg('Write a note with a plan', 'detached_outcome_test'),
+        'You are helpful.',
+        client,
+        undefined,
+        undefined,
+        undefined,
+        delegationPrompt,
+      );
+      const session = getDb().prepare(`
+        SELECT session_id AS id FROM conversations
+        WHERE tenant_id = 'default' AND chat_id = 'detached_outcome_test'
+        ORDER BY id DESC LIMIT 1
+      `).get() as { id: string } | undefined;
+      expect(session).toBeDefined();
+      const plan = getDb().prepare(`
+        SELECT id FROM tasks
+        WHERE tenant_id = 'default' AND title = 'Produce one short note'
+        ORDER BY created_at DESC LIMIT 1
+      `).get() as { id: string } | undefined;
+      expect(plan).toBeDefined();
+      const parent = getSessionTurns(session!.id, 'default')
+        .filter((turn) => turn.origin === 'user')
+        .sort((a, b) => b.startedAt - a.startedAt)[0];
+      expect(parent?.status).toBe('completed');
+      expect(parent?.outcome).toBeUndefined();
+      await waitForPlanRun(plan!.id, 'default');
+    } finally {
+      if (previousInlineMode === undefined) delete process.env.MOZI_TEST_INLINE_DAG;
+      else process.env.MOZI_TEST_INLINE_DAG = previousInlineMode;
     }
   });
 
@@ -808,6 +890,20 @@ describe('gateway/handler', () => {
     // Cancelled turns resolve to an empty response instead of hanging until the
     // stream finishes on its own.
     expect(result).toBe('');
+    const session = getDb().prepare(`
+      SELECT session_id AS id FROM conversations
+      WHERE tenant_id = 'default' AND chat_id = 'external_abort_test'
+      ORDER BY id DESC LIMIT 1
+    `).get() as { id: string } | undefined;
+    expect(session).toBeDefined();
+    const envelope = getSessionTurns(session!.id, 'default').at(-1);
+    expect(envelope?.status).toBe('interrupted');
+    expect(envelope?.outcome).toMatchObject({
+      state: 'interrupted',
+      code: 'runtime_interrupted',
+      verification: 'incomplete',
+      issues: [expect.objectContaining({ source: 'runtime', code: 'runtime_interrupted' })],
+    });
   });
 
   it('rejects a direct concurrent same-chat message without resetting the active session', async () => {

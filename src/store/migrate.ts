@@ -153,6 +153,22 @@ function ensureSessionTimelineItemTypes(db: MigrationDb): void {
   }
 }
 
+/** Remove private provider reasoning left by builds predating the writer guard. */
+function scrubLegacyTimelineReasoning(db: MigrationDb): void {
+  if (!tableExists(db, 'session_timeline_events')) return;
+  db.exec(`
+    UPDATE session_timeline_events
+    SET payload = json_set(
+      json_remove(payload, '$.reasoning.raw'),
+      '$.reasoning.hasPrivateReasoning',
+      json('true')
+    )
+    WHERE item_type = 'message'
+      AND json_valid(payload)
+      AND json_type(payload, '$.reasoning.raw') IS NOT NULL
+  `);
+}
+
 /**
  * Issue #628: carry the authoritative per-turn presentation locale on the Turn
  * Envelope. Additive and idempotent — the canonical `session_turns` table is
@@ -164,6 +180,14 @@ function ensureSessionTurnsLocaleColumn(db: MigrationDb): void {
   if (!tableExists(db, 'session_turns')) return;
   if (!tableHasColumn(db, 'session_turns', 'locale')) {
     db.exec('ALTER TABLE session_turns ADD COLUMN locale TEXT');
+  }
+}
+
+/** Add the runtime-authored user outcome without rewriting legacy turns. */
+function ensureSessionTurnsOutcomeColumn(db: MigrationDb): void {
+  if (!tableExists(db, 'session_turns')) return;
+  if (!tableHasColumn(db, 'session_turns', 'outcome_json')) {
+    db.exec('ALTER TABLE session_turns ADD COLUMN outcome_json JSON');
   }
 }
 
@@ -469,6 +493,8 @@ export function runMigrations(dbPath?: string): void {
   // schema.sql creates session_turns only when absent; add the Issue #628 locale
   // column to databases whose table predates it.
   ensureSessionTurnsLocaleColumn(db);
+  ensureSessionTurnsOutcomeColumn(db);
+  scrubLegacyTimelineReasoning(db);
   ensureSchedulerContract(db);
 
   ensureBillingTelemetryColumns(db);

@@ -30,7 +30,7 @@ sends reviewers looking for violations that are actually the house style.
 - Grounds: `--app-bg #000000`, `--main-bg #000000`, `--sidebar-bg #0a0a0a`
 - Surfaces (elevation by background shift, not shadow): `--surface-base #000000` → `--surface-elevated #111111` → `--surface-card #161616` → `--surface-overlay #1a1a1a`; `--surface-input #111111`
 - Interaction surfaces are ink alphas, not fixed greys: `--surface-hover rgba(255,255,255,.08)`, `--surface-active rgba(255,255,255,.12)`
-- Light theme mirrors this structurally: `--app-bg #fafafa`, `--surface-elevated #ffffff`
+- Light theme mirrors this structurally: `--app-bg #fafafa`, `--surface-elevated #ffffff`, `--surface-card #ffffff`
 - General interaction roles remain monochrome: `--action`, `--activity`, and
   `--focus` are `#ffffff` in dark and `#000000` in light; `--link #a1a1aa`,
   `--selection rgba(255,255,255,.2)`. The one deliberate exception is
@@ -80,53 +80,61 @@ sends reviewers looking for violations that are actually the house style.
 The plan/timeline in chat is a runtime record, not a marketing checklist. Two
 rules keep it reading as a system instead of a screenshot:
 
-- **Live work has one identity in two projections.** In chat it is a compact
-  rounded capsule; activating it expands the same `ExecutionBlockModel`
-  directly below that capsule in the conversation. Never open this non-blocking
-  information as a modal or page takeover, and never create another `View work`
-  owner for the same turn.
+- **Live and terminal work have different owners.** While a turn is active,
+  chat owns one compact live capsule derived from runtime events. The capsule
+  never expands in chat; clicking anywhere on it opens the right Workbench.
+  Every envelope-backed turn uses this ownership model; a terminal
+  `RunOutcome` enriches its final truth. Chat keeps only the answer, output
+  links, and a quiet run summary; the right Workbench becomes the sole owner of
+  Overview, Plan/DAG, Reasoning summary, Trace, and Outputs. Never duplicate a
+  terminal run as an inline `View work` fold. Rows without a Turn Envelope use
+  the frozen legacy renderer and never compete with the Workbench path.
+- **One logical run is one MOZI-authored track.** The first visible MOZI row
+  claims the avatar; its live capsule, approval, final answer, primary/inline
+  artifacts, memory receipt, and terminal summary stay on that same assistant
+  axis without restarting identity. Concurrent logical runs claim independent
+  avatars. The authored terminal order is answer → primary/inline artifacts →
+  memory receipt → quiet run summary; Run Trace retains the original event
+  chronology.
+- **The Workbench is one region with a navigation stack.** Run inspection and
+  rendered artifacts replace each other in the same right region. Opening an
+  output from a run pushes the artifact preview and provides Back; it never
+  opens a competing panel, modal, or page takeover.
 - **The live capsule is visibly alive.** Running work uses the restrained
-  `--work-active` border plus a shallow state tint; verification switches that
-  same state role to `--warning`. The double edge is a border + outline, never
-  a glow or drop shadow. The terminal plan inside the completed turn fold stays
-  frameless so finished work recedes into the conversation.
+  `--work-active` border plus a shallow state tint, spinner, elapsed time, and
+  progress line. It has one border — no outline, glow, or drop shadow. Terminal
+  work recedes to the quiet Run details entry; its plan remains in the
+  Workbench rather than expanding in chat.
 - **The live title names the current action.** “Working” / “正在处理” is helper
   text and a last-resort fallback, never the primary title while runtime truth
   can name the action. The title alone uses a restrained left-to-right
   white/lavender/cobalt text flow that is identical across runtime states;
   reduced-motion keeps the same gradient still. Transport identifiers such as
   `process_id` and UUIDs remain technical detail and never become titles.
-- **Success is quiet; color marks exceptions.** Completed steps use a bare
-  muted-ink check (`text-ink/35` `Check`), never semantic green and never a
-  circled badge — a column of green circle-checks is infographic language.
-  Color is reserved for rows needing the operator's eye: running = accent,
-  blocked/interrupted = warning.
-- **Phase rows read at body size with the state written into the text**
-  (2026-07-19, second pass): 15px rows — a plan is content, not
-  instrumentation, and caption-size rows are what made the card read as a
-  terminal. running = `font-medium ink/90`, done = struck through and
-  receded (`ink/32 line-through`), pending = quiet `ink/45`. The list is
-  the assistant crossing off its own to-dos, not a status console.
-- **The terminal plan card has no in-card header.** No title, no
-  done/total fraction — the row states carry it, and the turn fold already
-  labels the section. A title + fraction + bar is a mini-dashboard embedded
-  in prose. (The "Verifying" chip stays: a verifying card must not read as
-  settled.) The LIVE capsule keeps its state header, current action and compact
-  plan footer — that is its summary job, and it leaves with the capsule.
-- **No progress bar on the terminal card.** A colored rule under the header
-  reads as a divider cutting the record off from the conversation. The
-  done/total fraction and the row icons carry the state. Only the *live*
-  capsule keeps a thin state bar — it is the alive signal, and it leaves with
-  the capsule when the turn ends.
-- **The work-detail surface is a timeline, not a dashboard.** One bounded
-  content surface may hold the current action, phase spine and technical
-  disclosure. Individual tool rows remain rows; only persisted substantive
-  results may become content cards. Motion is a 180–200ms ease-out layout/fade
-  transition and must collapse to no motion under `prefers-reduced-motion`.
-- **Every completed step is disclosable.** A phase row opens to its tool
-  rows AND its persisted result excerpt (`resultDetail`, server-carried) —
-  a step that ran without tools must never render as a dead, unclickable
-  row while the completion prose points users at the card for details.
+- **Internal QA never becomes product status.** Tool retries, provider
+  recovery, semantic verification, completion gates, and `RunOutcome` issue
+  metadata stay out of chat, the run summary, Overview, Plan, Reasoning, Trace,
+  and completion prose. The terminal chat affordance is always the same quiet
+  “Run details” link. A real need for user input or permission uses its own
+  actionable surface; recovered attempts and verifier diagnostics remain
+  internal logs and metadata.
+- **State color stays semantic and restrained.** Running uses the cobalt work
+  token with a spinner; completed uses a quiet success check; pending is
+  neutral; blocked is warning; failed is danger. Icons remain bare rather than
+  becoming circled badges.
+- **Plan state belongs to the Workbench Plan tab.** DAG/list nodes use body-size
+  labels and typed states: running uses the active work token plus spinner,
+  completed uses a quiet success check, pending recedes, and blocked uses the
+  warning token. Chat never renders a second terminal plan card, fraction, bar,
+  phase list, or verifier chip.
+- **Trace owns chronology; Plan owns dependency shape.** A plan node may select
+  the corresponding run context in the Workbench, but it never expands tool
+  calls or result excerpts inline. Tool rows and persisted execution details
+  remain in Trace; deliverables remain in Outputs.
+- **Workbench motion communicates active state only.** Layout and selection
+  transitions use a restrained 180–200ms ease-out and collapse to no motion
+  under `prefers-reduced-motion`. Finished nodes do not pulse or keep an active
+  progress indicator.
 
 ## Chat Prose (the reading surface — operator decision 2026-07-18)
 
@@ -178,6 +186,12 @@ not registered and those classes generate zero CSS.
 - **CJK fallback is explicit**: `"PingFang SC", "Hiragino Sans GB",
   "Microsoft YaHei"` after the latin stack — CJK glyph choice must never
   depend on the browser's default fallback.
+- **User Markdown is compact and inert.** User bubbles render the submitted GFM
+  source directly (headings, lists/checklists, tables, blockquotes, safe links,
+  inline and fenced code) without assistant normalization. Raw HTML never runs;
+  remote images become text placeholders, unsafe/local links stay plain, and
+  Mermaid remains fenced code. Copy and regenerate use the same visible,
+  context-cleaned source that the bubble renders.
 
 ## Known Deviations (tracked — fix deliberately, don't regress further)
 

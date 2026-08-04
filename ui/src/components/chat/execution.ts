@@ -1041,8 +1041,8 @@ export function buildExecutionBlockModel(
   const toolErrorCount = tools.filter((tool) => getToolState(tool) === "error" && !isBenignToolFailure(tool)).length;
   // PLAN-backed turns count only failed TASKS as issues: a tool error inside a
   // step the runner retried past is internal recovery, not something the user
-  // must attend to (real case: 5/5 steps green + 1 failed verification row
-  // summarized as "Needs attention (15)" because 14 recovered web_fetch 502s
+  // must attend to (real case: completed steps plus an internal QA row were
+  // summarized as "Needs attention (15)" because recovered web_fetch 502s
   // were tallied in). A step that failed BECAUSE of tool errors already counts
   // once via its task row.
   //

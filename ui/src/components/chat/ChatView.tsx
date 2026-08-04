@@ -10,6 +10,8 @@ import ApprovalCard from "./ApprovalCard";
 import ArtifactCard from "./ArtifactCard";
 import InlineVisualCard, { isInlineVisualArtifact } from "./InlineVisualCard";
 import SupportingFilesGroup from "./SupportingFilesGroup";
+import RunSummary, { LiveRunSummary } from "./RunSummary";
+import { planProgress, timelineItemTurnId } from "./run-metrics";
 import { buildExecutionBlockModel, buildExecutionIssueSummaries, inferMessageLocale, isCancelledTask, isExecutionTimelineItem, toolRunningActionLabel, type ChatRenderItem } from "./execution";
 import { canProjectDeterministically, projectLegacyTimeline, projectTimelineByTurn } from "./turn-projection";
 import { MemoryUpdateNotice } from "./MemoryUpdateNotice";
@@ -36,51 +38,12 @@ function AssistantColumnRow({ children, showAvatar = false }: { children: ReactN
   );
 }
 
-/**
- * The live "MOZI is doing X" line shown while a tool runs but no live execution
- * block sits at the timeline bottom. It stays a compact one-liner by default,
- * but — when the active turn has already completed steps that are otherwise held
- * back during the turn — it becomes clickable to reveal those step details, so
- * a user who wants to see what's happening can, without cluttering the default.
- */
-function LiveToolLine({
-  label,
-  detailBlocks,
-  onOpenAgentRun,
-}: {
-  label: string;
-  detailBlocks: Array<Extract<ChatRenderItem, { kind: "execution" }>["block"]>;
-  onOpenAgentRun?: (path: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const canExpand = detailBlocks.length > 0;
+/** Brief bridge before the first persisted execution event creates a run capsule. */
+function LiveToolLine({ label }: { label: string }) {
   return (
-    <div data-testid="chat-active-tool-line" className="w-full max-w-[640px]">
-      <button
-        type="button"
-        onClick={() => canExpand && setOpen((value) => !value)}
-        aria-expanded={canExpand ? open : undefined}
-        className={cn(
-          "flex w-full items-center gap-2 py-1.5 text-[12px] leading-none text-ink/42 transition-colors",
-          canExpand ? "cursor-pointer hover:text-ink/60" : "cursor-default",
-        )}
-      >
-        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-        <span className="live-verb-shimmer min-w-0 truncate">{label}</span>
-        {canExpand && (
-          <ChevronDown
-            size={12}
-            className={cn("shrink-0 text-ink/25 transition-transform duration-180ms", open && "rotate-180")}
-          />
-        )}
-      </button>
-      {open && canExpand && (
-        <div className="mt-2 space-y-3 border-l border-ink/[0.07] pl-3 duration-180ms motion-safe:animate-in motion-safe:fade-in-0">
-          {detailBlocks.map((block) => (
-            <ExecutionBlock key={block.key} block={block} embedded onOpenAgentRun={onOpenAgentRun} />
-          ))}
-        </div>
-      )}
+    <div data-testid="chat-active-tool-line" className="flex w-full max-w-[640px] items-center gap-2 py-1.5 text-[12px] leading-none text-ink/42">
+      <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
+      <span className="live-verb-shimmer min-w-0 truncate">{label}</span>
     </div>
   );
 }
@@ -237,12 +200,6 @@ function approvalSignature(item: TimelineItem): string | null {
   return `${turn}|${approval.action ?? ""}|${approval.status}`;
 }
 
-/**
- * The runtime's canned detach-handoff wording (src/core/dag-bridge.ts
- * `buildDetachedPlanUserMessage`) — kept in sync by shape, not import: the
- * runtime owns the string, the UI only recognizes it. If the wording changes,
- * the sentence shows again (fail-open) instead of ever hiding a real answer.
- */
 const DETACHED_PLAN_HANDOFF_PATTERNS = [
   /^已将任务分解为 \d+ 步计划并开始后台执行/,
   /^I broke this down into a \d+-step plan now running in the background/,
@@ -464,7 +421,6 @@ function deriveLiveActivity(
 interface TurnFoldGroup {
   key: string;
   items: ChatRenderItem[];
-  status: "completed" | "failed";
 }
 
 interface ExecutionTurnGroup {
@@ -520,19 +476,40 @@ function mergeExecutionBlocks(blocks: ExecutionBlockModel[], key: string): Execu
   };
 }
 
+/**
+ * Chat is product narration, not the forensic console. Plan/task titles are
+ * user-facing runtime state; tool intent is not. Shell intent deliberately
+ * persists the full command for Trace, so it must be replaced by the tool's
+ * semantic activity label before entering the run capsule.
+ */
+function liveRunHeadline(block: ExecutionBlockModel, locale: Locale): string {
+  const runningTask = [...block.tasks].reverse().find((task) => task.status === "running");
+  if (runningTask) return runningTask.title;
+  const pendingTask = block.tasks.find((task) => task.status === "pending");
+  if (pendingTask) return pendingTask.title;
+  if (block.plan) {
+    const completed = new Set(block.tasks.filter((task) => task.status === "completed").map((task) => task.task_id));
+    const nextPhase = block.plan.phases.find((phase) => !completed.has(phase.taskId));
+    return nextPhase?.title ?? block.plan.goal;
+  }
+  const latestTool = [...block.tools].reverse()[0];
+  if (latestTool) return toolRunningActionLabel(latestTool.tool, locale, latestTool.skillName);
+  return translateMessage(locale, "tool.running.generic");
+}
+
 /** Assistant narration may split one turn's execution into several blocks;
  * presentation still gives that turn one Work Card. */
 function buildExecutionTurnGroups(
   renderItems: ChatRenderItem[],
   startIndex: number,
   foldedRowIndices: ReadonlySet<number>,
-  excludedTurnId: string | null,
+  excludedTurnIds: ReadonlySet<string>,
 ): { groups: Map<number, ExecutionTurnGroup>; grouped: Set<number> } {
   const byTurn = new Map<string, { indices: number[]; blocks: ExecutionBlockModel[] }>();
   for (let i = startIndex; i < renderItems.length; i++) {
     if (foldedRowIndices.has(i)) continue;
     const item = renderItems[i];
-    if (item.kind !== "execution" || !item.block.turnId || item.block.turnId === excludedTurnId) continue;
+    if (item.kind !== "execution" || !item.block.turnId || excludedTurnIds.has(item.block.turnId)) continue;
     const bucket = byTurn.get(item.block.turnId) ?? { indices: [], blocks: [] };
     bucket.indices.push(i);
     bucket.blocks.push(item.block);
@@ -693,10 +670,6 @@ function buildTurnFolds(renderItems: ChatRenderItem[], failedTurnIds: ReadonlySe
     groups.set(ordered[0], {
       key: `turn-fold-${ordered[0]}`,
       items: ordered.map((i) => renderItems[i]),
-      status: ordered.some((i) => {
-        const turnId = renderTurnId(renderItems[i]);
-        return turnId != null && failedTurnIds.has(turnId);
-      }) ? "failed" : "completed",
     });
     ordered.forEach((i) => folded.add(i));
   };
@@ -782,16 +755,9 @@ function TurnFold({
         onClick={() => setExpanded((value) => !value)}
         className="inline-flex max-w-full items-center gap-2 px-1 py-1 text-[12px] leading-none text-ink/35 transition-colors duration-180ms hover:text-ink/55"
       >
-        {/* Survived mid-turn errors remain completed work. A linked background
-            turn whose authoritative envelope failed makes this one task-level
-            disclosure failed — the plan is one user task even though runtime
-            execution crossed foreground/background turn identities. */}
         <span
-          data-testid={group.status === "failed" ? "turn-fold-issue-dot" : "turn-fold-done-dot"}
-          className={cn(
-            "h-1.5 w-1.5 shrink-0 rounded-full",
-            group.status === "failed" ? "bg-danger/80" : "bg-success/80",
-          )}
+          data-testid="turn-fold-dot"
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-ink/28"
         />
         <span className="truncate">{label}</span>
         <ChevronDown size={12} className={cn("shrink-0 text-ink/25 transition-transform duration-180ms", expanded && "rotate-180")} />
@@ -864,6 +830,7 @@ interface ChatViewProps {
   onRegenerate: (content: string) => void;
   onDeleteMessage?: (message: ChatMessage) => void;
   onOpenArtifact?: (artifact: Artifact) => void;
+  onOpenRun?: (turnId: string) => void;
   onOpenModelSettings?: () => void;
   onOpenMemory?: () => void;
   onOpenAgentRun?: (path: string) => void;
@@ -878,7 +845,7 @@ interface ChatViewProps {
 /** Scrolling within this many px of the top pulls the next older history page. */
 const OLDER_HISTORY_TRIGGER_PX = 240;
 
-export default function ChatView({ sessionId = null, timeline, sessionState, activeTool, activeToolSkillName = null, activeTurnId = null, timelineCapabilities, turns, onApprove, onReject, onSend, onRegenerate, onDeleteMessage, onOpenArtifact, onOpenModelSettings, onOpenMemory, onOpenAgentRun, hasOlderHistory = false, loadingOlderHistory = false, onLoadOlderHistory }: ChatViewProps) {
+export default function ChatView({ sessionId = null, timeline, sessionState, activeTool, activeToolSkillName = null, activeTurnId = null, timelineCapabilities, turns, onApprove, onReject, onSend, onRegenerate, onDeleteMessage, onOpenArtifact, onOpenRun, onOpenModelSettings, onOpenMemory, onOpenAgentRun, hasOlderHistory = false, loadingOlderHistory = false, onLoadOlderHistory }: ChatViewProps) {
   const { locale, t } = useLocale();
   const scrollRegionRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
@@ -1023,34 +990,58 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // importantly on every scroll frame (`handleScroll` calls setState). Without
   // this a 500-turn session reprojected + rebuilt every row on each scroll tick.
   const deterministicProjection = canProjectDeterministically(timeline, timelineCapabilities);
-  // The detached-plan handoff sentence ("已将任务分解为 N 步计划…" / "I broke
-  // this down into…") is runtime-fabricated boilerplate whose entire content
-  // the typed plan card already carries — it renders as noise above the plan
-  // spine (operator report 2026-07-19). Drop exactly that row: an assistant
-  // message in a turn that admitted a plan (has a plan_started row) AND
-  // matching the runtime's canned shape. Shape-guarded so a plan turn's real
-  // delivery text can never be swallowed; fails open if the runtime wording
-  // changes.
-  const presentedTimeline = useMemo(() => {
-    const planTurns = new Set<string>();
+  // A detached plan is one logical run even though runtime execution crosses
+  // a foreground admission turn and `turn_bg_<planId>`. Presentation uses this
+  // map everywhere so chat, capsule and Workbench never disagree about state.
+  const logicalTurnIdsByTurn = useMemo(() => {
+    const groups = new Map<string, Set<string>>();
     for (const item of timeline) {
       if (item.type !== "plan_started") continue;
-      const turn = item.turnId ?? (item.data as PlanStartedUpdate).turnId;
-      if (turn) planTurns.add(turn);
+      const plan = item.data as PlanStartedUpdate;
+      const parentTurnId = item.turnId ?? plan.turnId;
+      if (!parentTurnId || !plan.plan_id) continue;
+      const backgroundTurnId = `turn_bg_${plan.plan_id}`;
+      const group = new Set([parentTurnId, backgroundTurnId]);
+      groups.set(parentTurnId, group);
+      groups.set(backgroundTurnId, group);
     }
-    if (planTurns.size === 0) return timeline;
+    return groups;
+  }, [timeline]);
+
+  // Once a foreground turn admits a detached plan, all of its assistant prose
+  // is process narration (including recovered provider diagnostics). The plan
+  // capsule and Workbench own that process; the background turn owns delivery.
+  const presentedTimeline = useMemo(() => {
+    const planTurns = new Map<string, string>();
+    for (const item of timeline) {
+      if (item.type !== "plan_started") continue;
+      const plan = item.data as PlanStartedUpdate;
+      const turn = item.turnId ?? (item.data as PlanStartedUpdate).turnId;
+      if (turn) planTurns.set(turn, `turn_bg_${plan.plan_id}`);
+    }
+    const knownTurnIds = new Set((turns ?? []).map((turn) => turn.turnId));
+    for (const item of timeline) {
+      const turnId = timelineItemTurnId(item);
+      if (turnId) knownTurnIds.add(turnId);
+    }
     return timeline.filter((item) => {
       if (item.type !== "message") return true;
       const message = item.data as ChatMessage;
       if (message.role !== "assistant") return true;
       const turn = item.turnId ?? message.turnId;
+      if (message.presentationRole === "internal_qa") return false;
       if (!turn || !planTurns.has(turn)) return true;
-      return !DETACHED_PLAN_HANDOFF_PATTERNS.some((pattern) => pattern.test(message.content.trim()));
+      const detached = knownTurnIds.has(planTurns.get(turn)!);
+      return detached
+        ? false
+        : !DETACHED_PLAN_HANDOFF_PATTERNS.some((pattern) => pattern.test(message.content.trim()));
     });
-  }, [timeline]);
+  }, [timeline, turns]);
   const renderItems = useMemo(
-    () => (deterministicProjection ? projectTimelineByTurn(presentedTimeline, turns ?? []) : projectLegacyTimeline(presentedTimeline, turns ?? [])),
-    [deterministicProjection, presentedTimeline, turns],
+    () => (deterministicProjection
+      ? projectTimelineByTurn(presentedTimeline, turns ?? [], logicalTurnIdsByTurn)
+      : projectLegacyTimeline(presentedTimeline, turns ?? [], logicalTurnIdsByTurn)),
+    [deterministicProjection, logicalTurnIdsByTurn, presentedTimeline, turns],
   );
   // Windowing state (Issue #628); re-hidden whenever a session shrinks below the
   // cap (session switch / clear) so a new session never inherits an expanded view.
@@ -1108,41 +1099,76 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // runs. The restored envelopes carry the truth — an active background
   // envelope keeps the capsule alive (operator bug report 2026-07-18:
   // "switch away and back, the status vanishes, then comes back later").
-  const backgroundLiveTurnId = (turns ?? []).find((turn) => turn.origin === "background" && turn.status === "active")?.turnId ?? null;
-  const liveWorkTurnId = sessionState !== "IDLE" && activeTurnId ? activeTurnId : backgroundLiveTurnId;
-
-  const liveTurnWorkModel = useMemo(() => {
-    if (!liveWorkTurnId) return null;
-    // A detached plan runs under its own turn id (`turn_bg_<planId>`) while
-    // plan_started stays on the foreground turn that admitted it — link them
-    // by the plan id embedded in the background turn id, or the surface
-    // renders a bare tool line with no plan (the exact runtime-truth break
-    // the operator saw live).
-    const bgPlanId = liveWorkTurnId.startsWith("turn_bg_") ? liveWorkTurnId.slice("turn_bg_".length) : null;
-    const turnItems: TimelineItem[] = [];
-    let planItem: TimelineItem | null = null;
-    for (const item of timeline) {
-      if (!isExecutionTimelineItem(item)) continue;
-      const turnId = item.turnId ?? (item.data as { turnId?: string } | undefined)?.turnId;
-      if (item.type === "plan_started") {
-        const planId = (item.data as { plan_id?: string } | undefined)?.plan_id;
-        if (turnId === liveWorkTurnId || (bgPlanId != null && planId === bgPlanId)) planItem = item;
-        continue;
-      }
-      if (turnId === liveWorkTurnId) turnItems.push(item);
+  const isActiveTurn = (turn: TurnEnvelope) => turn.status === "active" || turn.status === "awaiting_approval";
+  const liveRunModels = useMemo(() => {
+    const activeTurns = (turns ?? []).filter(isActiveTurn);
+    if (sessionState !== "IDLE" && activeTurnId && !activeTurns.some((turn) => turn.turnId === activeTurnId)) {
+      activeTurns.push({ turnId: activeTurnId, status: "active" } as TurnEnvelope);
     }
-    if (!planItem && turnItems.length === 0) return null;
-    const model = buildExecutionBlockModel(
-      planItem ? [planItem, ...turnItems] : turnItems,
-      `live-turn-${liveWorkTurnId}`,
-      latestTurnLocale(timeline, turns, liveWorkTurnId, locale),
-    );
-    // The turn is live by envelope truth here — the card must stay in its
-    // live shape between steps instead of flashing a collapsed summary.
-    return { ...model, status: "running" as const };
-  }, [timeline, liveWorkTurnId, turns, locale]);
+    const groups = new Map<string, { workTurnId: string; turnIds: Set<string> }>();
+    for (const turn of activeTurns) {
+      const turnIds = logicalTurnIdsByTurn.get(turn.turnId) ?? new Set([turn.turnId]);
+      const key = [...turnIds].sort().join("\u0000");
+      const existing = groups.get(key);
+      if (!existing || turn.origin === "background" || turn.turnId === activeTurnId) {
+        groups.set(key, { workTurnId: turn.turnId, turnIds });
+      }
+    }
+    return [...groups.entries()].flatMap(([key, run]) => {
+      const turnItems: TimelineItem[] = [];
+      let planItem: TimelineItem | null = null;
+      for (const item of timeline) {
+        if (!isExecutionTimelineItem(item)) continue;
+        const turnId = item.turnId ?? (item.data as { turnId?: string } | undefined)?.turnId;
+        if (item.type === "plan_started") {
+          if (turnId && run.turnIds.has(turnId)) planItem = item;
+          continue;
+        }
+        if (turnId && run.turnIds.has(turnId)) turnItems.push(item);
+      }
+      const model = buildExecutionBlockModel(
+        planItem ? [planItem, ...turnItems] : turnItems,
+        `live-turn-${run.workTurnId}`,
+        latestTurnLocale(timeline, turns, run.workTurnId, locale),
+      );
+      return [{ key, ...run, model: { ...model, status: "running" as const } }];
+    });
+  }, [activeTurnId, logicalTurnIdsByTurn, locale, sessionState, timeline, turns]);
+  const liveOwnedTurnIds = useMemo(
+    () => new Set(liveRunModels.flatMap((run) => [...run.turnIds])),
+    [liveRunModels],
+  );
 
-  if (timeline.length === 0 && sessionState === "IDLE") {
+  const terminalRunModels = useMemo(() => {
+    const groups = new Map<string, { key: string; turn: TurnEnvelope; turnIds: Set<string> }>();
+    const loadedTurnIds = new Set(timeline.map(timelineItemTurnId).filter((value): value is string => Boolean(value)));
+    const newestTimelineTimestamp = Math.max(-Infinity, ...timeline.map((item) => item.timestamp));
+    for (const turn of turns ?? []) {
+      const turnIds = logicalTurnIdsByTurn.get(turn.turnId) ?? new Set([turn.turnId]);
+      const claimedTurns = (turns ?? []).filter((candidate) => turnIds.has(candidate.turnId));
+      if (claimedTurns.some(isActiveTurn)) continue;
+      const terminal = claimedTurns
+        .filter((candidate) => !isActiveTurn(candidate))
+        .sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))[0];
+      if (!terminal) continue;
+      const key = [...turnIds].sort().join("\u0000");
+      // The first timeline page returns every historical envelope, but only
+      // the latest 100 rows. Do not move older runs whose message anchor is on
+      // an unloaded page to the current bottom. A message-less run is appended
+      // only when this page owns one of its rows, or when it ended after the
+      // newest loaded row and therefore genuinely has no possible anchor here.
+      const representedOnLoadedPage = [...turnIds].some((turnId) => loadedTurnIds.has(turnId));
+      if (!representedOnLoadedPage && (terminal.endedAt ?? -Infinity) < newestTimelineTimestamp) continue;
+      groups.set(key, { key, turn: terminal, turnIds });
+    }
+    const terminalRuns = [...groups.values()];
+    if (timeline.length === 0 && terminalRuns.length > 1) {
+      return terminalRuns.sort((a, b) => (b.turn.endedAt ?? 0) - (a.turn.endedAt ?? 0)).slice(0, 1);
+    }
+    return terminalRuns;
+  }, [logicalTurnIdsByTurn, timeline, turns]);
+
+  if (timeline.length === 0 && sessionState === "IDLE" && terminalRunModels.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="w-full max-w-[520px]">
@@ -1183,7 +1209,13 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // surface. An explicit detached-plan child can instead join its parent's one
   // task-level fold. The final assistant message remains the visible report.
   const failedTurnIds = new Set((turns ?? []).filter((turn) => turn.status === "failed").map((turn) => turn.turnId));
-
+  // Ownership is per turn, never per session. A session may contain historical
+  // legacy turns and new envelope-backed runs at the same time; only the latter
+  // move their process detail into the Run Workbench.
+  const runOwnedTurnIds = new Set(onOpenRun ? [
+    ...(turns ?? []).map((turn) => turn.turnId),
+    ...liveOwnedTurnIds,
+  ] : []);
   // Windowing (Issue #628): cap mounted DOM rows for very long sessions. The cut
   // is aligned to a user-message boundary so a turn is never split and the
   // per-turn avatar/ordering logic stays correct; chronology is preserved
@@ -1203,40 +1235,109 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   const liveAnnouncement =
     liveActivity === "idle" ? "" : translateMessage(turnLocale, LIVE_ACTIVITY_KEY[liveActivity]);
 
-  let assistantAvatarShownInTurn = false;
+  // Completed belongs to the end of MOZI's authored response, not to the
+  // message that happened to carry the terminal envelope. Anchor it after the
+  // last visible answer/product/memory/approval row for that logical run.
+  const terminalSummaryAnchors = new Map<number, (typeof terminalRunModels)[number][]>();
+  if (onOpenRun) {
+    for (const terminalRun of terminalRunModels) {
+      let anchor = -1;
+      let userAnchor = -1;
+      for (let i = windowStart; i < renderItems.length; i++) {
+        const ri = renderItems[i];
+        const turnId = renderTurnId(ri);
+        if (!turnId || !terminalRun.turnIds.has(turnId) || ri.kind !== "single") continue;
+        const { item } = ri;
+        let visibleMoziRow = false;
+        if (item.type === "message") {
+          const message = item.data as ChatMessage;
+          if (message.role === "user") userAnchor = i;
+          visibleMoziRow = message.role === "assistant" && hasRenderableAssistantContent(message);
+        } else if (item.type === "artifact") {
+          const artifact = item.data as Artifact;
+          visibleMoziRow = !isIntermediateFileArtifact(artifact)
+            && artifact.data.role !== "workspace"
+            && artifact.data.role !== "supporting";
+        } else if (item.type === "memory_update" || item.type === "approval_request") {
+          visibleMoziRow = true;
+        }
+        if (visibleMoziRow) anchor = i;
+      }
+      if (anchor < 0) anchor = userAnchor;
+      if (anchor >= 0) {
+        const bucket = terminalSummaryAnchors.get(anchor) ?? [];
+        bucket.push(terminalRun);
+        terminalSummaryAnchors.set(anchor, bucket);
+      }
+    }
+  }
 
-  const claimTurnAvatar = () => {
-    const showAvatar = !assistantAvatarShownInTurn;
-    assistantAvatarShownInTurn = true;
+  const claimedAssistantTracks = new Set<string>();
+  let legacyAssistantTrack = `legacy:${sessionId}:${windowStart}`;
+  let adoptedLegacyTrack: string | undefined;
+  const renderedTerminalRunKeys = new Set<string>();
+
+  const logicalRunKey = (turnId: string): string => {
+    const turnIds = logicalTurnIdsByTurn.get(turnId);
+    return turnIds ? [...turnIds].sort().join("\u0000") : turnId;
+  };
+
+  const claimTurnAvatar = (turnId?: string) => {
+    let track: string;
+    if (turnId) {
+      track = logicalRunKey(turnId);
+      // Old timeline rows often omit turnId on prose while the adjacent tools
+      // carry it. The first explicit run after a user row adopts that legacy
+      // track; later concurrent/background runs keep independent identities.
+      if (!adoptedLegacyTrack) {
+        adoptedLegacyTrack = track;
+        if (claimedAssistantTracks.has(legacyAssistantTrack)) claimedAssistantTracks.add(track);
+      }
+    } else {
+      track = adoptedLegacyTrack ?? legacyAssistantTrack;
+    }
+    const showAvatar = !claimedAssistantTracks.has(track);
+    claimedAssistantTracks.add(track);
     return showAvatar;
+  };
+
+  const startUserTrack = (message: ChatMessage, index: number, turnId?: string) => {
+    legacyAssistantTrack = turnId
+      ? logicalRunKey(turnId)
+      : `legacy:${sessionId}:${message.id || index}`;
+    adoptedLegacyTrack = turnId ? legacyAssistantTrack : undefined;
+  };
+
+  const renderAnchoredTerminalSummaries = (renderIndex: number) => {
+    const anchored = terminalSummaryAnchors.get(renderIndex) ?? [];
+    return anchored.map((terminalRun) => {
+      renderedTerminalRunKeys.add(terminalRun.key);
+      return (
+        <AssistantColumnRow key={`terminal-run-${terminalRun.key}`} showAvatar={claimTurnAvatar(terminalRun.turn.turnId)}>
+          <RunSummary
+            turn={terminalRun.turn}
+            turnIds={terminalRun.turnIds}
+            turns={turns}
+            onOpen={() => onOpenRun?.(terminalRun.turn.turnId)}
+          />
+        </AssistantColumnRow>
+      );
+    });
   };
 
   const renderActivityIndicator = () => {
     switch (activityIndicator) {
       case "tool": {
         if (!activeTool) return null;
-        // The active turn's completed steps are held back from the timeline
-        // during the turn (they collapse into the fold once it ends). Offer them
-        // as click-to-expand detail behind the live line.
-        const detailBlocks = renderItems
-          .filter(
-            (ri): ri is Extract<ChatRenderItem, { kind: "execution" }> =>
-              ri.kind === "execution" && ri.block.turnId === activeTurnId && ri.block.status !== "running",
-          )
-          .map((ri) => ri.block);
         return (
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
-            <LiveToolLine
-              label={toolRunningActionLabel(activeTool, turnLocale, activeToolSkillName)}
-              detailBlocks={detailBlocks}
-              onOpenAgentRun={onOpenAgentRun}
-            />
+          <AssistantColumnRow showAvatar={claimTurnAvatar(activeTurnId ?? undefined)}>
+            <LiveToolLine label={toolRunningActionLabel(activeTool, turnLocale, activeToolSkillName)} />
           </AssistantColumnRow>
         );
       }
       case "responding":
         return (
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
+          <AssistantColumnRow showAvatar={claimTurnAvatar(activeTurnId ?? undefined)}>
             <div data-testid="chat-responding-status-line" className="flex items-center gap-2 py-1 text-xs text-ink/40">
               <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
               <span>{translateMessage(turnLocale, "chat.status.responding")}</span>
@@ -1246,7 +1347,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
       case "thinking":
       case "working":
         return (
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
+          <AssistantColumnRow showAvatar={claimTurnAvatar(activeTurnId ?? undefined)}>
             <div data-testid="chat-thinking-indicator" className="flex items-center gap-2 py-1.5">
               <div className="flex items-center gap-2 py-1">
                 <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
@@ -1264,6 +1365,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
 
   const renderTimelineItem = (ri: ChatRenderItem, renderIndex: number) => {
     if (ri.kind === "execution") {
+      if (ri.block.turnId && runOwnedTurnIds.has(ri.block.turnId)) return null;
       // Interruption is server-authoritative. Foreground IDLE is expected after
       // a detached DAG handoff and must never be used to guess that a live
       // background turn died. Startup recovery terminalizes real orphans in
@@ -1273,8 +1375,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
       if (sessionState !== "IDLE" && ri.block.status !== "running" && ri.block.turnId === activeTurnId) return null;
       // With the consolidated live plan card active, per-block fragments of
       // the active turn never render — the card is the single live surface.
-      if (liveTurnWorkModel && ri.block.turnId === liveWorkTurnId) return null;
-      const showAvatar = claimTurnAvatar();
+      const showAvatar = claimTurnAvatar(ri.block.turnId);
       return (
         <AssistantColumnRow key={ri.block.key} showAvatar={showAvatar}>
           <ExecutionBlock
@@ -1289,15 +1390,17 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     switch (item.type) {
       case "message": {
         const msg = item.data as ChatMessage;
+        const messageTurn = item.turnId ?? msg.turnId;
+        const messageOwnedByRun = Boolean(messageTurn && runOwnedTurnIds.has(messageTurn));
         if (msg.role === "user") {
-          assistantAvatarShownInTurn = false;
+          startUserTrack(msg, index, messageTurn);
         }
         const reasoningOwnedByGroup = groupedReasoningRowIndices.has(renderIndex);
         const rendersAssistantContent = hasRenderableAssistantContent(msg);
         // Reasoning-only provider messages are represented by the turn-level
         // Thinking Card. A message that also carries answer text keeps its text
         // row without repeating the same reasoning disclosure inside it.
-        if (msg.role === "assistant" && reasoningOwnedByGroup && !rendersAssistantContent) return null;
+        if (msg.role === "assistant" && (reasoningOwnedByGroup || messageOwnedByRun) && !rendersAssistantContent) return null;
         // An assistant answer regenerates by re-running the user prompt that
         // produced it — the nearest visible user message before it.
         const regenerateText =
@@ -1309,26 +1412,27 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         const assistantMessageRenders =
           msg.role === "assistant" &&
           (rendersAssistantContent || (!reasoningOwnedByGroup && (hasRenderableReasoning(msg) || Boolean(msg.streaming && msg.requestId))));
-        const showAvatar = msg.role === "assistant" ? !assistantAvatarShownInTurn : true;
-        if (assistantMessageRenders) {
-          assistantAvatarShownInTurn = true;
-        }
+        const showAvatar = msg.role === "assistant" && assistantMessageRenders
+          ? claimTurnAvatar(messageTurn)
+          : true;
         // Stable identity: the timeline is mutated in place (stream upserts,
         // artifact patches, dropped empty messages) — index keys would let
         // React reuse the wrong component instance across those edits.
         return (
-          <MessageBubble
-            key={msg.id ?? index}
-            message={msg}
-            onRegenerate={onRegenerate}
-            regenerateText={regenerateText}
-            showAvatar={showAvatar}
-            showAssistantActions={isLastAssistantTextInTurn(renderItems, renderIndex, msg)}
-            showReasoning={!reasoningOwnedByGroup}
-            onDelete={sessionState === "IDLE" && /^conversation:\d+$/.test(msg.id) ? onDeleteMessage : undefined}
-            onOpenArtifact={onOpenArtifact}
-            onOpenModelSettings={onOpenModelSettings}
-          />
+          <div key={msg.id ?? index}>
+            <MessageBubble
+              message={msg}
+              onRegenerate={onRegenerate}
+              regenerateText={regenerateText}
+              showAvatar={showAvatar}
+              showAssistantActions={isLastAssistantTextInTurn(renderItems, renderIndex, msg)}
+              showReasoning={!messageOwnedByRun && !reasoningOwnedByGroup}
+              onDelete={sessionState === "IDLE" && /^conversation:\d+$/.test(msg.id) ? onDeleteMessage : undefined}
+              onOpenArtifact={onOpenArtifact}
+              onOpenModelSettings={onOpenModelSettings}
+            />
+            {renderAnchoredTerminalSummaries(renderIndex)}
+          </div>
         );
       }
       case "approval_request":
@@ -1336,13 +1440,16 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         // the content column (indented past the avatar), not at the avatar's
         // own left edge as a top-level peer.
         return (
-          <AssistantColumnRow key={(item.data as ApprovalRequest).id ?? index}>
-            <ApprovalCard
-              request={item.data as ApprovalRequest}
-              onApprove={onApprove}
-              onReject={onReject}
-            />
-          </AssistantColumnRow>
+          <div key={(item.data as ApprovalRequest).id ?? index}>
+            <AssistantColumnRow showAvatar={claimTurnAvatar(item.turnId ?? (item.data as ApprovalRequest).turnId)}>
+              <ApprovalCard
+                request={item.data as ApprovalRequest}
+                onApprove={onApprove}
+                onReject={onReject}
+              />
+            </AssistantColumnRow>
+            {renderAnchoredTerminalSummaries(renderIndex)}
+          </div>
         );
       case "artifact": {
         if (isIntermediateFileArtifact(item.data as Artifact)) return null;
@@ -1354,12 +1461,15 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         // narrate them; they surface as deliverable/supporting cards when the
         // turn completes.
         const artifactTurn = item.turnId ?? (item.data as Artifact).turnId;
-        if (liveTurnWorkModel && artifactTurn === liveWorkTurnId) return null;
+        if (artifactTurn && liveOwnedTurnIds.has(artifactTurn)) return null;
         if (isInlineVisualArtifact(item.data as Artifact)) {
           return (
-            <AssistantColumnRow key={(item.data as Artifact).id ?? index}>
-              <InlineVisualCard artifact={item.data as Artifact} onOpen={onOpenArtifact} />
-            </AssistantColumnRow>
+            <div key={(item.data as Artifact).id ?? index}>
+              <AssistantColumnRow showAvatar={claimTurnAvatar(artifactTurn)}>
+                <InlineVisualCard artifact={item.data as Artifact} onOpen={onOpenArtifact} />
+              </AssistantColumnRow>
+              {renderAnchoredTerminalSummaries(renderIndex)}
+            </div>
           );
         }
         // The completed turn's chat rows are the answer and its deliverable
@@ -1370,32 +1480,39 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         // another turn id) strands its working notes with no entry at all
         // (review finding 2026-07-19).
         const turnArtifactsCount = artifactTurn ? (turnArtifactIndex.get(artifactTurn)?.length ?? 0) : 0;
-        const showIndexFallback = (item.data as Artifact).data.role === "primary"
+        const showIndexFallback = !Boolean(artifactTurn && runOwnedTurnIds.has(artifactTurn))
+          && (item.data as Artifact).data.role === "primary"
           && turnArtifactsCount > 1
           && artifactTurn != null
           && !foldVisibleTurns.has(artifactTurn);
         return (
-          <AssistantColumnRow key={(item.data as Artifact).id ?? index}>
-            <ArtifactCard artifact={item.data as Artifact} onOpen={onOpenArtifact} />
-            {showIndexFallback && (
-              <button
-                type="button"
-                data-testid="chat-view-all-artifacts"
-                onClick={() => handleOpenArtifactsIndex(artifactTurn)}
-                className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[12px] text-ink/40 transition-colors hover:bg-ink/[0.04] hover:text-ink/65"
-              >
-                {translateMessage(turnLocale, "chat.artifacts.viewAll", { count: turnArtifactsCount })}
-                <ChevronDown className="h-3 w-3 -rotate-90" aria-hidden="true" />
-              </button>
-            )}
-          </AssistantColumnRow>
+          <div key={(item.data as Artifact).id ?? index}>
+            <AssistantColumnRow showAvatar={claimTurnAvatar(artifactTurn)}>
+              <ArtifactCard artifact={item.data as Artifact} onOpen={onOpenArtifact} />
+              {showIndexFallback && (
+                <button
+                  type="button"
+                  data-testid="chat-view-all-artifacts"
+                  onClick={() => handleOpenArtifactsIndex(artifactTurn)}
+                  className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-[12px] text-ink/40 transition-colors hover:bg-ink/[0.04] hover:text-ink/65"
+                >
+                  {translateMessage(turnLocale, "chat.artifacts.viewAll", { count: turnArtifactsCount })}
+                  <ChevronDown className="h-3 w-3 -rotate-90" aria-hidden="true" />
+                </button>
+              )}
+            </AssistantColumnRow>
+            {renderAnchoredTerminalSummaries(renderIndex)}
+          </div>
         );
       }
       case "memory_update":
         return (
-          <AssistantColumnRow key={`memory-${item.turnId ?? index}`}>
-            <MemoryUpdateNotice update={item.data as MemoryUpdate} onOpen={onOpenMemory} />
-          </AssistantColumnRow>
+          <div key={`memory-${item.turnId ?? index}`}>
+            <AssistantColumnRow showAvatar={claimTurnAvatar(item.turnId)}>
+              <MemoryUpdateNotice update={item.data as MemoryUpdate} onOpen={onOpenMemory} />
+            </AssistantColumnRow>
+            {renderAnchoredTerminalSummaries(renderIndex)}
+          </div>
         );
       default:
         return null;
@@ -1414,7 +1531,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     renderItems,
     windowStart,
     foldedRowIndices,
-    liveWorkTurnId,
+    runOwnedTurnIds,
   );
   const rows: Array<{ key: string; node: ReactNode }> = [];
   // Supporting files are process, not product (operator decision 2026-07-19):
@@ -1442,8 +1559,10 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // swallow the fallbacks either, or its files become unreachable.
   const foldVisibleTurns = new Set<string>();
   for (const [anchorIndex, group] of turnFoldGroups) {
+    const groupTurns = foldClaimedTurnIds(group.items);
+    if (groupTurns.some((turn) => runOwnedTurnIds.has(turn))) continue;
     if (anchorIndex < windowStart) continue;
-    for (const turn of foldClaimedTurnIds(group.items)) foldVisibleTurns.add(turn);
+    for (const turn of groupTurns) foldVisibleTurns.add(turn);
   }
   // Indices already merged into an earlier turn-scoped supporting-files group
   // or deduplicated approval row — they must not render again.
@@ -1457,19 +1576,34 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   // order: user message → process capsule → streaming answer/outputs below).
   // Appending it at the timeline tail let the growing answer push it down —
   // "the work card keeps sliding to the bottom" (operator, 2026-07-18).
-  let capsulePushed = false;
-  const pushLiveCapsule = () => {
-    if (capsulePushed || !liveTurnWorkModel) return;
-    capsulePushed = true;
+  const pushedCapsules = new Set<string>();
+  const pushLiveCapsule = (run: (typeof liveRunModels)[number]) => {
+    if (pushedCapsules.has(run.key)) return;
+    pushedCapsules.add(run.key);
+    const liveTurns = (turns ?? []).filter((turn) => run.turnIds.has(turn.turnId));
+    const liveTimestamps = timeline.filter((item) => {
+      const turnId = item.turnId ?? (item.data as { turnId?: string }).turnId;
+      return Boolean(turnId && run.turnIds.has(turnId));
+    }).map((item) => item.timestamp);
+    const startedAt = liveTurns.length > 0
+      ? Math.min(...liveTurns.map((turn) => turn.startedAt))
+      : liveTimestamps.length > 0 ? Math.min(...liveTimestamps) : Date.now();
+    const { completed, total } = planProgress(run.model.plan, run.model.tasks);
     rows.push({
-      key: `live-work-${liveWorkTurnId}`,
+      key: `live-work-${run.key}`,
       node: (
         // -mt pulls the capsule toward the preceding narration: the message's
         // own bottom padding + rail gap read as a fat blank line otherwise
         // (operator feedback 2026-07-18).
         <div className="-mt-1.5">
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
-            <ExecutionBlock block={liveTurnWorkModel} onOpenSources={handleOpenSources} onOpenAgentRun={onOpenAgentRun} />
+          <AssistantColumnRow showAvatar={claimTurnAvatar(run.workTurnId)}>
+            <LiveRunSummary
+              startedAt={startedAt}
+              headline={liveRunHeadline(run.model, run.model.locale ?? locale)}
+              completed={completed}
+              total={total}
+              onOpen={() => onOpenRun?.(run.workTurnId)}
+            />
           </AssistantColumnRow>
         </div>
       ),
@@ -1478,26 +1612,32 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
   for (let i = windowStart; i < renderItems.length; i++) {
     // First row that belongs to the active turn and is not the user's own
     // message marks where MOZI's work begins — mount the capsule there.
-    if (liveTurnWorkModel && !capsulePushed && renderTurnId(renderItems[i]) === liveWorkTurnId && !isUserRenderRow(renderItems[i])) {
-      pushLiveCapsule();
+    const rowTurnId = renderTurnId(renderItems[i]);
+    if (rowTurnId && !isUserRenderRow(renderItems[i])) {
+      const run = liveRunModels.find((candidate) => candidate.turnIds.has(rowTurnId));
+      if (run) pushLiveCapsule(run);
     }
     const reasoningTurnGroup = reasoningTurnGroups.get(i);
     if (reasoningTurnGroup) {
-      rows.push({
-        key: reasoningTurnGroup.key,
-        node: (
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
-            <ReasoningGroup messages={reasoningTurnGroup.messages} />
-          </AssistantColumnRow>
-        ),
-      });
+      const owned = reasoningTurnGroup.messages.some((message) => message.turnId && runOwnedTurnIds.has(message.turnId));
+      if (!owned) {
+        rows.push({
+          key: reasoningTurnGroup.key,
+          node: (
+            <AssistantColumnRow showAvatar={claimTurnAvatar(reasoningTurnGroup.messages[0]?.turnId)}>
+              <ReasoningGroup messages={reasoningTurnGroup.messages} />
+            </AssistantColumnRow>
+          ),
+        });
+      }
     }
     const executionTurnGroup = executionTurnGroups.get(i);
     if (executionTurnGroup) {
+      if (executionTurnGroup.block.turnId && runOwnedTurnIds.has(executionTurnGroup.block.turnId)) continue;
       rows.push({
         key: executionTurnGroup.key,
         node: (
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
+          <AssistantColumnRow showAvatar={claimTurnAvatar(executionTurnGroup.block.turnId)}>
             <ExecutionBlock block={executionTurnGroup.block} onOpenSources={handleOpenSources} onOpenAgentRun={onOpenAgentRun} />
           </AssistantColumnRow>
         ),
@@ -1508,6 +1648,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     const foldGroup = turnFoldGroups.get(i);
     if (foldGroup) {
       const foldTurnIds = foldClaimedTurnIds(foldGroup.items);
+      if (foldTurnIds.some((turn) => runOwnedTurnIds.has(turn))) continue;
       const foldSupporting: Artifact[] = [];
       for (const turn of foldTurnIds) {
         const bucket = supportingByTurn.get(turn);
@@ -1519,7 +1660,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
       rows.push({
         key: foldGroup.key,
         node: (
-          <AssistantColumnRow showAvatar={claimTurnAvatar()}>
+          <AssistantColumnRow showAvatar={claimTurnAvatar(foldTurnIds[0])}>
             <TurnFold
               group={foldGroup}
               onOpenSources={handleOpenSources}
@@ -1550,6 +1691,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     if (isSupportingArtifact(renderItems[i]) && !consumedSupportingIndices.has(i)) {
       const first = renderItems[i] as Extract<ChatRenderItem, { kind: "single" }>;
       const firstTurn = first.item.turnId ?? (first.item.data as Artifact).turnId;
+      if (firstTurn && runOwnedTurnIds.has(firstTurn)) continue;
       // The turn's fold houses these files — no chat row at all.
       if (firstTurn != null && foldVisibleTurns.has(firstTurn)) {
         consumedSupportingIndices.add(i);
@@ -1590,7 +1732,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
       rows.push({
         key: `supporting-${renderRowKey(renderItems[i], i)}`,
         node: (
-          <AssistantColumnRow>
+          <AssistantColumnRow showAvatar={claimTurnAvatar(firstTurn ?? undefined)}>
             <SupportingFilesGroup artifacts={artifacts} onOpen={onOpenArtifact} />
           </AssistantColumnRow>
         ),
@@ -1605,6 +1747,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
       const first = (renderItems[i] as Extract<ChatRenderItem, { kind: "single" }>).item;
       const signature = approvalSignature(first);
       let repeatCount = 1;
+      let approvalSummaryIndex = i;
       if (signature != null) {
         for (let j = i + 1; j < renderItems.length; j++) {
           if (foldedRowIndices.has(j) || consumedApprovalIndices.has(j)) continue;
@@ -1612,35 +1755,59 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
           const candidate = (renderItems[j] as Extract<ChatRenderItem, { kind: "single" }>).item;
           if (approvalSignature(candidate) !== signature) continue;
           repeatCount += 1;
+          approvalSummaryIndex = j;
           consumedApprovalIndices.add(j);
         }
       }
       rows.push({
         key: renderRowKey(renderItems[i], i),
         node: (
-          <AssistantColumnRow>
-            <ApprovalCard
-              request={first.data as ApprovalRequest}
-              onApprove={onApprove}
-              onReject={onReject}
-              repeatCount={repeatCount}
-            />
-          </AssistantColumnRow>
+          <div>
+            <AssistantColumnRow showAvatar={claimTurnAvatar(first.turnId ?? (first.data as ApprovalRequest).turnId)}>
+              <ApprovalCard
+                request={first.data as ApprovalRequest}
+                onApprove={onApprove}
+                onReject={onReject}
+                repeatCount={repeatCount}
+              />
+            </AssistantColumnRow>
+            {renderAnchoredTerminalSummaries(approvalSummaryIndex)}
+          </div>
         ),
       });
       continue;
     }
     pushRow(renderItems[i], i);
   }
-  if (liveTurnWorkModel) {
+  if (liveRunModels.length > 0) {
     // The consolidated working capsule is the single live surface for ANY
     // turn with execution activity (#635 single status owner). Normally
     // anchored at the turn's first work row above; fall back to the tail
     // when the loop never found an anchor (e.g. every turn row suppressed).
-    pushLiveCapsule();
+    liveRunModels.forEach(pushLiveCapsule);
+    if (sessionState !== "IDLE" && activeTurnId && !liveOwnedTurnIds.has(activeTurnId)) {
+      const indicator = renderActivityIndicator();
+      if (indicator) rows.push({ key: "activity-indicator", node: indicator });
+    }
   } else {
     const indicator = renderActivityIndicator();
     if (indicator) rows.push({ key: "activity-indicator", node: indicator });
+  }
+  for (const terminalRun of terminalRunModels) {
+    if (!onOpenRun || renderedTerminalRunKeys.has(terminalRun.key)) continue;
+    rows.push({
+      key: `terminal-run-${terminalRun.key}`,
+      node: (
+        <AssistantColumnRow showAvatar={claimTurnAvatar(terminalRun.turn.turnId)}>
+          <RunSummary
+            turn={terminalRun.turn}
+            turnIds={terminalRun.turnIds}
+            turns={turns}
+            onOpen={() => onOpenRun(terminalRun.turn.turnId)}
+          />
+        </AssistantColumnRow>
+      ),
+    });
   }
 
   return (

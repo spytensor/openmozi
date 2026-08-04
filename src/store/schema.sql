@@ -593,6 +593,9 @@ CREATE TABLE IF NOT EXISTS session_turns (
   -- Presentation locale carried on the authoritative path (Issue #628);
   -- NULL for turns with no reliable language signal.
   locale TEXT,
+  -- Runtime-authored user result. Lifecycle stays in status; tool failures do
+  -- not become user-visible anomalies unless referenced by this outcome.
+  outcome_json JSON,
   started_at INTEGER NOT NULL,
   ended_at INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

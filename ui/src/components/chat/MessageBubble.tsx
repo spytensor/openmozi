@@ -3,6 +3,7 @@ import { AlertCircle, Check, ChevronDown, Copy, Lightbulb, Loader2, RefreshCw, S
 import { TypeIcon } from "./artifact-type-icons";
 import { buildFileArtifact } from "@/lib/file-artifact";
 import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Artifact, ChatMessage, ChatReasoning } from "@/types";
 import MoziAvatar from "@/components/MoziAvatar";
@@ -12,6 +13,7 @@ import { normalizeMarkdownTables } from "./markdown-normalize";
 import MarkdownReadingSurface from "./MarkdownReadingSurface";
 import { CHAT_PROSE_CLASS, CHAT_PROSE_COMPACT_CLASS } from "./prose";
 import { formatDurationForLocale } from "@/i18n/format";
+import { cn } from "@/lib/utils";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -153,6 +155,47 @@ export function stripInjectedContext(text: string): string {
     .trim();
 }
 
+// User input is rendered independently from the assistant reading surface: it
+// preserves the visible submitted Markdown, stays compact inside the bubble, and
+// never activates HTML, remote images, syntax highlighters, or Mermaid.
+const USER_MARKDOWN_COMPONENTS: Components = {
+  ...MARKDOWN_COMPONENTS,
+  table: ({ children }) => (
+    <div className="my-2 max-w-full overflow-x-auto rounded-md border border-ink/[0.10]">
+      <table className="w-full border-collapse text-left text-[12px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border-b border-r border-ink/[0.10] bg-ink/[0.04] px-2 py-1 font-medium last:border-r-0">{children}</th>,
+  td: ({ children }) => <td className="border-b border-r border-ink/[0.08] px-2 py-1 align-top last:border-r-0">{children}</td>,
+  pre: ({ children }) => (
+    <pre className="my-2 max-w-full overflow-x-auto rounded-md bg-black/20 p-2 font-mono text-[12px] leading-[1.5]">{children}</pre>
+  ),
+  code: ({ className, children }) => {
+    const block = Boolean(className) || String(children).includes("\n");
+    return block
+      ? <code className="font-mono text-[12px] text-ink/88">{children}</code>
+      : <code className="rounded bg-black/20 px-1 py-0.5 font-mono text-[0.86em] text-ink/90">{children}</code>;
+  },
+  img: ({ alt }) => (
+    <span data-testid="message-user-blocked-image" className="font-mono text-[0.9em] text-ink/55">
+      {alt ? `[image: ${alt}]` : "[image]"}
+    </span>
+  ),
+};
+
+const USER_MARKDOWN_CLASS = cn(
+  "min-w-0 break-words text-[13.5px] leading-[1.55] tracking-[-0.01em] text-ink/[0.92] overflow-wrap-anywhere",
+  "[&_p]:my-1 first:[&_p]:mt-0 last:[&_p]:mb-0",
+  "[&_h1]:my-1.5 [&_h1]:text-[15px] [&_h1]:font-semibold",
+  "[&_h2]:my-1.5 [&_h2]:text-[14.5px] [&_h2]:font-semibold",
+  "[&_h3]:my-1 [&_h3]:text-[14px] [&_h3]:font-semibold",
+  "[&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5",
+  "[&_li]:my-0.5 [&_li>p]:my-0",
+  "[&_blockquote]:my-1.5 [&_blockquote]:border-l-2 [&_blockquote]:border-ink/15 [&_blockquote]:pl-2.5 [&_blockquote]:text-ink/68",
+  "[&_a]:text-link [&_a]:underline [&_a]:underline-offset-2",
+  "[&_input]:mr-1.5 [&_input]:align-middle",
+);
+
 type MarkdownSegment = {
   text: string;
   fenced: boolean;
@@ -234,7 +277,7 @@ export function hasRenderableReasoning(message: ChatMessage): boolean {
   return Boolean(
     message.reasoning && (
       normalizeAssistantMarkdown(message.reasoning.summary ?? "").length > 0 ||
-      normalizeAssistantMarkdown(message.reasoning.raw ?? "").length > 0
+      message.reasoning.streaming
     ),
   );
 }
@@ -259,7 +302,6 @@ function ReasoningDisclosure({ reasoning, showProvider = true }: { reasoning: Ch
   }, [reasoning.streaming]);
 
   const summary = normalizeAssistantMarkdown(reasoning.summary ?? "");
-  const raw = normalizeAssistantMarkdown(reasoning.raw ?? "");
   const durationMs = reasoning.durationMs ?? Math.max(0, (reasoning.completedAt ?? now) - reasoning.startedAt);
   const title = reasoning.streaming
     ? t("chat.reasoning.thinking")
@@ -297,18 +339,7 @@ function ReasoningDisclosure({ reasoning, showProvider = true }: { reasoning: Ch
               </div>
             </section>
           )}
-          {raw && (
-            <section data-testid="message-reasoning-raw" className={summary ? "mt-4 border-t border-ink/[0.07] pt-3" : ""}>
-              <div className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.1em] text-ink/30">
-                {t("chat.reasoning.raw")}
-              </div>
-              <div className={`${CHAT_PROSE_COMPACT_CLASS} text-ink/52`}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
-                  {normalizeMarkdownTables(raw)}
-                </ReactMarkdown>
-              </div>
-            </section>
-          )}
+          {!summary && reasoning.streaming && <p className="text-[12px] text-ink/38">{t("chat.reasoning.inProgress")}</p>}
         </div>
       )}
     </div>
@@ -348,6 +379,9 @@ export function ReasoningGroup({ messages }: { messages: ChatMessage[] }) {
     ? t("chat.reasoning.thinking")
     : t("chat.reasoning.thoughtFor", { duration: formatDurationForLocale(durationMs, locale) });
   const providers = [...new Set(segments.map(({ reasoning }) => reasoning.provider).filter(Boolean))].join(" · ");
+  const summaries = segments
+    .map(({ id, reasoning }) => ({ id, summary: normalizeAssistantMarkdown(reasoning.summary ?? "") }))
+    .filter(({ summary }) => Boolean(summary));
 
   return (
     <div
@@ -368,18 +402,20 @@ export function ReasoningGroup({ messages }: { messages: ChatMessage[] }) {
         )}
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink/72">{title}</span>
         {providers && <span className="max-w-[32%] truncate text-[10.5px] text-ink/30">{providers}</span>}
-        <span className="shrink-0 rounded-full bg-ink/[0.05] px-2 py-0.5 text-[10.5px] text-ink/42">
+        {segments.length > 1 && <span className="shrink-0 rounded-full bg-ink/[0.05] px-2 py-0.5 text-[10.5px] text-ink/42">
           {t("chat.reasoning.segments", { count: String(segments.length) })}
-        </span>
+        </span>}
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-ink/30 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true" />
       </button>
       {open && (
         <div data-testid="reasoning-group-content" className="border-t border-ink/[0.07] px-4 py-2">
-          {segments.map(({ id, reasoning }, index) => (
-            <div key={id} className={index > 0 ? "border-t border-ink/[0.06]" : undefined}>
-              <ReasoningDisclosure reasoning={reasoning} showProvider={false} />
+          {summaries.length > 0 ? summaries.map(({ id, summary }, index) => (
+            <div key={id} className={cn(CHAT_PROSE_COMPACT_CLASS, "py-2 text-ink/58", index > 0 && "border-t border-ink/[0.06]")}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+                {normalizeMarkdownTables(summary)}
+              </ReactMarkdown>
             </div>
-          ))}
+          )) : <p className="py-2 text-[12px] text-ink/38">{t("chat.reasoning.inProgress")}</p>}
         </div>
       )}
     </div>
@@ -438,8 +474,12 @@ export default memo(function MessageBubble({
     return (
       <div data-testid="message-user" className="group flex flex-col items-end min-w-0">
         {content && (
-        <div data-testid="message-user-bubble" className="bg-surface-card border border-white/[0.07] rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[75%] overflow-hidden shadow-sm" style={{ boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 2px 8px rgba(0,0,0,0.3)" }}>
-          <p className="text-[13.5px] text-ink/[0.92] tracking-[-0.01em] whitespace-pre-wrap break-words leading-[1.55] overflow-wrap-anywhere">{content}</p>
+        <div data-testid="message-user-bubble" className="bg-surface-card border border-ink/[0.09] rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[75%] overflow-hidden shadow-sm">
+          <div data-testid="message-user-markdown" className={USER_MARKDOWN_CLASS}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={USER_MARKDOWN_COMPONENTS}>
+              {content}
+            </ReactMarkdown>
+          </div>
         </div>
         )}
         {attachments.length > 0 && (
@@ -458,7 +498,7 @@ export default memo(function MessageBubble({
                     ? () => onOpenArtifact!(buildFileArtifact({ path: att.path, filename: att.filename, mime: att.mimeType, size: att.size }))
                     : undefined}
                   title={canOpen ? t("chat.attachment.open", { name: att.filename }) : att.filename}
-                  className={`flex max-w-[75%] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all duration-200 ${canOpen ? "cursor-pointer hover:bg-hover hover:border-white/10 active:scale-[0.98]" : ""}`}
+                  className={`flex max-w-[75%] items-center gap-2 rounded-lg border px-2 py-1.5 text-left transition-all duration-200 ${canOpen ? "cursor-pointer hover:bg-hover hover:border-ink/10 active:scale-[0.98]" : ""}`}
                   style={{
                     borderColor: "var(--border-subtle)",
                     background: "var(--surface-input)",

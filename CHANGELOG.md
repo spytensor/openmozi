@@ -8,15 +8,17 @@ OpenMozi maintains its own version line.
 
 ### Added
 
-- Release queue reset after v1.5.1; new entries land here.
+- Run details now provide dedicated Overview, Plan DAG, Reasoning, Trace, and Outputs views from one shared turn contract.
 
 ### Changed
 
-- None yet.
+- Active and historical runs now use one compact chat summary that opens the shared right-side Workbench instead of expanding process UI inline.
 
 ### Fixed
 
-- None yet.
+- Recovered tool attempts and private quality checks no longer surface as failed product status or verification warnings when a real result was delivered.
+- Mixed legacy and envelope-backed sessions keep each turn's process history under the correct renderer, including envelope-only crash recovery.
+- Verifier evidence budgeting now reserves persisted result and artifact context before optional source excerpts.
 
 ## [v1.5.1] - 2026-08-03
 

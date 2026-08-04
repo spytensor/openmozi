@@ -16,6 +16,7 @@ import {
   Search,
   Sparkles,
   Terminal,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TaskUpdate, ToolEvent } from "@/types";
@@ -247,7 +248,7 @@ function AgentDelegationExecution({
   );
 }
 
-type RowState = "done" | "running" | "blocked" | "skipped" | "pending" | "interrupted" | "queued" | "cancelled";
+type RowState = "done" | "running" | "failed" | "blocked" | "skipped" | "pending" | "interrupted" | "queued" | "cancelled";
 
 interface TimelineRow {
   key: string;
@@ -331,9 +332,16 @@ function taskUserStatusLabel(
         taskStatus === "completed" ? "execution.taskStatus.workingDone" : "execution.taskStatus.working",
       );
     case "verifying":
-      return translateMessage(locale, "execution.taskStatus.verifying");
+      return translateMessage(
+        locale,
+        taskStatus === "completed" ? "execution.taskStatus.workingDone" : "execution.taskStatus.working",
+      );
     case "done":
       return translateMessage(locale, "execution.taskStatus.done");
+    case "failed":
+      return translateMessage(locale, "execution.taskStatus.failed");
+    case "cancelled":
+      return translateMessage(locale, "execution.taskStatus.cancelled");
     case "blocked":
       return translateMessage(locale, "execution.taskStatus.blocked");
     default:
@@ -383,10 +391,9 @@ function shouldShowLifecycleTasks(block: ExecutionBlockModel): boolean {
 
 /**
  * The internal semantic quality check ("结果质量校验") is machinery, not a
- * user-facing step — its outcome already lands in the run's terminal status and
- * the final message. It never gets a timeline row, for new OR historical runs
- * (operators repeatedly rejected it as noise). Filter any persisted verification
- * row out here so it renders nowhere.
+ * user-facing step. It never gets a timeline row, terminal product status, or
+ * final-message warning. Filter historical persisted verification rows here so
+ * they render nowhere.
  */
 function isPlanVerificationRow(task: TaskUpdate): boolean {
   return task.rawStatus === "plan_verification_failed" || task.rawStatus === "plan_verification_unverified";
@@ -415,7 +422,11 @@ function getDisplayTools(tools: ToolEvent[]): ToolEvent[] {
 }
 
 function taskState(task: TaskUpdate): RowState {
-  if (task.status === "failed") return "blocked";
+  if (task.status === "failed") {
+    if (task.rawStatus === "cancelled" || task.userStatus === "cancelled") return "cancelled";
+    if (task.rawStatus === "blocked" || task.userStatus === "blocked") return "blocked";
+    return "failed";
+  }
   if (task.status === "running") return "running";
   if (task.status === "pending") return "pending";
   return "done";
@@ -451,7 +462,7 @@ function getTaskRows(tasks: TaskUpdate[], locale: Locale): TimelineRow[] {
 function getToolState(tool: ToolEvent, block: ExecutionBlockModel): RowState {
   if (tool.phase === "start") return "running";
   if (tool.status !== "error") return "done";
-  return block.status === "mixed" ? "skipped" : "blocked";
+  return block.status === "mixed" ? "skipped" : "failed";
 }
 
 function issueRepeatSuffix(count: number, locale: Locale): string {
@@ -482,7 +493,7 @@ function buildToolRow(tool: ToolEvent, block: ExecutionBlockModel, locale: Local
     const summary = buildToolStepSummary(tool, locale);
     const state = getToolState(tool, block);
     const compactToolIssue = compactIssueDetail(tool.error || tool.result || "");
-    const issue = state === "blocked" || state === "skipped"
+    const issue = state === "failed" || state === "blocked" || state === "skipped"
       ? block.issueSummaries.find(
           (item) => item.label === toolUserActionLabel(tool.tool) && item.detail.toLowerCase() === compactToolIssue.toLowerCase(),
         ) ?? block.issueSummaries.find((item) => item.label === toolUserActionLabel(tool.tool)) ?? block.issueSummaries[0]
@@ -497,7 +508,7 @@ function buildToolRow(tool: ToolEvent, block: ExecutionBlockModel, locale: Local
       const row: TimelineRow = {
         key: `tool:${tool.id}`,
         label: toolRunningActionLabel(tool.tool, locale, summary.skillName),
-        detail: state === "blocked" || state === "skipped" ? (issueDetail ?? fallbackError) : undefined,
+        detail: state === "failed" || state === "blocked" || state === "skipped" ? (issueDetail ?? fallbackError) : undefined,
         state,
         timestamp: tool.timestamp,
         durationMs: tool.elapsed_ms,
@@ -529,8 +540,10 @@ function buildToolRow(tool: ToolEvent, block: ExecutionBlockModel, locale: Local
       ? issueDetail ?? translateMessage(locale, "execution.tool.skippedSource")
       : state === "blocked"
         ? translateMessage(locale, "execution.tool.blocked", { label: toolUserActionLabel(tool.tool, locale) })
-        : userFacingLabel;
-    const detail = state === "blocked"
+        : state === "failed"
+          ? translateMessage(locale, "execution.tool.failed", { label: toolUserActionLabel(tool.tool, locale) })
+          : userFacingLabel;
+    const detail = state === "failed" || state === "blocked"
       ? issueDetail ?? localizedIssueDetail(compactIssueDetail(tool.error || tool.result || ""), locale)
       : undefined;
 
@@ -541,9 +554,9 @@ function buildToolRow(tool: ToolEvent, block: ExecutionBlockModel, locale: Local
       state,
       timestamp: tool.timestamp,
       durationMs: tool.elapsed_ms,
-      url: state === "blocked" || summary.isSkillActivation ? null : summary.url,
-      hostname: state === "blocked" || summary.isSkillActivation ? null : summary.hostname,
-      showHostnameChip: state === "blocked" || summary.isSkillActivation ? false : summary.showHostnameChip,
+      url: state === "failed" || state === "blocked" || summary.isSkillActivation ? null : summary.url,
+      hostname: state === "failed" || state === "blocked" || summary.isSkillActivation ? null : summary.hostname,
+      showHostnameChip: state === "failed" || state === "blocked" || summary.isSkillActivation ? false : summary.showHostnameChip,
       isSkillActivation: summary.isSkillActivation,
       skillSuffixName: null,
       kind: summary.kind,
@@ -641,7 +654,7 @@ function collapseRepeatedRows(rows: TimelineRow[]): TimelineRow[] {
       !row.isGroup
       && !row.activityGroup
       && !row.isSkillActivation
-      && (row.state === "blocked" || row.state === "skipped" || row.state === "interrupted"),
+      && (row.state === "failed" || row.state === "blocked" || row.state === "skipped" || row.state === "interrupted"),
     );
     if (isIssueLeaf) {
       const signature = `${row.depth ?? 0}:${row.state}:${row.label}:${row.detail ?? ""}`;
@@ -669,7 +682,7 @@ function collapseRepeatedRows(rows: TimelineRow[]): TimelineRow[] {
     const repeatedIssue = sameLeaf
       && Boolean(prev?.detail) && prev?.detail === row.detail
       && prev?.state === row.state
-      && (row.state === "blocked" || row.state === "skipped" || row.state === "interrupted");
+      && (row.state === "failed" || row.state === "blocked" || row.state === "skipped" || row.state === "interrupted");
     if (
       prev
       && (repeatedSuccess || repeatedIssue)
@@ -839,7 +852,11 @@ function planSpineRows(rows: TimelineRow[], block: ExecutionBlockModel, locale: 
     const task = taskByTaskId.get(phase.taskId);
     const children = byPhase.get(index) ?? [];
     const state: RowState = task?.status === "failed"
-      ? "blocked"
+      ? task.rawStatus === "cancelled" || task.userStatus === "cancelled"
+        ? "cancelled"
+        : task.rawStatus === "blocked" || task.userStatus === "blocked"
+          ? "blocked"
+          : "failed"
       : task?.status === "completed"
         ? "done"
         : task?.status === "running" || children.some((row) => row.state === "running")
@@ -882,6 +899,7 @@ function stateTintClass(state: RowState): string {
   // it. Color is reserved for rows that need the operator's eye: running
   // (activity), blocked/interrupted (warning). See docs/DESIGN.md.
   if (state === "done") return "text-ink/35";
+  if (state === "failed") return "text-danger";
   if (state === "blocked" || state === "interrupted") return "text-warning";
   if (state === "skipped" || state === "cancelled") return "text-warning/80";
   if (state === "running") return "work-active-ink";
@@ -898,35 +916,19 @@ function planProgress(block: ExecutionBlockModel): { done: number; total: number
 }
 
 /**
- * Card-level "Verifying" state (presentation matrix): while a verification
- * step runs, the card must not read as done — the header names the phase.
- */
-function planVerifying(block: ExecutionBlockModel): boolean {
-  return block.tasks.some((task) => task.status === "running" && task.userStatus === "verifying");
-}
-
-/**
  * The plan card (operator decisions 2026-07-19): frameless AND headerless —
  * no border, no background shift, no progress bar, and no in-card title/
  * fraction row. A terminal plan is a to-do list the assistant has crossed
  * off: the row text carries the state (struck-through done, quiet pending),
  * and the surrounding turn fold already labels the section. Keeping a
  * title + fraction + bar made it a mini-dashboard embedded in prose.
- * The "Verifying" chip is the one exception — while a verification step
- * runs the card must not read as settled. (docs/DESIGN.md "Execution
- * Process Display".)
  */
-function PlanCardShell({ locale, verifying = false, children }: { locale: Locale; verifying?: boolean; children: ReactNode }) {
+function PlanCardShell({ children }: { children: ReactNode }) {
   return (
     <div
       data-testid="execution-plan-card"
       className="px-3.5 pb-2.5 pt-2"
     >
-      {verifying && (
-        <div data-testid="execution-plan-verifying" className="mb-1.5 text-[12px] text-activity/70">
-          {translateMessage(locale, "execution.plan.verifying")}
-        </div>
-      )}
       {children}
     </div>
   );
@@ -1012,15 +1014,13 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
   // turn's process lives here, plans are not special) minus plan chrome.
   const progress = planProgress(block);
   const pct = progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null;
-  const verifying = planVerifying(block);
-  const visualState = verifying ? "verifying" : "running";
   const title = liveLabel(block, locale);
-  const statusLabel = translateMessage(locale, verifying ? "execution.plan.verifying" : "execution.capsule.working");
+  const statusLabel = translateMessage(locale, "execution.capsule.working");
   return (
     <div data-testid={progress ? "execution-live-plan" : "execution-live-work"} className="w-full max-w-[640px] py-1">
       <div
         data-testid="execution-plan-card"
-        data-state={visualState}
+        data-state="running"
         className="work-capsule"
       >
         <button
@@ -1033,7 +1033,6 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
               <span className="flex w-full items-center gap-2.5 px-4 pb-1.5 pt-3.5">
                 <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--work-state)" }} strokeWidth={2.1} />
                 <span
-                  data-testid={verifying ? "execution-plan-verifying" : undefined}
                   className="work-title-shimmer min-w-0 flex-1 truncate text-[13.5px] font-semibold"
                 >
                   {title}
@@ -1081,6 +1080,7 @@ function GroupStateIcon({ state }: { state: RowState }) {
   const className = cn("h-[15px] w-[15px] shrink-0", stateTintClass(state));
   if (state === "done") return <Check className={className} strokeWidth={2} aria-hidden="true" />;
   if (state === "running") return <Loader2 className={cn(className, "animate-spin")} strokeWidth={2.2} aria-hidden="true" />;
+  if (state === "failed") return <XCircle data-testid="execution-failed-icon" className={className} strokeWidth={2} aria-hidden="true" />;
   if (state === "blocked" || state === "interrupted") return <AlertTriangle data-testid="execution-warning-icon" className={className} strokeWidth={2} aria-hidden="true" />;
   if (state === "skipped" || state === "cancelled") return <CircleSlash className={className} strokeWidth={2} aria-hidden="true" />;
   return <Circle className={cn(className, "opacity-70")} strokeWidth={2} aria-hidden="true" />;
@@ -1100,11 +1100,13 @@ function LeafKindIcon({ row }: { row: TimelineRow }) {
   const Icon = row.kind ? LEAF_KIND_ICONS[row.kind] : FileText;
   const stateClass = row.state === "running"
     ? "work-active-ink"
-    : row.state === "blocked" || row.state === "interrupted"
-      ? "text-warning"
-      : row.state === "skipped" || row.state === "cancelled"
-        ? "text-warning/75"
-        : "text-ink/30";
+    : row.state === "failed"
+      ? "text-danger"
+      : row.state === "blocked" || row.state === "interrupted"
+        ? "text-warning"
+        : row.state === "skipped" || row.state === "cancelled"
+          ? "text-warning/75"
+          : "text-ink/30";
   return <Icon className={cn("h-3.5 w-3.5 shrink-0", stateClass, row.state === "running" && "pulse-dot")} strokeWidth={1.9} aria-hidden="true" />;
 }
 
@@ -1115,6 +1117,8 @@ function nodeStateToRowState(state: TaskNodeState, interrupted: boolean): RowSta
     case "succeeded":
       return "done";
     case "failed":
+      return "failed";
+    case "blocked":
       return "blocked";
     case "cancelled":
       return "cancelled";
@@ -1568,7 +1572,7 @@ export function ExecutionBlock({ block, interrupted = false, embedded = false, o
             // Plan turns keep the two-level disclosure in the fold too: phase
             // spine first, tool rows behind the details toggle.
             return (
-              <PlanCardShell locale={locale} verifying={planVerifying(block)}>
+              <PlanCardShell>
                 <div data-testid="execution-timeline" className="py-0.5">
                   <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
                 </div>
@@ -1620,7 +1624,7 @@ export function ExecutionBlock({ block, interrupted = false, embedded = false, o
         return (
           <div className="mt-2.5 duration-180ms motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1">
             {progress ? (
-              <PlanCardShell locale={locale} verifying={planVerifying(block)}>
+              <PlanCardShell>
                 <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
               </PlanCardShell>
             ) : (

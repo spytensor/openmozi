@@ -3,12 +3,13 @@ import { PanelLeft } from "lucide-react";
 import type { AppView, ChatMessage, TaskUpdate, TimelineItem, UploadedAttachment, WSInboundMessage } from "@/types";
 import { useAuth } from "@/hooks/useAuth";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { useChat } from "@/hooks/useChat";
+import { applyArtifactPatch, useChat } from "@/hooks/useChat";
 import { useSession } from "@/hooks/useSession";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useRuntimeWorkspace } from "@/hooks/useRuntimeWorkspace";
 import { useApi } from "@/hooks/useApi";
 import ChatView from "@/components/chat/ChatView";
+import type { RunTab } from "@/components/chat/RunInspector";
 import InputBar, { type ComposerDraftRequest, type PendingComposerAttachment } from "@/components/chat/InputBar";
 import { NewChatWelcome } from "@/components/chat/NewChatWelcome";
 import type { FilesAttachToChatOptions, FilesStartChatOptions } from "@/components/files/FilesView";
@@ -31,6 +32,7 @@ const SkillsView = lazy(() => import("@/components/skills/SkillsView"));
 const AgentsView = lazy(() => import("@/components/agents/AgentsView"));
 const FilesView = lazy(() => import("@/components/files/FilesView"));
 const ArtifactPanel = lazy(() => import("@/components/chat/ArtifactPanel"));
+const RunInspector = lazy(() => import("@/components/chat/RunInspector"));
 
 function LazySurfaceFallback() {
   return <div className="min-h-0 flex-1 bg-surface" data-testid="lazy-surface-loading" />;
@@ -121,12 +123,9 @@ function readArtifactPanelWidth(): number {
   return clampArtifactPanelWidth(window.innerWidth * ARTIFACT_PANEL_DEFAULT_RATIO);
 }
 
-function artifactTurnId(artifact: Artifact): string | null {
-  const meta = artifact.data.meta;
-  if (!meta || typeof meta !== "object" || Array.isArray(meta)) return null;
-  const turnId = (meta as { turn_id?: unknown }).turn_id;
-  return typeof turnId === "string" && turnId.trim() ? turnId : null;
-}
+type WorkbenchItem =
+  | { kind: "artifact"; artifact: Artifact }
+  | { kind: "run"; sessionId: string; turnId: string; tab: RunTab };
 
 
 function rootKindFromContext(kind: WorkspaceMessageContext["rootKind"]): RuntimeWorkspaceRoot["kind"] {
@@ -162,7 +161,7 @@ export default function App() {
   const lastWorkspaceViewRef = useRef<AppView>(readStoredView() === "settings" ? "chat" : readStoredView());
   const [activeNav, setActiveNav] = useState<WorkspaceNavKey>(() => navForView(readStoredView()));
   const [settingsInitialCategory, setSettingsInitialCategory] = useState<"general" | "models" | "memory">("general");
-  const [activeArtifact, setActiveArtifact] = useState<Artifact | null>(null);
+  const [workbenchStack, setWorkbenchStack] = useState<WorkbenchItem[]>([]);
   const [artifactPanelWidth, setArtifactPanelWidth] = useState(() => readArtifactPanelWidth());
   const [artifactFullscreen, setArtifactFullscreen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
@@ -178,6 +177,8 @@ export default function App() {
   const scopeTransitionRef = useRef<Promise<void> | null>(null);
   const restoredSessionIdRef = useRef<string | null>(null);
   const liveBoundSessionRef = useRef<string | null>(null);
+  const activeWorkbenchItem = workbenchStack.at(-1) ?? null;
+  const activeArtifact = activeWorkbenchItem?.kind === "artifact" ? activeWorkbenchItem.artifact : null;
 
   // Persist the active view so a refresh stays on Files/Skills/Settings/etc.
   // instead of snapping back to chat. (admin is intentionally not restored.)
@@ -225,8 +226,8 @@ export default function App() {
       const id = window.requestIdleCallback(preload);
       return () => window.cancelIdleCallback(id);
     }
-    const id = window.setTimeout(preload, 250);
-    return () => window.clearTimeout(id);
+    const id = globalThis.setTimeout(preload, 250);
+    return () => globalThis.clearTimeout(id);
   }, [auth.state]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
@@ -315,13 +316,15 @@ export default function App() {
 
   const handleWSMessage = useCallback((msg: WSInboundMessage) => {
     if (msg.type === "session_bound") {
-      chat.adoptResolvedSession(msg.sessionId);
-      liveBoundSessionRef.current = msg.sessionId;
-      void session.adoptSession(msg.sessionId);
+      const bound = msg as Extract<WSInboundMessage, { type: "session_bound" }>;
+      chat.adoptResolvedSession(bound.sessionId);
+      liveBoundSessionRef.current = bound.sessionId;
+      void session.adoptSession(bound.sessionId);
       return;
     }
     if (msg.type === "session_activity") {
-      session.updateSessionActivity(msg.sessionId, msg.status, msg.startedAt);
+      const activity = msg as Extract<WSInboundMessage, { type: "session_activity" }>;
+      session.updateSessionActivity(activity.sessionId, activity.status, activity.startedAt);
       return;
     }
     if (msg.type === "session_list_changed") {
@@ -330,6 +333,14 @@ export default function App() {
     }
     const accepted = chat.handleWSMessage(msg);
     if (!accepted) return;
+    if (msg.type === "artifact_patch") {
+      const patch = (msg as Extract<WSInboundMessage, { type: "artifact_patch" }>).patch;
+      setWorkbenchStack((stack) => stack.map((item) => (
+        item.kind === "artifact" && item.artifact.id === msg.artifactId
+          ? { kind: "artifact", artifact: applyArtifactPatch(item.artifact, patch) }
+          : item
+      )));
+    }
     // A cancelled turn deserves an explicit, correctly attributed acknowledgment.
     // The marker's detail carries the abort reason set by the backend: a stop the
     // user clicked reads differently from a runtime restart. Other reasons (turn
@@ -426,9 +437,9 @@ export default function App() {
     session.fetchTimeline(sessionId)
       .then(({ timeline, turns }) => {
         if (cancelled) return;
+        chat.loadTurns(turns);
         if (timeline.length > 0) {
           chat.loadTimeline(timeline);
-          chat.loadTurns(turns);
           return;
         }
         return session.fetchMessages(sessionId).then((msgs) => {
@@ -479,9 +490,9 @@ export default function App() {
     // Runtime lifecycle and panel visibility are separate concerns. `closed`
     // means generation has terminalized; the finished artifact remains a
     // readable historical product until the user closes this local panel.
-    if (latest !== activeArtifact) {
-      setActiveArtifact(latest);
-    }
+    if (latest !== activeArtifact) setWorkbenchStack((stack) => stack.map((item, index) => (
+      index === stack.length - 1 && item.kind === "artifact" ? { kind: "artifact", artifact: latest } : item
+    )));
   }, [activeArtifact, chat.timeline]);
 
   // Artifacts NEVER auto-open (operator decision 2026-07-18, restoring the
@@ -491,19 +502,35 @@ export default function App() {
 
   useEffect(() => {
     setArtifactFullscreen(false);
-  }, [activeArtifact?.id]);
+  }, [activeWorkbenchItem?.kind, activeArtifact?.id]);
 
   useEffect(() => {
-    setActiveArtifact(null);
+    setWorkbenchStack([]);
     setArtifactFullscreen(false);
   }, [session.activeSessionId]);
 
   const handleOpenArtifact = useCallback((artifact: Artifact) => {
-    setActiveArtifact(artifact);
+    setWorkbenchStack((stack) => [...stack, { kind: "artifact", artifact }]);
   }, []);
 
-  const handleCloseArtifact = useCallback(() => {
-    setActiveArtifact(null);
+  const handleOpenRun = useCallback((turnId: string) => {
+    const sessionId = session.activeSessionId;
+    if (!sessionId) return;
+    setWorkbenchStack([{ kind: "run", sessionId, turnId, tab: "overview" }]);
+  }, [session.activeSessionId]);
+
+  const handleRunTabChange = useCallback((tab: RunTab) => {
+    setWorkbenchStack((stack) => stack.map((item, index) => (
+      index === stack.length - 1 && item.kind === "run" ? { ...item, tab } : item
+    )));
+  }, []);
+
+  const handleWorkbenchBack = useCallback(() => {
+    setWorkbenchStack((stack) => stack.slice(0, -1));
+  }, []);
+
+  const handleCloseWorkbench = useCallback(() => {
+    setWorkbenchStack([]);
   }, []);
 
   useEffect(() => {
@@ -863,7 +890,7 @@ export default function App() {
             data-testid="chat-shell"
             className={artifactResizing ? "flex h-full min-h-0 flex-col" : "flex h-full min-h-0 flex-col transition-[margin-right] duration-200"}
             style={{
-              marginRight: activeArtifact && !artifactFullscreen && artifactDocked ? `${artifactPanelWidth}px` : "0",
+              marginRight: activeWorkbenchItem && !artifactFullscreen && artifactDocked ? `${artifactPanelWidth}px` : "0",
             }}
           >
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -937,6 +964,7 @@ export default function App() {
                       onRegenerate={handleRegenerate}
                       onDeleteMessage={handleDeleteMessage}
                       onOpenArtifact={handleOpenArtifact}
+                      onOpenRun={handleOpenRun}
                       onOpenModelSettings={openModelSettings}
                       onOpenMemory={openMemory}
                       onOpenAgentRun={openAgentRun}
@@ -1015,12 +1043,14 @@ export default function App() {
         /></Suspense>
       )}
 
-      {/* Artifact side panel — the only on-demand right region; opens when the user opens an artifact */}
-      {activeArtifact && (
+      {/* One Workbench owns the right region. Runs and rendered outputs share
+          a navigation stack instead of competing panels or duplicated detail. */}
+      {activeWorkbenchItem?.kind === "artifact" && (
         <Suspense fallback={null}><ArtifactPanel
-          artifact={activeArtifact}
+          artifact={activeWorkbenchItem.artifact}
           onOpenArtifact={handleOpenArtifact}
           onOpenSession={handleSessionSelect}
+          onBack={workbenchStack.length > 1 ? handleWorkbenchBack : undefined}
           width={artifactDocked ? artifactPanelWidth : undefined}
           fullscreen={artifactFullscreen}
           docked={artifactDocked}
@@ -1028,7 +1058,27 @@ export default function App() {
           onResizeStart={handleArtifactResizeStart}
           onResizeEnd={handleArtifactResizeEnd}
           onFullscreenChange={setArtifactFullscreen}
-          onClose={handleCloseArtifact}
+          onClose={handleCloseWorkbench}
+        /></Suspense>
+      )}
+      {activeWorkbenchItem?.kind === "run" && (
+        <Suspense fallback={null}><RunInspector
+          sessionId={activeWorkbenchItem.sessionId}
+          turnId={activeWorkbenchItem.turnId}
+          liveTimeline={chat.timeline}
+          liveTurns={chat.turns}
+          initialTab={activeWorkbenchItem.tab}
+          onTabChange={handleRunTabChange}
+          onOpenArtifact={handleOpenArtifact}
+          onBack={workbenchStack.length > 1 ? handleWorkbenchBack : undefined}
+          width={artifactDocked ? artifactPanelWidth : undefined}
+          fullscreen={artifactFullscreen}
+          docked={artifactDocked}
+          onResize={handleArtifactResize}
+          onResizeStart={handleArtifactResizeStart}
+          onResizeEnd={handleArtifactResizeEnd}
+          onFullscreenChange={setArtifactFullscreen}
+          onClose={handleCloseWorkbench}
         /></Suspense>
       )}
     </div>

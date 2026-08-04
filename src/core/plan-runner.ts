@@ -40,11 +40,13 @@ import {
 import { executeDag } from './dag-executor.js';
 import { emit } from '../progress/event-bus.js';
 import { log as logEvent } from '../store/events.js';
+import { getDb } from '../store/db.js';
 import type { LLMClient } from './llm.js';
 import type { DecomposeTaskInput } from './dag-bridge.js';
 import { getSessionPermissionLevel, getSessionScopeGrants } from '../memory/sessions.js';
 import { startTurnEnvelope, setTurnEnvelopeStatus } from '../memory/turn-envelopes.js';
-import type { TurnOrigin } from './turn-envelope.js';
+import type { RunOutcome, TurnOrigin } from './turn-envelope.js';
+import { countTurnToolFailures } from '../memory/session-timeline.js';
 import { isValidLevel, type PermissionLevel } from '../security/permissions.js';
 import type { ToolContext } from '../tools/types.js';
 import type { ArtifactEvent } from '../artifacts/types.js';
@@ -82,7 +84,7 @@ const activeRuns = new Map<string, {
 
 interface ArtifactDeliveryState {
   pending: Set<Promise<void>>;
-  failures: string[];
+  failures: Array<{ message: string; artifactId?: string }>;
 }
 
 /** Artifact timeline persistence is async because of the websocket layering
@@ -221,7 +223,8 @@ export function buildPlanToolContext(rootTaskId: string, ctx: PlanRunContext): T
             ))
             .catch((err) => {
               const message = err instanceof Error ? err.message : String(err);
-              state.failures.push(message);
+              const artifactId = event.type === 'open' ? event.artifact.id : event.artifactId;
+              state.failures.push({ message, ...(artifactId ? { artifactId } : {}) });
               logger.warn({ rootTaskId, err: message }, 'Failed to broadcast plan artifact event');
             })
             .finally(() => state.pending.delete(delivery));
@@ -328,9 +331,17 @@ function persistedPlanOutcome(rootTaskId: string, tenantId: string): PlanRunOutc
   const root = getById(rootTaskId, tenantId);
   if (!root || !TERMINAL.has(root.status)) return null;
   const persisted = loadTaskResult(rootTaskId);
-  const completionContent = typeof persisted?.metadata?.completion_content === 'string'
+  const trustedCompletion = persisted?.success === true
+    || persisted?.metadata?.completion_content_safe === true;
+  const persistedContent = typeof persisted?.metadata?.completion_content === 'string'
     ? persisted.metadata.completion_content
     : persisted?.output;
+  const planLocale = loadTaskMetadata(rootTaskId)?.plan_locale;
+  const completionContent = trustedCompletion
+    ? persistedContent
+    : typeof planLocale === 'string' && planLocale.startsWith('zh')
+      ? '任务执行中断，未能交付请求结果。'
+      : 'The run stopped before it could deliver the requested result.';
   return {
     rootTaskId,
     success: root.status === 'completed' && persisted?.success === true,
@@ -485,13 +496,68 @@ export function startDetachedPlanRun(rootTaskId: string, ctx: PlanRunContext): b
         rootTaskId,
         err: err instanceof Error ? err.message : String(err),
       }, 'Detached plan run crashed outside runPlan error handling');
+      const failureContent = err instanceof Error ? err.message : String(err);
+      const userSafeFailureContent = ctx.locale?.startsWith('zh')
+        ? '任务执行中断，未能交付请求结果。'
+        : 'The run stopped before it could deliver the requested result.';
+      try {
+        persistTaskResult(rootTaskId, {
+          task_id: rootTaskId,
+          success: false,
+          output: failureContent,
+          tokens_used: 0,
+          elapsed_ms: 0,
+          completed_at: new Date().toISOString(),
+          metadata: {
+            completion_content: userSafeFailureContent,
+            completion_content_safe: true,
+            retryable_failure: false,
+          },
+        });
+      } catch (resultErr) {
+        logger.error({
+          rootTaskId,
+          err: resultErr instanceof Error ? resultErr.message : String(resultErr),
+        }, 'Failed to overwrite detached plan crash result');
+      }
       try {
         updateStatus(rootTaskId, 'failed', ctx.tenantId, { reason: 'detached run crashed' });
       } catch { /* DB unavailable — nothing left to do */ }
+      if (ctx.sessionId) {
+        try {
+          setTurnEnvelopeStatus({
+            tenantId: ctx.tenantId,
+            sessionId: ctx.sessionId,
+            turnId: planBackgroundTurnId(rootTaskId),
+            status: 'failed',
+            outcome: {
+              version: 1,
+              state: 'failed',
+              code: 'runtime_failed',
+              verification: 'incomplete',
+              recoveredAttemptCount: 0,
+              issues: [{
+                id: 'runtime_failed',
+                impact: 'blocking',
+                source: 'runtime',
+                code: 'runtime_failed',
+                action: 'retry',
+              }],
+            },
+          });
+          broadcastPlanTurnEnvelope(ctx, planBackgroundTurnId(rootTaskId));
+          broadcastPlanSessionActivity(ctx);
+        } catch (terminalizeErr) {
+          logger.error({
+            rootTaskId,
+            err: terminalizeErr instanceof Error ? terminalizeErr.message : String(terminalizeErr),
+          }, 'Failed to persist detached plan crash outcome');
+        }
+      }
       return {
         rootTaskId,
         success: false,
-        content: err instanceof Error ? err.message : String(err),
+        content: userSafeFailureContent,
       };
     })
     .finally(() => {
@@ -574,7 +640,7 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
     await Promise.allSettled([...artifactState.pending]);
   }
   if (artifactState?.failures.length && failedMessage === null) {
-    failedMessage = `Artifact persistence failed: ${artifactState.failures[0]}`;
+    failedMessage = `Artifact persistence failed: ${artifactState.failures[0].message}`;
   }
 
   // Re-read child statuses from the DB — the single source of truth.
@@ -583,6 +649,8 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
   const cancelled = finalSteps.filter((s) => s.status === 'cancelled').length;
   const failedOnly = finalSteps.filter((s) => s.status === 'failed').length;
   const blocked = finalSteps.filter((s) => s.status === 'blocked').length;
+  const blockedStepId = finalSteps.find((step) => step.status === 'blocked')?.id;
+  const failedStepId = finalSteps.find((step) => step.status === 'failed')?.id;
   const failed = failedOnly + cancelled;
   const unfinished = finalSteps.length - completed - failed - blocked;
   const rootWasCancelled = getById(rootTaskId, ctx.tenantId)?.status === 'cancelled';
@@ -610,7 +678,6 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
       client: ctx.fallbackClient,
     });
     if (semanticVerification.outcome === 'failed') {
-      failedMessage = `Semantic verification failed: ${semanticVerification.summary}`;
       logger.warn({
         rootTaskId,
         verdict: semanticVerification.verdict,
@@ -619,78 +686,116 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
     }
   }
   const qualityUnverified = semanticVerification?.outcome === 'unverified';
-  const planSucceeded = structurallySucceeded && semanticVerification?.outcome !== 'failed';
-
-  updateStatus(rootTaskId, planCancelled ? 'cancelled' : planSucceeded ? 'completed' : 'failed', ctx.tenantId, {
-    completed_steps: completed,
-    failed_steps: failedOnly,
-    cancelled_steps: cancelled,
-    blocked_steps: blocked,
-    unfinished_steps: unfinished,
-  });
-
-  try {
-    persistTaskResult(rootTaskId, {
-      task_id: rootTaskId,
-      success: planSucceeded,
-      output: output || failedMessage || '(no output)',
-      tokens_used: 0,
-      elapsed_ms: Date.now() - startedAt,
-      completed_at: new Date().toISOString(),
-      metadata: {
-        completed,
-        failed: failedOnly,
-        cancelled,
-        blocked,
-        unfinished,
-        total: finalSteps.length,
-        structurally_succeeded: structurallySucceeded,
-        retryable_failure: retryableFailure,
-        quality_unverified: qualityUnverified,
-        semantic_verification: semanticVerification,
-      },
-    });
-  } catch (err) {
-    logger.warn({
-      rootTaskId,
-      err: err instanceof Error ? err.message : String(err),
-    }, 'Failed to persist plan result');
-  }
-
-  emit({
-    type: planCancelled ? 'task_cancelled' : planSucceeded ? 'background_agent_complete' : 'background_agent_failed',
-    taskId: rootTaskId,
-    taskTitle: getById(rootTaskId, ctx.tenantId)?.title,
-    totalTasks: finalSteps.length,
-    completedTasks: completed,
-    error: failedMessage
-      ?? (failed > 0 ? `${failed} step(s) failed` : blocked > 0 ? `${blocked} step(s) blocked` : undefined),
-    chatId: ctx.chatId,
-    tenantId: ctx.tenantId,
-    sessionId: ctx.sessionId,
-  });
-
-  // Terminalize the background Turn Envelope (Issue #626) before delivery so a
-  // reload sees an honest completed/failed background turn, not a zombie active one.
-  if (ctx.sessionId) {
-    try {
-      setTurnEnvelopeStatus({
-        tenantId: ctx.tenantId,
-        sessionId: ctx.sessionId,
-        turnId: backgroundTurnId,
-        status: planCancelled ? 'cancelled' : planSucceeded ? 'completed' : 'failed',
-      });
-      broadcastPlanTurnEnvelope(ctx, backgroundTurnId);
-      broadcastPlanSessionActivity(ctx);
-    } catch (err) {
-      logger.warn({ rootTaskId, err: err instanceof Error ? err.message : String(err) }, 'Failed to terminalize background turn envelope');
+  const deterministicAcceptanceFailed = (semanticVerification?.blockingFindings?.length ?? 0) > 0;
+  // Probabilistic semantic review is internal QA evidence. Deterministic
+  // acceptance facts (missing persisted output, unreadable artifact, explicit
+  // format mismatch) remain runtime truth and may block success.
+  const planSucceeded = structurallySucceeded && !deterministicAcceptanceFailed;
+  const runOutcome: RunOutcome = (() => {
+    const attemptFailureCount = ctx.sessionId
+      ? countTurnToolFailures(ctx.sessionId, backgroundTurnId, ctx.tenantId)
+      : 0;
+    if (planCancelled) {
+      return {
+        version: 1,
+        state: 'cancelled',
+        code: 'user_cancelled',
+        verification: 'incomplete',
+        recoveredAttemptCount: 0,
+        issues: [],
+      };
     }
+    if (planSucceeded) {
+      return {
+        version: 1,
+        state: 'succeeded',
+        code: 'run_succeeded',
+        verification: semanticVerification?.outcome === 'passed' ? 'passed' : 'not_required',
+        recoveredAttemptCount: attemptFailureCount,
+        issues: [],
+      };
+    }
+    if (deterministicAcceptanceFailed) {
+      return {
+        version: 1,
+        state: 'failed',
+        code: 'deterministic_acceptance_failed',
+        verification: 'failed',
+        recoveredAttemptCount: attemptFailureCount,
+        issues: [{
+          id: 'deterministic_acceptance_failed',
+          impact: 'blocking',
+          source: 'task',
+          code: 'deterministic_acceptance_failed',
+          params: { count: semanticVerification?.blockingFindings?.length ?? 0 },
+        }],
+      };
+    }
+    if (blocked > 0 && failedOnly === 0 && cancelled === 0 && failedMessage === null) {
+      return {
+        version: 1,
+        state: 'blocked',
+        code: 'required_task_blocked',
+        verification: 'incomplete',
+        recoveredAttemptCount: 0,
+        issues: [{
+          id: 'required_task_blocked',
+          impact: 'blocking',
+          source: 'task',
+          ...(blockedStepId ? { sourceId: blockedStepId } : {}),
+          code: 'required_task_blocked',
+          params: { count: blocked },
+          action: 'provide_input',
+        }],
+      };
+    }
+    if (artifactState?.failures.length) {
+      const affectedArtifactIds = artifactState.failures
+        .map((failure) => failure.artifactId)
+        .filter((id): id is string => Boolean(id));
+      return {
+        version: 1,
+        state: 'failed',
+        code: 'artifact_delivery_failed',
+        verification: 'incomplete',
+        recoveredAttemptCount: 0,
+        issues: [{
+          id: 'artifact_delivery_failed',
+          impact: 'blocking',
+          source: 'artifact',
+          code: 'artifact_delivery_failed',
+          ...(affectedArtifactIds.length ? { affectedArtifactIds } : {}),
+          action: 'retry',
+        }],
+      };
+    }
+    return {
+      version: 1,
+      state: 'failed',
+      code: 'required_task_failed',
+      verification: 'incomplete',
+      recoveredAttemptCount: 0,
+      issues: [{
+        id: 'required_task_failed',
+        impact: 'blocking',
+        source: 'task',
+        ...(failedStepId ? { sourceId: failedStepId } : {}),
+        code: 'required_task_failed',
+        params: { failed: failedOnly, blocked, unfinished },
+        action: 'retry',
+      }],
+    };
+  })();
+
+  // Curate the final product before terminalization. Outputs filters working
+  // artifacts, so a success outcome is not durable until this role patch is.
+  if (ctx.sessionId) {
     // Plan steps stamp every document `workspace` (working notes, Issue #746)
     // — but the LAST completed document IS the deliverable the user asked
     // for. Promote it to `primary` so the turn ends with a hero card, not a
     // text wall whose prose claims cards that never rendered (operator
-    // report 2026-07-18). Runs for failed plans too: a delivered brief that
-    // failed verification still exists and must be reachable.
+    // report 2026-07-18). Runs for structurally failed plans too: any real
+    // delivered brief still exists and must remain reachable.
     if (ctx.userId && !planCancelled) {
       try {
         const { demoteDataFilePrimariesOnTurn, findLatestWorkspaceDocumentOnTurn } = await import('../memory/session-timeline.js');
@@ -730,16 +835,12 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
           );
         }
       } catch (err) {
-        logger.warn({ rootTaskId, err: err instanceof Error ? err.message : String(err) }, 'Failed to promote plan deliverable');
+        logger.error({ rootTaskId, err: err instanceof Error ? err.message : String(err) }, 'Failed to promote plan deliverable');
+        throw err;
       }
     }
-    // The semantic verification is internal QA machinery, not a user-facing
-    // step. It never gets its own timeline row (users repeatedly rejected the
-    // "结果质量校验" row as noise, especially when it dumped verifier reasoning
-    // and evidence IDs). Its outcome still lands honestly in the run's terminal
-    // status and the final completion message: a genuine quality failure sets
-    // `failedMessage` above, so the delivered message states it in plain prose
-    // without hiding it.
+    // Semantic verification remains internal QA metadata only. It never gets a
+    // timeline row, terminal user status, issue card, or completion prose.
   }
 
   const completionSummary: PlanCompletionSummary = {
@@ -752,6 +853,7 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
     total: finalSteps.length,
     output,
     failedMessage,
+    deterministicAcceptanceFailed,
     semanticVerification,
   };
   const completionContent = planCancelled
@@ -762,31 +864,76 @@ async function runPlan(rootTaskId: string, ctx: PlanRunContext): Promise<PlanRun
         completionSummary,
         ctx.deliveryMode !== 'caller',
       );
-  try {
-    persistTaskResult(rootTaskId, {
-      task_id: rootTaskId,
-      success: planSucceeded,
-      output: output || failedMessage || '(no output)',
-      tokens_used: 0,
-      elapsed_ms: Date.now() - startedAt,
-      completed_at: new Date().toISOString(),
-      metadata: {
-        completed,
-        failed: failedOnly,
-        cancelled,
-        blocked,
-        unfinished,
-        total: finalSteps.length,
-        structurally_succeeded: structurallySucceeded,
-        retryable_failure: retryableFailure,
-        quality_unverified: qualityUnverified,
-        semantic_verification: semanticVerification,
-        completion_content: completionContent,
-      },
+
+  // The message and any clickable primary output now exist durably. Persist
+  // the matching result and root state before the envelope/progress bus can
+  // announce a terminal result. A failure in any of these writes rejects the
+  // detached run and is terminalized as runtime_failed by its outer guard.
+  persistTaskResult(rootTaskId, {
+    task_id: rootTaskId,
+    success: planSucceeded,
+    output: output || failedMessage || '(no output)',
+    tokens_used: 0,
+    elapsed_ms: Date.now() - startedAt,
+    completed_at: new Date().toISOString(),
+    metadata: {
+      completed,
+      failed: failedOnly,
+      cancelled,
+      blocked,
+      unfinished,
+      total: finalSteps.length,
+      structurally_succeeded: structurallySucceeded,
+      retryable_failure: retryableFailure,
+      quality_unverified: qualityUnverified,
+      deterministic_acceptance_failed: deterministicAcceptanceFailed,
+      semantic_verification: semanticVerification,
+      completion_content: completionContent,
+      completion_content_safe: true,
+    },
+  });
+  const terminalStatus = planCancelled ? 'cancelled' : planSucceeded ? 'completed' : 'failed';
+  getDb().transaction(() => {
+    updateStatus(rootTaskId, terminalStatus, ctx.tenantId, {
+      completed_steps: completed,
+      failed_steps: failedOnly,
+      cancelled_steps: cancelled,
+      blocked_steps: blocked,
+      unfinished_steps: unfinished,
     });
-  } catch (err) {
-    logger.warn({ rootTaskId, err: err instanceof Error ? err.message : String(err) }, 'Failed to persist plan completion content');
+    if (ctx.sessionId) {
+      setTurnEnvelopeStatus({
+        tenantId: ctx.tenantId,
+        sessionId: ctx.sessionId,
+        turnId: backgroundTurnId,
+        status: terminalStatus,
+        outcome: runOutcome,
+      });
+    }
+  })();
+
+  if (ctx.sessionId) {
+    broadcastPlanTurnEnvelope(ctx, backgroundTurnId);
+    broadcastPlanSessionActivity(ctx);
   }
+  emit({
+    type: planCancelled ? 'task_cancelled' : planSucceeded ? 'background_agent_complete' : 'background_agent_failed',
+    taskId: rootTaskId,
+    taskTitle: getById(rootTaskId, ctx.tenantId)?.title,
+    totalTasks: finalSteps.length,
+    completedTasks: completed,
+    error: failedMessage
+      ?? (failed > 0
+        ? `${failed} step(s) failed`
+        : blocked > 0
+          ? `${blocked} step(s) blocked`
+          : deterministicAcceptanceFailed
+            ? 'A required acceptance condition was not met'
+            : undefined),
+    chatId: ctx.chatId,
+    tenantId: ctx.tenantId,
+    sessionId: ctx.sessionId,
+  });
   return { rootTaskId, success: planSucceeded, content: completionContent, retryableFailure };
 }
 
@@ -800,6 +947,7 @@ interface PlanCompletionSummary {
   total: number;
   output: string;
   failedMessage: string | null;
+  deterministicAcceptanceFailed: boolean;
   semanticVerification?: PlanSemanticVerification;
 }
 
@@ -847,7 +995,7 @@ function problemStatusWord(status: string, isZh: boolean): string {
     case 'failed': return isZh ? '失败' : 'failed';
     case 'cancelled': return isZh ? '已取消' : 'cancelled';
     case 'blocked': return isZh ? '被上游阻塞' : 'blocked by an earlier step';
-    default: return isZh ? '未完成' : 'unfinished';
+    default: return isZh ? '未交付' : 'not delivered';
   }
 }
 
@@ -865,17 +1013,9 @@ function buildCompletionFallback(
   locale?: string,
 ): string {
   const isZh = locale === 'zh-CN' || (locale === undefined && hasCjk(goal));
-  if (summary.semanticVerification?.outcome === 'unverified') {
-    const reason = [summary.semanticVerification.summary, summary.semanticVerification.findings[0]]
-      .filter(Boolean)
-      .join(' — ');
-    return isZh
-      ? `交付物已生成，但质量未经校验。原因：${reason}\n\n各步骤详情见任务计划卡片。`
-      : `The deliverable was produced, but its quality was not verified. Reason: ${reason}\n\nStep details are in the plan card.`;
-  }
   const header = summary.planSucceeded
     ? (isZh ? `计划完成:${goal}` : `Plan completed: ${goal}`)
-    : (isZh ? `计划结束(有问题):${goal}` : `Plan finished with problems: ${goal}`);
+    : (isZh ? `未能完整交付:${goal}` : `The requested result was not fully delivered: ${goal}`);
   // Only the steps that went wrong — the plan card carries the full phase list.
   const problemLines = summary.planSucceeded
     ? []
@@ -887,16 +1027,11 @@ function buildCompletionFallback(
     : undefined;
   const tail = lastWithOutput
     ? lastWithOutput.excerpt.slice(0, 600)
-    : (summary.failedMessage ? `${isZh ? '执行错误' : 'Execution error'}: ${summary.failedMessage}` : '');
-  const verification = summary.semanticVerification?.required
-    ? [
-        `${isZh ? '语义校验' : 'Semantic verification'}: ${summary.semanticVerification.verdict}`,
-        summary.semanticVerification.summary,
-        ...summary.semanticVerification.findings.slice(0, 3).map((finding) => `- ${finding}`),
-      ].join('\n')
-    : '';
+    : summary.deterministicAcceptanceFailed
+      ? (isZh ? '请求中的一项必要交付条件未满足。' : 'A required delivery condition was not met.')
+      : '';
   const cardHint = isZh ? '各步骤详情见任务计划卡片。' : 'Step details are in the plan card.';
-  return [header, '', ...problemLines, verification ? '' : null, verification || null, tail ? '' : null, tail || null, '', cardHint]
+  return [header, '', ...problemLines, tail ? '' : null, tail || null, '', cardHint]
     .filter((line): line is string => line !== null)
     .join('\n');
 }
@@ -915,7 +1050,6 @@ async function summarizePlanCompletionWithBrain(
   summary: PlanCompletionSummary,
   stepDetails: StepDetail[],
 ): Promise<string | null> {
-  if (summary.semanticVerification?.outcome === 'unverified') return null;
   // Resolve client via the 'plan_summary' role (fallback chain: plan_summary → summary → brain).
   // ctx.fallbackClient is required — when absent the caller opted out of LLM summaries.
   // When present, try the plan_summary role first (may give a stronger/cheaper model);
@@ -953,9 +1087,7 @@ async function summarizePlanCompletionWithBrain(
           'NEVER print internal file paths (e.g. /data/... or "Persisted at ...") — the user cannot open',
           'them and they read as broken links. Keep it under 250 words.',
           'If steps failed or were cancelled, state that plainly first. No emoji.',
-          'If semantic verification did NOT pass, your FIRST sentence must state that the result',
-          'failed verification and why — do NOT open with success language ("All steps completed",',
-          '"Successfully...") when verification failed; completed steps do not outrank a failed check.',
+          'If a required delivery condition was not met, state only that stable user impact; never mention internal verification.',
           'NEVER state step or tool counts ("3/3 steps", "Steps: N/N") — the plan card already shows',
           'phase progress; describe outcomes, not tallies.',
           'Use concise Markdown without ceremony. Keep one compact paragraph when there is only one point;',
@@ -968,10 +1100,7 @@ async function summarizePlanCompletionWithBrain(
         content: [
           `Goal: ${goal}`,
           `Outcome: ${statsLineFor(summary)}`,
-          summary.failedMessage ? `Runner error: ${summary.failedMessage}` : null,
-          summary.semanticVerification?.required
-            ? `Semantic verification: ${JSON.stringify(summary.semanticVerification)}`
-            : null,
+          summary.deterministicAcceptanceFailed ? 'Delivery condition: a required condition was not met.' : null,
           '',
           'Step results:',
           stepsBlock,
@@ -1038,25 +1167,18 @@ async function deliverPlanCompletion(
     logger.info({ rootTaskId }, 'Plan completion retained for caller-owned delivery');
     return sanitized.content;
   }
-  try {
-    const { deliverAssistantMessage } = await import('../channels/websocket.js');
-    const { delivered } = deliverAssistantMessage({
-      tenantId: ctx.tenantId,
-      chatId: ctx.chatId,
-      sessionId: ctx.sessionId,
-      content: sanitized.content,
-      // Deliver under the plan's own background turn (Issue #626) so the completion
-      // message can never backfill an unrelated foreground turn active right now.
-      turnId: planBackgroundTurnId(rootTaskId),
-      origin: ctx.turnOrigin ?? 'background',
-    });
-    logger.info({ rootTaskId, delivered, sessionId: ctx.sessionId }, 'Plan completion delivered');
-  } catch (err) {
-    logger.error({
-      rootTaskId,
-      err: err instanceof Error ? err.message : String(err),
-    }, 'Failed to deliver plan completion message');
-  }
+  const { deliverAssistantMessage } = await import('../channels/websocket.js');
+  const { delivered } = deliverAssistantMessage({
+    tenantId: ctx.tenantId,
+    chatId: ctx.chatId,
+    sessionId: ctx.sessionId,
+    content: sanitized.content,
+    // Deliver under the plan's own background turn (Issue #626) so the completion
+    // message can never backfill an unrelated foreground turn active right now.
+    turnId: planBackgroundTurnId(rootTaskId),
+    origin: ctx.turnOrigin ?? 'background',
+  });
+  logger.info({ rootTaskId, delivered, sessionId: ctx.sessionId }, 'Plan completion delivered');
   return sanitized.content;
 }
 

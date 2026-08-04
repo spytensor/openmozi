@@ -1,9 +1,9 @@
 # Chat Presentation Contract (Issue #735)
 
-Status: PR 1 of the #735 epic. This document freezes the render contract the
-Working Card (PR 2) and sticky capsule (PR 3) build on. The durable event log
-and the deterministic turn projection (#623/#625/#626/#628) are unchanged; this
-contract only adds typed presentation semantics on top of them.
+Status: normative presentation contract. The durable event log and the
+deterministic turn projection (#623/#625/#626/#628) are unchanged; this
+contract defines how typed presentation semantics map into Chat and the Run
+Workbench.
 
 ## Principles
 
@@ -11,13 +11,17 @@ contract only adds typed presentation semantics on top of them.
    deliverable's role) travels as typed event/data fields, never as formatted
    prose persisted into assistant messages. Prose freezes layout decisions into
    runtime truth; typed data lets every surface render the same source.
-2. **One source per fact.** The inline card, sticky capsule, Inspector, and
-   chat blocks must consume the same projection. No surface re-derives task
+2. **One source per fact.** The chat capsule, Run Workbench, and answer/output
+   rows must consume the same projection. No surface re-derives task
    truth from frontend heuristics (tool counts, visual adjacency, regex over
    prose).
 3. **Legacy is renderable, never rewritten.** Historical sessions keep their
    prose plan messages and role-less artifacts; new typed events are additive
    and capability-gated. No destructive migration.
+4. **Private historical prose is classified at the server boundary.** Known
+   legacy verifier verdicts receive `presentationRole: "internal_qa"` only when
+   durable turn/artifact facts match that old runtime path. Chat consumes the
+   typed marker and never filters user-visible prose by content.
 
 ## Typed events
 
@@ -89,13 +93,13 @@ turn's execution presentation (today's execution block; PR 2's Working Card).
 | Parallel phases | Multiple plan steps `running` concurrently | Card shows one meaningful current action + progress fraction | Never invent per-step progress bars |
 | Serial dependencies | Step pending on `dependsOn` | Pending steps render as pending, not failed | Dependency state from typed phases + task rows |
 | Approval | Turn `awaiting_approval` | Approval card is the explicit waiting surface; card stays visible | Approval blocks stay actionable until resolved |
-| Verifying | Verification steps running (semantic gate, checks) | Card state "Verifying", not "Done" | Verification warnings must not hide behind success |
-| Failure | Turn `failed` / step failed (not cancelled) | Final assistant message reports the failure; the collapsed card uses the neutral process entry | Step-level failure truth remains visible when expanded; cancellation is NOT failure (#624/#626) |
+| Internal verification | Semantic gate or completion checks run | No user-facing state or prose | Private QA metadata cannot override persisted runtime facts |
+| Failure | Turn `failed` / step failed (not cancelled) | Final assistant message reports the concrete delivery impact; the quiet Run details entry remains neutral | Step-level failure truth remains available in the Workbench; cancellation is NOT failure (#624/#626) |
 | Cancellation | User stop; envelope `cancelled` | Successful work keeps its shape; unfinished work marked cancelled | `applyTerminalStatus` discriminates on successful work |
 | Retry | New turn re-runs prompt / step retried | New turn owns new card; prior turn immutable | Regenerate clones prompt to new turn (#626) |
 | Reconnect/reload | Restore from envelopes + timeline | Same render tree as live append (deterministic projection) | `(turnId, seq)` only; no client clocks |
 | Legacy session | Rows without turn identity / prose plans | Frozen renderer; prose plan messages render as messages | No migration, no reinterpretation |
-| Completed with deliverables | Terminal turn + artifacts | Primary artifact leads; supporting group collapsed; card becomes quiet receipt | Role contract above |
+| Completed with deliverables | Terminal turn + artifacts | MOZI answer → primary/inline artifacts → memory receipt → quiet Run details entry | Role contract above |
 
 Rules that hold across every row:
 
@@ -116,21 +120,21 @@ PR, or they are wrong.
 
 | Runtime signal | Where it renders | Live (turn active) | Terminal (turn done) | Default state |
 |---|---|---|---|---|
-| Turn without typed plan — activity | Same collapsed working capsule as plan turns (minus phases/progress bar) once ANY execution activity exists; bare one-line status only before the first observable event | The ONLY live element — click expands the process rows directly below the capsule | Absorbed into the turn fold | Capsule collapsed; fold collapsed (2026-07-18: the working region is not plan-only) |
-| Turn with typed plan | ONE consolidated plan capsule at the turn's tail (stable mount; plan on the foreground turn links to `turn_bg_<planId>` execution) | The ONLY live element — a COLLAPSED capsule (plan title, progress fraction, current action, thin bar); click expands the phase timeline directly below | Plan card inside the turn fold, phase spine first | Capsule collapsed while live; fold collapsed after (2026-07-18 operator decision) |
-| Plan phases | Parent rows inside the expanded plan card | State ring icons (done ✓-ring / running spinner / queued hollow) | Same, frozen | Visible once the capsule/card is expanded |
-| Tool calls (web) | Narrative rows nested under their phase; adjacent same-kind fold to "Searched N sources"/"Browsed N pages" + favicon stack | Rows accumulate behind their OWN phase row — the phase row is the toggle; expanding one phase never expands the others (2026-07-18) | Same | Hidden until that phase is clicked; sources open on demand |
-| Tool calls (local: read/write/run/inspect) | Verb rows (filename target where extractable); identical adjacent rows collapse to ×N | Rows accumulate behind their own phase row (plan turns); visible as rows on plan-less turns | Same | Plan turns: behind the owning phase row. Plan-less turns: visible rows. Raw args only in Technical details |
-| Interim narration (assistant prose mid-turn) | In place, chronological | Visible | Folded into the turn fold | Folded after answer |
-| Raw tool names / params / ms / errors | Technical details appendix — exactly ONE per turn | Not shown | At the fold's tail | Collapsed |
-| Deliverable (primary role) | Hero card in chat + workbench preview | Pre-opened live artifact if streaming | Hero card above the closing prose | Visible |
-| Supporting files | One collapsed group behind the deliverable | — | Same | Collapsed |
-| Survived errors (source unreachable etc.) | One quiet amber line in the narrative | Visible | Kept inside fold | Visible, never hidden |
-| Hard failure / cancel / interrupt / approval | Own surface, never folded | Visible | Visible | Hard-failure process entry stays collapsed and neutral; cancel/interruption retain explicit labels; expanded step rows retain their truth. Approval stays actionable (2026-07-22) |
+| Turn without typed plan — activity | One compact chat capsule plus the right Run Workbench | The capsule is the only live chat element; click opens the Workbench | Quiet `Run details` summary after MOZI's answer | Capsule never expands inline |
+| Turn with typed plan | One consolidated chat capsule linked to the foreground/background logical run | Capsule shows current action, progress and motion; click opens the Workbench | Quiet `Run details` summary after MOZI's answer and outputs | Capsule never expands inline |
+| Plan phases | Workbench **Plan** tab as one DAG/list representation | Running nodes use the active work token and spinner | Frozen terminal state | Visible on Plan tab |
+| Tool calls (web) | Workbench **Trace** tab; sources open on demand | Trace accumulates without creating chat rows | Same, frozen | Trace tab owns chronological work |
+| Tool calls (local: read/write/run/inspect) | Workbench **Trace** tab with user-safe action labels | Same | Same | Raw args remain internal; no chat expansion |
+| Interim narration (assistant prose mid-turn) | MOZI answer track only when it is genuine user-directed prose | Visible | Remains part of the answer | Never repurposed as process UI |
+| Raw tool names / params / ms / errors | Internal logs only | Not shown | Not shown | Never user-facing |
+| Deliverable (primary role) | MOZI answer track + Workbench **Outputs** tab/preview | Appears when persisted | Same | Visible and clickable |
+| Supporting files | Workbench **Outputs** tab | — | Same | Output index owns them |
+| Survived errors (source unreachable etc.) | Internal Trace data only when recovery succeeds | No warning in chat | No failed product status | Attempt failure is not run failure |
+| Hard failure / cancel / interrupt / approval | Typed run truth plus the specific actionable surface | Visible when action is required | MOZI reports the concrete delivery impact; Workbench retains terminal state | Approval remains actionable; no generic verification warning |
 | Interrupted turn re-started under the same turn id | Envelope returns to `active` (ended_at cleared) on any `startTurnEnvelope` re-run of an `interrupted` id — today only the durable plan runner reuses ids; any future id-reusing caller inherits this. `completed`/`failed`/`cancelled` are never resurrected | Live capsule again | — | G批-C, 2026-07-18: envelope sat at `interrupted` while resumed rows kept arriving |
-| Plan verification failure (semantic gate) | Its own failed task row on the background turn — "Result verification" with the finding as row detail (`rawStatus: plan_verification_failed`) | — | Visible inside the plan card | Visible when the card is open; the reason must never be only in completion prose |
-| Plan completion prose | Verification-failed-first is a PROMPT policy (G4), not runtime-verified — the durable truth surface is the verification task row above. Runtime-enforced: a Brain summary the provider cut off (stop_reason length/max_tokens/content_filter, or an incomplete stream) is discarded for the bounded runtime-truth template — half-sentences never ship (G3) | — | — | 2026-07-18: "All five steps completed …" delivered over a failed freshness gate, cut at "**Key findings from completed" |
-| Step counts, tool counts | NEVER user-facing copy (only the plan card's phase done/total) | — | — | — |
+| Plan verification result (semantic gate) | Internal metadata and logs only | — | Never user-facing | It cannot create a failed chat status, issue card, Trace row, or completion warning |
+| Plan completion prose | Grounded in persisted step results and deliverables; never receives verifier verdicts, findings, evidence IDs, gate state, or internal paths. A provider-truncated summary is discarded for the bounded runtime-truth template — half-sentences never ship | — | — | Runtime facts own delivery; private QA remains private |
+| Duration, reasoning passes, tool calls, output counts | Workbench **Overview** only | May update while active | Frozen at terminal state | Never repeated in chat copy |
 
 Anti-flicker invariant: a live surface is keyed to the TURN, not to projection
 blocks — narration splitting a turn into blocks must never unmount/remount the

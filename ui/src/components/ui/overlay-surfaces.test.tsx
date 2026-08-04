@@ -9,11 +9,11 @@ import { Popover, PopoverContent } from "./popover";
 afterEach(cleanup);
 
 describe("overlay surface tokens", () => {
-  it("keeps the approved dark palette separate from the unchanged light palette", () => {
+  it("keeps the approved surface ladder complete in both themes", () => {
     const css = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
 
-    expect(css).toMatch(/:root\s*\{[^}]*--app-bg:\s*#181818;[^}]*--main-bg:\s*#181818;[^}]*--surface-base:\s*#181818;[^}]*--surface-elevated:\s*#202020;[^}]*--surface-overlay:\s*#262626;/s);
-    expect(css).toMatch(/\[data-theme="light"\]\s*\{[^}]*--surface-elevated:\s*#ffffff;[^}]*--surface-overlay:\s*#ffffff;/s);
+    expect(css).toMatch(/:root\s*\{[^}]*--app-bg:\s*#000000;[^}]*--main-bg:\s*#000000;[^}]*--surface-base:\s*#000000;[^}]*--surface-elevated:\s*#111111;[^}]*--surface-card:\s*#161616;[^}]*--surface-overlay:\s*#1a1a1a;/s);
+    expect(css).toMatch(/\[data-theme="light"\]\s*\{[^}]*--surface-elevated:\s*#ffffff;[^}]*--surface-card:\s*#ffffff;[^}]*--surface-overlay:\s*#ffffff;/s);
   });
 
   it("keeps action, activity, link, code, focus, and selection on independent tokens", () => {

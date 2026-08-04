@@ -61,7 +61,7 @@ function inboundReasoning(value: unknown): ChatReasoning | null | undefined {
   return {
     provider: reasoning.provider,
     ...(typeof reasoning.summary === "string" ? { summary: reasoning.summary } : {}),
-    ...(typeof reasoning.raw === "string" ? { raw: reasoning.raw } : {}),
+    ...(reasoning.hasPrivateReasoning === true ? { hasPrivateReasoning: true } : {}),
     streaming: reasoning.streaming === true,
     startedAt: reasoning.startedAt,
     ...(typeof reasoning.completedAt === "number" ? { completedAt: reasoning.completedAt } : {}),
@@ -70,7 +70,7 @@ function inboundReasoning(value: unknown): ChatReasoning | null | undefined {
 }
 
 function hasReasoningContent(reasoning: ChatReasoning | null | undefined): boolean {
-  return Boolean(reasoning && ((reasoning.summary ?? "").trim() || (reasoning.raw ?? "").trim()));
+  return Boolean(reasoning && ((reasoning.summary ?? "").trim() || reasoning.hasPrivateReasoning));
 }
 
 function normalizeTaskStatus(status: unknown): TaskUpdate["status"] {
@@ -184,7 +184,7 @@ function upsertTaskUpdate(prev: TimelineItem[], task: TaskUpdate): TimelineItem[
   return [...prev, { type: "task_update", timestamp: task.timestamp, data: task }];
 }
 
-function applyArtifactPatch(existing: Artifact, patch: Record<string, unknown>): Artifact {
+export function applyArtifactPatch(existing: Artifact, patch: Record<string, unknown>): Artifact {
   const knownKeys = new Set(["plugin_id", "title", "status", "fallback_text", "data", "updated_at"]);
   const dataPatch = {
     ...(

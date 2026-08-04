@@ -110,7 +110,8 @@ export interface WsUploadedAttachment {
 export interface StreamReasoningPayload {
   provider: string;
   summary?: string;
-  raw?: string;
+  /** Safe activity metadata only; private provider reasoning never crosses this boundary. */
+  hasPrivateReasoning?: boolean;
   streaming: boolean;
   startedAt: number;
   completedAt?: number;
@@ -192,6 +193,8 @@ export type WsOutgoingMessage =
         | 'working'
         | 'verifying'
         | 'done'
+        | 'failed'
+        | 'cancelled'
         | 'blocked';
       title: string;
       detail?: string;
@@ -1194,8 +1197,12 @@ function mapWorkerStatus(status: string | undefined, heartbeat?: boolean): {
     case 'completed':
       return { status: 'completed', userStatus: 'done', title: 'Task done' };
     case 'failed':
+      return { status: 'failed', userStatus: 'failed', title: 'Task failed' };
     case 'timed_out':
+      return { status: 'failed', userStatus: 'failed', title: 'Task timed out' };
     case 'cancelled':
+      return { status: 'failed', userStatus: 'cancelled', title: 'Task cancelled' };
+    case 'blocked':
       return { status: 'failed', userStatus: 'blocked', title: 'Task blocked' };
     default:
       return { status: 'running', userStatus: 'working', title: 'Working on task' };
@@ -1275,9 +1282,9 @@ export function buildTurnStateTaskProgressMessages(
     case 'DONE':
       return [makeMessage('responding', 'completed', 'responding', 'Turn complete')];
     case 'FAILED':
-      return [makeMessage('failed', 'failed', 'blocked', 'Request needs attention', event.detail)];
+      return [makeMessage('failed', 'failed', 'failed', 'Request failed', event.detail)];
     case 'CANCELLED':
-      return [makeMessage('failed', 'failed', 'blocked', 'Request cancelled', event.detail)];
+      return [makeMessage('failed', 'failed', 'cancelled', 'Request cancelled', event.detail)];
     default:
       return [];
   }
@@ -2069,14 +2076,33 @@ function deliverStreamEvent(
   tenantId = 'default',
   reasoning?: StreamReasoningPayload | null,
 ): void {
+  const rawReasoning = reasoning as (StreamReasoningPayload & { raw?: unknown }) | null | undefined;
+  const publicReasoning = rawReasoning == null ? rawReasoning : {
+    provider: rawReasoning.provider,
+    ...(typeof rawReasoning.summary === 'string' && rawReasoning.summary.trim()
+      ? { summary: rawReasoning.summary }
+      : {}),
+    ...(
+      rawReasoning.hasPrivateReasoning === true
+      || (typeof rawReasoning.raw === 'string' && rawReasoning.raw.trim().length > 0)
+        ? { hasPrivateReasoning: true }
+        : {}
+    ),
+    streaming: rawReasoning.streaming,
+    startedAt: rawReasoning.startedAt,
+    ...(rawReasoning.completedAt != null ? { completedAt: rawReasoning.completedAt } : {}),
+    ...(rawReasoning.durationMs != null ? { durationMs: rawReasoning.durationMs } : {}),
+  } satisfies StreamReasoningPayload;
   const turnId = resolveActiveTurnId(undefined, targetUserId, sessionId, tenantId);
   const msg: Extract<WsOutgoingMessage, { type: 'stream_start' | 'stream_chunk' | 'stream_end' }> = type === 'stream_start'
     ? { type, requestId, ...(sessionId ? { sessionId } : {}), ...(turnId ? { turnId } : {}) }
-    : { type: type as 'stream_chunk' | 'stream_end', requestId, content: content ?? '', ...(reasoning !== undefined ? { reasoning } : {}), ...(sessionId ? { sessionId } : {}), ...(turnId ? { turnId } : {}) };
+    : { type: type as 'stream_chunk' | 'stream_end', requestId, content: content ?? '', ...(publicReasoning !== undefined ? { reasoning: publicReasoning } : {}), ...(sessionId ? { sessionId } : {}), ...(turnId ? { turnId } : {}) };
   if (sessionId && targetUserId) {
     const timestamp = Date.now();
     const eventKey = `stream:${requestId}`;
-    const hasReasoning = Boolean(reasoning && ((reasoning.summary ?? '').trim() || (reasoning.raw ?? '').trim()));
+    const hasReasoning = Boolean(publicReasoning && (
+      (publicReasoning.summary ?? '').trim() || publicReasoning.hasPrivateReasoning
+    ));
     if (type === 'stream_end' && (content ?? '').trim().length === 0 && !hasReasoning) {
       deleteTimelineItem(sessionId, eventKey, tenantId);
     } else {
@@ -2096,7 +2122,7 @@ function deliverStreamEvent(
           timestamp,
           streaming: type !== 'stream_end',
           requestId,
-          ...(reasoning !== undefined ? { reasoning } : {}),
+          ...(publicReasoning !== undefined ? { reasoning: publicReasoning } : {}),
           ...(turnId ? { turnId } : {}),
         },
         mergeDataOnUpdate: true,
@@ -2122,7 +2148,13 @@ function artifactTimelinePersistKey(tenantId: string, sessionId: string, artifac
 }
 
 function isTerminalArtifactPatch(patch: ArtifactPatch): boolean {
-  return patch.status === 'completed' || patch.status === 'failed' || patch.status === 'closed';
+  return patch.status === 'completed'
+    || patch.status === 'failed'
+    || patch.status === 'closed'
+    // Product-role changes decide whether an output is reachable in chat and
+    // Run Outputs. They are completion-critical and must not sit behind the
+    // trailing throttle after the run has been terminalized.
+    || typeof patch.data?.role === 'string';
 }
 
 function mergeArtifactPatches(previous: ArtifactPatch | undefined, next: ArtifactPatch): ArtifactPatch {
@@ -2569,7 +2601,20 @@ export function deliverAssistantMessage(input: {
       // envelope start and persistence must restore as interrupted, never as a
       // fake completed background turn with no result.
       if (!callerManagesTurn) {
-        setTurnEnvelopeStatus({ tenantId: input.tenantId, sessionId: input.sessionId, turnId, status: 'completed' });
+        setTurnEnvelopeStatus({
+          tenantId: input.tenantId,
+          sessionId: input.sessionId,
+          turnId,
+          status: 'completed',
+          outcome: {
+            version: 1,
+            state: 'succeeded',
+            code: 'run_succeeded',
+            verification: 'not_required',
+            recoveredAttemptCount: 0,
+            issues: [],
+          },
+        });
       }
       // Announce once every durable write above has landed (Issue #714). Two
       // distinct rows reach live clients only through here: the locale this
@@ -2593,6 +2638,10 @@ export function deliverAssistantMessage(input: {
       sessionId: input.sessionId,
       err: err instanceof Error ? err.message : String(err),
     }, 'Failed to persist out-of-turn assistant message');
+    // Persistence is the delivery boundary. Broadcasting after this failure
+    // would create a completion message that vanishes on refresh while the
+    // caller records a successful run.
+    throw err;
   }
 
   const payload = JSON.stringify({
