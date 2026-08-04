@@ -885,15 +885,44 @@ describe('memory/session-timeline — conversation projection (fourth-recurrence
     expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(30);
   });
 
-  it('admits memory_update rows and keeps unattributed legacy tool rows in the window', () => {
+  it('admits memory_update rows and serves turn-less legacy tool rows via the augmentation, never the window', () => {
     message('q', 100);
     save({ eventKey: 'mem:1', timestamp: 101, type: 'memory_update', data: { id: 'mem-1', summary: 'remembered', timestamp: 101 } });
-    // Pre-#627 rows without a turn_id cannot be augmented per turn — they stay.
+    // Pre-#627 rows without a turn_id ride along outside the cursor budget.
     save({ eventKey: 'orphan-tool', timestamp: 102 });
 
     const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
     expect(page.timeline.filter((item) => item.type === 'memory_update')).toHaveLength(1);
     expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(1);
+    // Chronological page contract holds even with augmented rows merged in.
+    const stamps = page.timeline.map((item) => item.timestamp);
+    expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
+  });
+
+  it('a turn-less legacy tool flood cannot evict messages either (review P1)', () => {
+    for (let index = 0; index < 10; index++) message(`nm:${index}`, 100 + index);
+    for (let index = 0; index < 150; index++) {
+      save({ eventKey: `orphan:${index}`, timestamp: 5000 + index });
+    }
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
+    expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(10);
+    // The orphan rows arrive as augmentation, not window occupants.
+    expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(150);
+  });
+
+  it('caps the legacy augmentation so an unbounded legacy turn cannot balloon the payload (review P2)', () => {
+    message('cap-q', 100, 'turn_hugelegacy');
+    for (let index = 0; index < 600; index++) {
+      save({ turnId: 'turn_hugelegacy', eventKey: `big:${index}`, timestamp: 1000 + index });
+    }
+
+    const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
+    expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(1);
+    const tools = page.timeline.filter((item) => item.type === 'tool_event');
+    expect(tools).toHaveLength(500);
+    // The cap keeps the MOST RECENT legacy rows.
+    expect(tools.at(-1)?.timestamp).toBe(1599);
   });
 
   it('cursor pages walk the conversation stream without duplicates or stalls, including cursors minted by the full projection', () => {

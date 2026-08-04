@@ -656,15 +656,12 @@ export function getSessionTimelinePage(
   const typePlaceholders = CONVERSATION_ITEM_TYPES.map(() => '?').join(', ');
   // Projection filter runs in SQL before ORDER BY/LIMIT on every page, so the
   // (timestamp_ms, id) keyset cursor semantics are identical in both
-  // projections and previously issued mixed-stream cursors stay valid.
-  // tool_event rows with turn_id IS NULL (pre-#627 writes that cannot be
-  // attributed to any turn) stay in the window: they cannot be backfilled per
-  // turn and are a finite historical residue.
+  // projections and previously issued mixed-stream cursors stay valid. NO
+  // tool_event row enters the conversation window — not even turn-less
+  // pre-#627 residue, which would otherwise be a re-eviction channel; legacy
+  // tool rows ride along via the bounded augmentation below.
   const projectionClause = conversationOnly
-    ? `AND (
-        item_type IN (${typePlaceholders})
-        OR (item_type = 'tool_event' AND turn_id IS NULL)
-      )`
+    ? `AND item_type IN (${typePlaceholders})`
     : '';
   const projectionParams = conversationOnly
     ? [...CONVERSATION_ITEM_TYPES]
@@ -733,27 +730,42 @@ export function getSessionTimelinePage(
   }
   // Legacy tool augmentation (conversation projection only): turns WITHOUT a
   // session_turns envelope have no run projection — the chat surface still
-  // builds their execution blocks from tool rows. Serve those rows OUTSIDE the
-  // cursor budget (same pattern as the structural backfill above) so a legacy
-  // tool flood can never evict conversation rows either. Legacy turns are
-  // terminal, so their tool volume is finite; cursor pages may re-serve rows —
-  // the client dedupes by eventId.
+  // builds their execution blocks from tool rows — and turn-less pre-#627
+  // rows cannot be attributed at all. Serve both OUTSIDE the cursor budget
+  // (same pattern as the structural backfill above) so no legacy flood can
+  // evict conversation rows, CAPPED at the most recent rows: an unbounded
+  // legacy turn (thousands of tool results) must not balloon the restore
+  // payload. Beyond-cap rows of envelope-less turns are simply not shown —
+  // they have no run projection to fall back to, and messages always win.
+  // Cursor pages may re-serve augmented rows — the client dedupes by eventId.
+  const LEGACY_TOOL_AUGMENT_CAP = 500;
   let legacyTools: TimelineRow[] = [];
-  if (conversationOnly && windowTurnIds.length > 0) {
-    const turnPlaceholders = windowTurnIds.map(() => '?').join(', ');
-    legacyTools = db.prepare(`
+  if (conversationOnly && (windowTurnIds.length > 0 || selected.length > 0)) {
+    const turnPlaceholders = windowTurnIds.length > 0 ? windowTurnIds.map(() => '?').join(', ') : "''";
+    legacyTools = (db.prepare(`
       SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
       FROM session_timeline_events
       WHERE tenant_id = ? AND session_id = ?
         AND item_type = 'tool_event'
-        AND turn_id IN (${turnPlaceholders})
-        AND turn_id NOT IN (
-          SELECT turn_id FROM session_turns WHERE tenant_id = ? AND session_id = ?
+        AND (
+          turn_id IS NULL
+          OR (
+            turn_id IN (${turnPlaceholders})
+            AND turn_id NOT IN (
+              SELECT turn_id FROM session_turns WHERE tenant_id = ? AND session_id = ?
+            )
+          )
         )
-      ORDER BY timestamp_ms ASC, id ASC
-    `).all(tenantId, sessionId, ...windowTurnIds, tenantId, sessionId) as TimelineRow[];
+      ORDER BY timestamp_ms DESC, id DESC
+      LIMIT ?
+    `).all(tenantId, sessionId, ...windowTurnIds, tenantId, sessionId, LEGACY_TOOL_AUGMENT_CAP) as TimelineRow[]).reverse();
   }
-  const timeline = [...structural, ...legacyTools, ...[...selected].reverse()].flatMap((row) => {
+  // Augmented rows (structural skeletons, legacy tools) can be NEWER than the
+  // oldest selected row — merge and re-sort so the page keeps its
+  // chronological contract for every caller, not just the React loader.
+  const merged = [...structural, ...legacyTools, ...[...selected].reverse()]
+    .sort((a, b) => a.timestamp_ms - b.timestamp_ms || a.id - b.id);
+  const timeline = merged.flatMap((row) => {
     const parsed = classifyInternalQaMessage(
       sanitizeTimelinePayload(row.item_type, parsePayload(row.payload)),
       row,
