@@ -60,6 +60,9 @@ describe("RunInspector", () => {
     expect(screen.getAllByText("Publish").length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole("tab", { name: "Reasoning" }));
+    // Passes are collapsed by default; the summary appears after expanding.
+    expect(screen.queryByText("I compared the source structure before writing.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("run-reasoning-toggle-0"));
     expect(screen.getByText("I compared the source structure before writing.")).toBeInTheDocument();
     expect(screen.queryByText("secret raw reasoning")).not.toBeInTheDocument();
 
@@ -321,7 +324,7 @@ describe("RunInspector", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Reasoning" }));
     expect(screen.getAllByText(/Reasoning pass/)).toHaveLength(2);
-    expect(screen.getByText("This model did not provide a reasoning summary that can be displayed safely.")).toBeInTheDocument();
+    expect(screen.getByText("This provider's reasoning is not marked display-safe, so MOZI keeps it private.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Outputs" }));
     expect(screen.getByText("Buyer's guide")).toBeInTheDocument();

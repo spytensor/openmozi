@@ -50,6 +50,43 @@ describe('core/llm streaming normalization', () => {
     vi.clearAllMocks();
   });
 
+  it('classifies reasoning deltas by the provider display contract', async () => {
+    const makeStream = () => ({
+      fullStream: (async function* () {
+        yield { type: 'reasoning-delta', delta: 'thinking about it' };
+        yield { type: 'text-delta', text: 'answer' };
+      })(),
+      toolCalls: Promise.resolve([]),
+      usage: Promise.resolve({ inputTokens: 5, outputTokens: 3 }),
+      finishReason: Promise.resolve('stop'),
+    });
+
+    // DeepSeek's reasoning_content is an official display surface — chunks
+    // must arrive display-safe so the UI can show the thinking process.
+    vi.mocked(streamText).mockReturnValue(makeStream() as never);
+    const publicClient = createAIAdapter('deepseek', 'deepseek-reasoner', () => ({} as never));
+    const publicChunks: StreamChunk[] = [];
+    for await (const chunk of publicClient.chatStream([{ role: 'user', content: 'hi' }])) {
+      publicChunks.push(chunk);
+    }
+    expect(publicChunks.find(chunk => chunk.type === 'reasoning')).toMatchObject({
+      kind: 'summary',
+      text: 'thinking about it',
+    });
+
+    // Unknown/unmarked providers keep reasoning private.
+    vi.mocked(streamText).mockReturnValue(makeStream() as never);
+    const privateClient = makeClient();
+    const privateChunks: StreamChunk[] = [];
+    for await (const chunk of privateClient.chatStream([{ role: 'user', content: 'hi' }])) {
+      privateChunks.push(chunk);
+    }
+    expect(privateChunks.find(chunk => chunk.type === 'reasoning')).toMatchObject({
+      kind: 'raw',
+      text: 'thinking about it',
+    });
+  });
+
   it('reads text-delta from AI SDK v6 `text` field', async () => {
     vi.mocked(streamText).mockReturnValue({
       fullStream: (async function* () {

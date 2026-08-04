@@ -1,7 +1,7 @@
 import { generateText, streamText, jsonSchema, tool as aiTool, type ModelMessage } from 'ai';
 import pino from 'pino';
 import { normalizeProviderError } from './error-surfacing.js';
-import { getModel as getRegisteredModel, resolveSystemMessagePolicy, type SystemMessagePolicy } from './providers.js';
+import { getModel as getRegisteredModel, getProvider, resolveSystemMessagePolicy, type SystemMessagePolicy } from './providers.js';
 import { calculateCatalogCost, resolveModelPricing } from './model-pricing.js';
 export { calculateCatalogCost } from './model-pricing.js';
 import { extractLegacyToolCallsFromText, hasDsmlToolCallMarkup, stripDsmlToolCallMarkup } from './legacy-tool-parsing.js';
@@ -745,6 +745,10 @@ export function createAIAdapter(
 ): LLMClient {
   // Resolved once so chat() and stream() can never drift apart on layout.
   const systemMessagePolicy = resolveSystemMessagePolicy(providerName);
+  // Providers whose reasoning field is an official display surface stream it
+  // as display-safe 'summary' chunks; everyone else stays private ('raw').
+  const reasoningDisplayKind: 'summary' | 'raw' =
+    getProvider(providerName)?.reasoningDisplay === 'public' ? 'summary' : 'raw';
   return {
     provider: providerName,
 
@@ -905,10 +909,12 @@ export function createAIAdapter(
               yield {
                 type: 'reasoning',
                 text: reasoningDelta,
-                // `reasoning-delta` is not a display-safety guarantee. Keep it
-                // private unless a future provider contract exposes an
-                // explicitly reviewed summary field.
-                kind: 'raw',
+                // Display safety is a per-provider contract: providers whose
+                // reasoning field is an official display surface (DeepSeek
+                // reasoning_content, Anthropic thinking blocks, ...) are
+                // marked reasoningDisplay: 'public' in the catalog; everyone
+                // else stays private.
+                kind: reasoningDisplayKind,
                 provider: providerName,
               };
             }
@@ -1096,7 +1102,7 @@ export function createAIAdapter(
         yield {
           type: 'reasoning',
           text: resolvedReasoningText,
-          kind: 'raw',
+          kind: reasoningDisplayKind,
           provider: providerName,
         };
       }

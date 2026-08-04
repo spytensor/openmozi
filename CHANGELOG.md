@@ -8,6 +8,14 @@ OpenMozi maintains its own version line.
 
 ### Added
 
+- Reasoning from providers whose thinking output is an official display
+  surface (DeepSeek, Anthropic, Qwen, Kimi, GLM, MiniMax, Groq, Gemini,
+  OpenRouter, Ollama, vLLM) is now visible: streamed live into the chat
+  disclosure and browsable per pass in Run details → Reasoning, collapsed by
+  default with click-to-expand. Providers without a display-safe contract stay
+  private, and the fallback notice now says MOZI kept it private instead of
+  blaming the model.
+
 - One-command source install: `./scripts/setup.sh [app|server|--check]` finds
   a compatible Node.js automatically (22 LTS preferred; Homebrew, nvm, fnm,
   mise, volta, asdf), runs the repository-pinned pnpm without `corepack
