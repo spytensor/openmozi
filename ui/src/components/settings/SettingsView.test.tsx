@@ -11,6 +11,8 @@ const putMock = vi.fn();
 const patchMock = vi.fn();
 const delMock = vi.fn();
 let deepseekReasonerAllowed = true;
+let deepseekHasKey = true;
+let deepseekRolesReady = true;
 let claudeInstalled = true;
 
 vi.mock("@/hooks/useApi", () => ({
@@ -39,6 +41,8 @@ describe("SettingsView", () => {
     patchMock.mockReset();
     delMock.mockReset();
     deepseekReasonerAllowed = true;
+    deepseekHasKey = true;
+    deepseekRolesReady = true;
     claudeInstalled = true;
     postMock.mockResolvedValue({ data: { success: true }, error: null });
     putMock.mockResolvedValue({
@@ -62,8 +66,8 @@ describe("SettingsView", () => {
     getMock.mockImplementation((url: string) => {
       if (url === "/api/models/roles") return Promise.resolve({
         data: {
-          brain: { provider: "deepseek", model: "deepseek-chat", ready: true },
-          light: { provider: "deepseek", model: "deepseek-chat", ready: true },
+          brain: { provider: "deepseek", model: "deepseek-chat", ready: deepseekRolesReady },
+          light: { provider: "deepseek", model: "deepseek-chat", ready: deepseekRolesReady },
           step: { provider: "", model: "", ready: true, inherit: true },
           plan_summary: { provider: "", model: "", ready: true, inherit: true },
           embedding: { provider: "auto", model: "", ready: true },
@@ -74,7 +78,7 @@ describe("SettingsView", () => {
         return Promise.resolve({
           data: {
             providers: [
-              { id: "deepseek", name: "DeepSeek", apiType: "openai-compat", defaultModel: "deepseek-chat", hasKey: true, models: [{ id: "deepseek-chat", name: "DeepSeek Chat" }, { id: "deepseek-reasoner", name: "DeepSeek Reasoner", allowed: deepseekReasonerAllowed }] },
+              { id: "deepseek", name: "DeepSeek", apiType: "openai-compat", defaultModel: "deepseek-chat", hasKey: deepseekHasKey, models: [{ id: "deepseek-chat", name: "DeepSeek Chat" }, { id: "deepseek-reasoner", name: "DeepSeek Reasoner", allowed: deepseekReasonerAllowed }] },
               {
                 id: "dashscope",
                 name: "Qwen / Alibaba Cloud",
@@ -350,6 +354,20 @@ describe("SettingsView", () => {
     await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/api/models/roles", {
       brain: { provider: "deepseek", model: "deepseek-reasoner" },
     }));
+  });
+
+  it("shows the model change action as disabled when no provider is selectable", async () => {
+    deepseekHasKey = false;
+    deepseekRolesReady = false;
+    renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
+
+    await screen.findByRole("heading", { name: "Settings" });
+    clickCategory("models");
+    fireEvent.keyDown(screen.getByTestId("settings-role-actions-brain"), { key: "Enter", code: "Enter" });
+    const change = await screen.findByTestId("settings-change-role-brain");
+
+    expect(change).toHaveAttribute("data-disabled");
+    expect(change).toHaveClass("data-[disabled]:pointer-events-none", "data-[disabled]:opacity-50");
   });
 
   it("only enables active-model saving for changes and settles to a saved state", async () => {
