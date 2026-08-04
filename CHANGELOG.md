@@ -8,6 +8,14 @@ OpenMozi maintains its own version line.
 
 ### Added
 
+- One-command source install: `./scripts/setup.sh [app|server|--check]` finds
+  a compatible Node.js automatically (22 LTS preferred; Homebrew, nvm, fnm,
+  mise, volta, asdf), runs the repository-pinned pnpm without `corepack
+  enable`, sudo, or a global pnpm, and shims recursive `pnpm` calls so
+  `desktop:pack:mac` works on machines that have never installed pnpm. The
+  README quick start now uses it; `corepack enable` (broken on Node >= 25 and
+  permission-prone on nodejs.org installs) is no longer part of setup.
+
 - Every HTTP provider can now be pointed at a custom endpoint from the web UI
   (Settings and onboarding): official-vs-custom endpoint selector for relays
   such as LiteLLM, a dedicated Azure OpenAI resource URL and API version form,

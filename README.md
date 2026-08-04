@@ -61,15 +61,20 @@ To build it yourself instead (macOS, Apple Silicon):
 ```bash
 git clone https://github.com/spytensor/openmozi.git
 cd openmozi
-corepack enable
-pnpm install
-pnpm desktop:pack:mac
+./scripts/setup.sh app
 # → desktop/dist/mac-arm64/MOZI.app  (drag into /Applications)
 ```
 
+The setup script handles the toolchain for you: it finds a compatible Node.js
+(22 LTS preferred) from Homebrew, nvm, fnm, mise, volta, or asdf, and runs the
+repository-pinned pnpm without `corepack enable`, without sudo, and without a
+global pnpm install. If no usable Node exists it prints the exact install
+command for your platform. Run `./scripts/setup.sh --check` to see what it
+would use without changing anything.
+
 On first launch, create your local account and add an LLM API key. The app manages its own backend and data — no separate server to run. See [docs/DESKTOP-APP.md](docs/DESKTOP-APP.md) for details.
 
-**Requirements:** Node.js >= 22.12 and < 26. Native dependencies cap support below Node.js 26, and the build toolchain needs 22.12 or newer. Run `corepack enable` to use the repository-pinned pnpm version (or install that exact pnpm version another way). Optional extras: LibreOffice (slide/PDF conversion for previews), Docker (ONLYOFFICE editor-grade office viewing).
+**Requirements:** Node.js >= 22.12 and < 26 — Node 22 LTS recommended (`brew install node@22`, or use `.nvmrc` with nvm/fnm). Node 26+ is too new for our native dependencies, and Node 23 is rejected by dependency engine pins. You do **not** need corepack or a global pnpm: `./scripts/setup.sh` resolves the pinned pnpm on its own. Building manually instead? Use `corepack pnpm install` or `npx -y pnpm@10.29.2 install` — avoid `corepack enable`, which needs sudo on nodejs.org installs and no longer exists on Node >= 25. Optional extras: LibreOffice (slide/PDF conversion for previews), Docker (ONLYOFFICE editor-grade office viewing).
 
 ## Run as a server (optional)
 
