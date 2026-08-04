@@ -215,6 +215,7 @@ export default function SettingsView({
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [newKey, setNewKey] = useState("");
   const [newBaseUrl, setNewBaseUrl] = useState("");
+  const [newApiVersion, setNewApiVersion] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   // The add-key form stays collapsed behind a button. Keeping a password input
@@ -301,9 +302,24 @@ export default function SettingsView({
   const selectedProvider = providerById.get(selectedProviderId) ?? providers[0];
   const selectedProviderRegions = selectedProvider?.regions ?? [];
   const selectedRegionId = selectedProviderRegions.find((region) => region.baseUrl === newBaseUrl)?.id ?? "custom";
+  const selectedProviderApiMode = selectedProvider?.apiMode ?? selectedProvider?.apiType;
+  const selectedProviderIsAzure = selectedProviderApiMode === "azure-openai";
+  const selectedProviderDefaultBaseUrl = selectedProvider?.defaultBaseUrl ?? "";
+  // Providers without regions but with a known default endpoint get a
+  // default/custom selector; Azure has no default and requires a resource URL.
+  const selectedProviderHasEndpointChoice =
+    selectedProviderRegions.length === 0 && !selectedProviderIsAzure
+    && !!selectedProviderDefaultBaseUrl && selectedProviderApiMode !== "cli-pipe";
+  const selectedEndpointMode = newBaseUrl === selectedProviderDefaultBaseUrl ? "default" : "custom";
+  const showEndpointInput =
+    (selectedProviderRegions.length > 0 && selectedRegionId === "custom")
+    || selectedProviderIsAzure
+    || (selectedProviderHasEndpointChoice && selectedEndpointMode === "custom");
+  const endpointRequired = selectedProviderRegions.length > 0 || selectedProviderIsAzure;
   useEffect(() => {
     setNewBaseUrl(selectedProvider?.baseUrl ?? "");
-  }, [selectedProvider?.baseUrl, selectedProvider?.id]);
+    setNewApiVersion(selectedProvider?.apiVersion ?? "");
+  }, [selectedProvider?.apiVersion, selectedProvider?.baseUrl, selectedProvider?.id]);
   const sortedProviders = useMemo(() => {
     return [...providers].sort((a, b) => {
       const aConfigured = keyByProvider.has(a.id) || !!a.hasKey;
@@ -609,16 +625,39 @@ export default function SettingsView({
     const normalized = newKey.trim();
     if (!providerId || !normalized) return;
     const provider = providerById.get(providerId);
-    const normalizedBaseUrl = provider?.regions?.length ? newBaseUrl.trim() : "";
-    if (provider?.regions?.length && !normalizedBaseUrl) {
-      setKeyError(t("settings.provider.endpointRequired"));
-      return;
+    const apiMode = provider?.apiMode ?? provider?.apiType;
+    const isAzure = apiMode === "azure-openai";
+    const regions = provider?.regions ?? [];
+    const defaultBaseUrl = provider?.defaultBaseUrl ?? "";
+    const trimmedBaseUrl = newBaseUrl.trim();
+    let baseUrlPayload: string | undefined;
+    if (regions.length > 0 || isAzure) {
+      if (!trimmedBaseUrl) {
+        setKeyError(t("settings.provider.endpointRequired"));
+        return;
+      }
+      baseUrlPayload = trimmedBaseUrl;
+    } else if (defaultBaseUrl && apiMode !== "cli-pipe") {
+      if (trimmedBaseUrl && trimmedBaseUrl !== defaultBaseUrl) {
+        baseUrlPayload = trimmedBaseUrl;
+      } else if ((provider?.baseUrl ?? defaultBaseUrl) !== defaultBaseUrl) {
+        // A stored override is active but the field was reset — clear it.
+        baseUrlPayload = "";
+      }
+    }
+    let apiVersionPayload: string | undefined;
+    if (isAzure) {
+      const trimmedApiVersion = newApiVersion.trim();
+      const currentApiVersion = provider?.apiVersion ?? "";
+      if (trimmedApiVersion && trimmedApiVersion !== currentApiVersion) apiVersionPayload = trimmedApiVersion;
+      else if (!trimmedApiVersion && currentApiVersion) apiVersionPayload = "";
     }
     setSavingKey(true);
     setKeyError(null);
     const { error: postError } = await post(`/api/keys/${providerId}`, {
       key: normalized,
-      ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+      ...(baseUrlPayload !== undefined ? { baseUrl: baseUrlPayload } : {}),
+      ...(apiVersionPayload !== undefined ? { apiVersion: apiVersionPayload } : {}),
     });
     setSavingKey(false);
     if (postError) {
@@ -630,9 +669,13 @@ export default function SettingsView({
       const rest = prev.filter((entry) => entry.provider !== providerId);
       return [...rest, { provider: providerId, key_hint: hint, updated_at: new Date().toISOString() }];
     });
-    setProviders((prev) => prev.map((candidate) => (candidate.id === providerId
-      ? { ...candidate, hasKey: true, ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}) }
-      : candidate)));
+    setProviders((prev) => prev.map((candidate) => {
+      if (candidate.id !== providerId) return candidate;
+      const next = { ...candidate, hasKey: true };
+      if (baseUrlPayload !== undefined) next.baseUrl = baseUrlPayload || (candidate.defaultBaseUrl ?? "");
+      if (apiVersionPayload) next.apiVersion = apiVersionPayload;
+      return next;
+    }));
     setCheckResult((prev) => {
       const next = new Map(prev);
       next.delete(providerId);
@@ -1010,6 +1053,7 @@ export default function SettingsView({
                     <button
                       onClick={() => {
                         setNewBaseUrl(selectedProvider?.baseUrl ?? "");
+                        setNewApiVersion(selectedProvider?.apiVersion ?? "");
                         setShowAddKey(true);
                       }}
                       className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md border px-3 text-[12.5px] font-medium transition-colors hover:bg-ink/[0.04]"
@@ -1057,15 +1101,48 @@ export default function SettingsView({
                         </select>
                       </label>
                     )}
-                    {selectedProviderRegions.length > 0 && selectedRegionId === "custom" && (
+                    {selectedProviderHasEndpointChoice && (
+                      <label className="min-w-[180px] flex-1">
+                        <span className="mb-1 block text-[11px] text-ink/38">{t("settings.provider.endpoint")}</span>
+                        <select
+                          value={selectedEndpointMode}
+                          onChange={(event) => {
+                            setNewBaseUrl(event.target.value === "default" ? selectedProviderDefaultBaseUrl : "");
+                          }}
+                          data-testid="settings-provider-endpoint-mode"
+                          className="h-9 w-full rounded-md border px-2.5 text-[12.5px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        >
+                          <option value="default">{t("settings.provider.endpointDefault")}</option>
+                          <option value="custom">{t("settings.provider.endpointCustom")}</option>
+                        </select>
+                      </label>
+                    )}
+                    {showEndpointInput && (
                       <label className="min-w-[300px] flex-[2]">
                         <span className="mb-1 block text-[11px] text-ink/38">{t("settings.provider.endpoint")}</span>
                         <input
                           type="url"
                           value={newBaseUrl}
                           onChange={(event) => setNewBaseUrl(event.target.value)}
-                          placeholder={t("settings.provider.endpointPlaceholder")}
+                          placeholder={selectedProviderIsAzure
+                            ? t("settings.provider.azureEndpointPlaceholder")
+                            : t("settings.provider.endpointPlaceholder")}
                           data-testid="settings-provider-endpoint"
+                          className="h-9 w-full rounded-md border px-2.5 font-mono text-[12px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        />
+                      </label>
+                    )}
+                    {selectedProviderIsAzure && (
+                      <label className="min-w-[140px] flex-1">
+                        <span className="mb-1 block text-[11px] text-ink/38">{t("settings.provider.apiVersion")}</span>
+                        <input
+                          type="text"
+                          value={newApiVersion}
+                          onChange={(event) => setNewApiVersion(event.target.value)}
+                          placeholder="2024-10-21"
+                          data-testid="settings-provider-apiversion"
                           className="h-9 w-full rounded-md border px-2.5 font-mono text-[12px] outline-none"
                           style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                         />
@@ -1101,7 +1178,7 @@ export default function SettingsView({
                     </label>
                     <button
                       type="submit"
-                      disabled={!selectedProvider || !newKey.trim() || savingKey || (selectedProviderRegions.length > 0 && !newBaseUrl.trim())}
+                      disabled={!selectedProvider || !newKey.trim() || savingKey || (endpointRequired && !newBaseUrl.trim())}
                       className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-[12.5px] font-medium transition-colors disabled:opacity-50"
                       style={{ background: "var(--action)", color: "var(--action-fg)" }}
                     >
@@ -1114,6 +1191,7 @@ export default function SettingsView({
                         setShowAddKey(false);
                         setNewKey("");
                         setNewBaseUrl(selectedProvider?.baseUrl ?? "");
+                        setNewApiVersion(selectedProvider?.apiVersion ?? "");
                       }}
                       className="inline-flex h-9 shrink-0 items-center justify-center rounded-md px-3 text-[12.5px] transition-colors hover:bg-ink/[0.04]"
                       style={{ color: "var(--text-muted)" }}

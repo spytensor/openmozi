@@ -8,6 +8,14 @@ OpenMozi maintains its own version line.
 
 ### Added
 
+- Every HTTP provider can now be pointed at a custom endpoint from the web UI
+  (Settings and onboarding): official-vs-custom endpoint selector for relays
+  such as LiteLLM, a dedicated Azure OpenAI resource URL and API version form,
+  and blank-to-reset back to the official endpoint. Plain HTTP endpoints are
+  accepted for localhost relays only; everything else requires HTTPS.
+  (Writer: `POST /api/keys/:provider` persists `providers.<id>.baseurl` /
+  `.apiversion`; reader: `resolveBaseUrl`/`resolveApiVersion` in the live
+  model factory path.)
 - Run details now provide dedicated Overview, Plan DAG, Reasoning, Trace, and Outputs views from one shared turn contract.
 
 ### Changed

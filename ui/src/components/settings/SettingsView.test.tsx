@@ -93,7 +93,8 @@ describe("SettingsView", () => {
                 ],
                 models: [{ id: "qwen3.7-plus", name: "Qwen 3.7 Plus" }],
               },
-              { id: "openai", name: "OpenAI", apiType: "openai-responses", defaultModel: "gpt-4.1", hasKey: false, models: [{ id: "gpt-4.1", name: "GPT-4.1" }] },
+              { id: "openai", name: "OpenAI", apiType: "openai-responses", defaultModel: "gpt-4.1", hasKey: false, baseUrl: "https://api.openai.com/v1", defaultBaseUrl: "https://api.openai.com/v1", models: [{ id: "gpt-4.1", name: "GPT-4.1" }] },
+              { id: "azure", name: "Azure OpenAI", apiType: "azure-openai", defaultModel: "gpt-4o", hasKey: false, baseUrl: "", defaultBaseUrl: "", apiVersion: "2024-10-21", models: [{ id: "gpt-4o", name: "GPT-4o deployment" }] },
             ],
             current: { provider: "deepseek", model: "deepseek-chat" },
           },
@@ -335,6 +336,51 @@ describe("SettingsView", () => {
     await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/keys/dashscope", {
       key: "sk-dashscope-test",
       baseUrl: "https://workspace.example.com/compatible-mode/v1",
+    }));
+  });
+
+  it("saves an OpenAI key with a custom relay endpoint via the endpoint selector", async () => {
+    renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
+
+    await screen.findByRole("heading", { name: "Settings" });
+    clickCategory("providers");
+    fireEvent.click(screen.getByRole("button", { name: "Add key" }));
+    fireEvent.change(screen.getByTestId("settings-provider-select"), { target: { value: "openai" } });
+    fireEvent.change(await screen.findByTestId("settings-provider-endpoint-mode"), { target: { value: "custom" } });
+    fireEvent.change(await screen.findByTestId("settings-provider-endpoint"), {
+      target: { value: "https://litellm.example.com/v1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Paste API key…"), { target: { value: "sk-relay-test" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save key" })[0]);
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/keys/openai", {
+      key: "sk-relay-test",
+      baseUrl: "https://litellm.example.com/v1",
+    }));
+  });
+
+  it("requires the Azure resource URL and sends it with the API version", async () => {
+    renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
+
+    await screen.findByRole("heading", { name: "Settings" });
+    clickCategory("providers");
+    fireEvent.click(screen.getByRole("button", { name: "Add key" }));
+    fireEvent.change(screen.getByTestId("settings-provider-select"), { target: { value: "azure" } });
+
+    // Azure has no default endpoint: the URL input is always visible and the
+    // save button stays disabled until it is filled in.
+    const endpointInput = await screen.findByTestId("settings-provider-endpoint");
+    fireEvent.change(screen.getByPlaceholderText("Paste API key…"), { target: { value: "azure-key" } });
+    expect(screen.getAllByRole("button", { name: "Save key" })[0]).toBeDisabled();
+
+    fireEvent.change(endpointInput, { target: { value: "https://myres.openai.azure.com" } });
+    fireEvent.change(screen.getByTestId("settings-provider-apiversion"), { target: { value: "2025-01-01-preview" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Save key" })[0]);
+
+    await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/keys/azure", {
+      key: "azure-key",
+      baseUrl: "https://myres.openai.azure.com",
+      apiVersion: "2025-01-01-preview",
     }));
   });
 

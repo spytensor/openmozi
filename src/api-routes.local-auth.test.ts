@@ -48,6 +48,7 @@ afterEach(async () => {
     app = null;
   }
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   clearModelRegistryEnrichmentCache();
   clearModelDiscoveryCache();
   if (savedOpenAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
@@ -560,6 +561,127 @@ describe('api routes local auth', () => {
     });
     expect(loadConfig(join(tmpDir, 'mozi.json')).providers.dashscope?.baseurl)
       .toBe('https://workspace.example.com/compatible-mode/v1');
+  });
+
+  it('opens custom endpoints for providers without regions and clears them when blank', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('OPENAI_BASE_URL', '');
+    app = await createApp('invite');
+    const admin = await registerUser(app, { email: 'admin@example.com', password: 'AdminPass1' });
+    const headers = { cookie: cookieHeader(admin) };
+
+    // Every HTTP provider now advertises its endpoint metadata; CLI providers do not.
+    const providers = await app.inject({ method: 'GET', url: '/api/providers', headers });
+    expect(providers.statusCode).toBe(200);
+    const openai = providers.json().providers.find((provider: { id: string }) => provider.id === 'openai');
+    expect(openai).toMatchObject({
+      baseUrl: 'https://api.openai.com/v1',
+      defaultBaseUrl: 'https://api.openai.com/v1',
+    });
+    const claudeCli = providers.json().providers.find((provider: { id: string }) => provider.id === 'claude-cli');
+    expect(claudeCli?.baseUrl).toBeUndefined();
+
+    // A LiteLLM-style relay endpoint persists for a provider without regions.
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/keys/openai',
+      headers,
+      payload: { key: 'sk-test-relay', baseUrl: 'https://litellm.example.com/v1/?ignored=1#ignored' },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({ success: true, provider: 'openai', baseUrl: 'https://litellm.example.com/v1' });
+    expect(loadConfig(join(tmpDir, 'mozi.json')).providers.openai?.baseurl).toBe('https://litellm.example.com/v1');
+
+    // Loopback HTTP is allowed for local relays; remote plain HTTP is not.
+    const localhost = await app.inject({
+      method: 'POST',
+      url: '/api/keys/openai',
+      headers,
+      payload: { key: 'sk-test-relay', baseUrl: 'http://localhost:4000/v1' },
+    });
+    expect(localhost.statusCode).toBe(200);
+    const insecure = await app.inject({
+      method: 'POST',
+      url: '/api/keys/openai',
+      headers,
+      payload: { key: 'sk-test-relay', baseUrl: 'http://relay.example.com/v1' },
+    });
+    expect(insecure.statusCode).toBe(400);
+    expect(insecure.json().error).toContain('HTTPS');
+
+    // A blank endpoint reverts to the registry default.
+    const cleared = await app.inject({
+      method: 'POST',
+      url: '/api/keys/openai',
+      headers,
+      payload: { key: 'sk-test-relay', baseUrl: '' },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(loadConfig(join(tmpDir, 'mozi.json')).providers.openai?.baseurl).toBeUndefined();
+
+    // CLI-pipe providers have no HTTP endpoint to configure.
+    const cli = await app.inject({
+      method: 'POST',
+      url: '/api/keys/claude-cli',
+      headers,
+      payload: { key: 'unused', baseUrl: 'https://relay.example.com' },
+    });
+    expect(cli.statusCode).toBe(400);
+    expect(cli.json().error).toContain('configurable endpoint');
+  });
+
+  it('saves the Azure resource URL and API version so Azure becomes selectable as brain', async () => {
+    vi.stubEnv('AZURE_OPENAI_API_KEY', '');
+    vi.stubEnv('AZURE_OPENAI_BASE_URL', '');
+    vi.stubEnv('AZURE_OPENAI_API_VERSION', '');
+    app = await createApp('invite');
+    const admin = await registerUser(app, { email: 'admin@example.com', password: 'AdminPass1' });
+    const headers = { cookie: cookieHeader(admin) };
+
+    // Without a resource URL the brain route refuses Azure.
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/api/brain',
+      headers,
+      payload: { provider: 'azure', model: 'gpt-4o' },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toContain('resource URL');
+
+    const saved = await app.inject({
+      method: 'POST',
+      url: '/api/keys/azure',
+      headers,
+      payload: { key: 'azure-test-key', baseUrl: 'https://myres.openai.azure.com', apiVersion: '2024-10-21' },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toMatchObject({
+      success: true,
+      provider: 'azure',
+      baseUrl: 'https://myres.openai.azure.com',
+      apiVersion: '2024-10-21',
+    });
+    const azureConfig = loadConfig(join(tmpDir, 'mozi.json')).providers.azure;
+    expect(azureConfig?.baseurl).toBe('https://myres.openai.azure.com');
+    expect(azureConfig?.apiversion).toBe('2024-10-21');
+
+    // apiVersion is Azure-only.
+    const rejected = await app.inject({
+      method: 'POST',
+      url: '/api/keys/openai',
+      headers,
+      payload: { key: 'sk-test', apiVersion: '2024-10-21' },
+    });
+    expect(rejected.statusCode).toBe(400);
+
+    // With the endpoint stored, Azure is accepted as the brain provider.
+    const brain = await app.inject({
+      method: 'POST',
+      url: '/api/brain',
+      headers,
+      payload: { provider: 'azure', model: 'gpt-4o' },
+    });
+    expect(brain.statusCode).toBe(200);
   });
 
   it('persists tenant allowed_models through the quota route with catalog validation', async () => {
