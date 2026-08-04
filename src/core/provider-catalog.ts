@@ -129,6 +129,8 @@ interface ProviderDefInput {
   forwardCompat?: Array<{ pattern: RegExp; templateModel: string }>;
   autoDetect?: boolean;
   cliBackend?: CliBackendConfig;
+  /** 'public' when the provider's reasoning field is an official display surface. */
+  reasoningDisplay?: 'public' | 'private';
 }
 
 function model(input: {
@@ -330,6 +332,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'ANTHROPIC_API_KEY',
     baseUrl: 'https://api.anthropic.com',
     apiMode: 'anthropic',
+    reasoningDisplay: 'public',
     defaultModel: 'claude-sonnet-4-20250514',
     placeholder: 'sk-ant-...',
     hint: 'Claude Fable 5, Opus 4, Sonnet 4',
@@ -369,6 +372,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'MINIMAX_API_KEY',
     baseUrl: 'https://api.minimax.io/anthropic/v1',
     apiMode: 'anthropic',
+    reasoningDisplay: 'public',
     defaultModel: 'MiniMax-M3',
     placeholder: 'eyJ...',
     hint: 'MiniMax-M3',
@@ -405,6 +409,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'DEEPSEEK_API_KEY',
     baseUrl: 'https://api.deepseek.com',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     // DeepSeek accepts mid-array system messages over HTTP, but its server
     // template kills prefix-cache reuse past the head once one appears in a
     // tool loop (probed live 2026-07-20: byte-identical requests, cache capped
@@ -454,6 +459,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'DASHSCOPE_API_KEY',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     // DashScope accepts the OpenAI message envelope but requires the system
     // message to stay at messages[0]. Consolidation is therefore part of the
     // provider contract, not a model-specific prompt workaround.
@@ -501,6 +507,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'MOONSHOT_API_KEY',
     baseUrl: 'https://api.moonshot.ai/v1',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     defaultModel: 'kimi-k2.6',
     placeholder: 'sk-...',
     hint: 'Kimi K2.6',
@@ -535,6 +542,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'GEMINI_API_KEY',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     apiMode: 'google-generative-ai',
+    reasoningDisplay: 'public',
     defaultModel: 'gemini-2.5-flash',
     placeholder: 'AIza...',
     hint: 'Gemini 2.5 Flash/Pro, 3.1 Flash-Lite',
@@ -573,6 +581,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'GROQ_API_KEY',
     baseUrl: 'https://api.groq.com/openai/v1',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     defaultModel: 'llama-3.3-70b-versatile',
     placeholder: 'gsk_...',
     hint: 'Llama 3.3 70B',
@@ -608,6 +617,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'OPENROUTER_API_KEY',
     baseUrl: 'https://openrouter.ai/api/v1',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     defaultModel: 'openrouter/auto',
     placeholder: 'sk-or-...',
     hint: 'Multi-provider router',
@@ -716,6 +726,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'ZAI_API_KEY',
     baseUrl: 'https://api.z.ai/api/paas/v4',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     defaultModel: 'glm-5',
     placeholder: 'zai-...',
     hint: 'GLM 5',
@@ -795,6 +806,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'OLLAMA_API_KEY',
     baseUrl: 'http://localhost:11434',
     apiMode: 'ollama-native',
+    reasoningDisplay: 'public',
     defaultModel: 'qwen3:32b',
     hint: 'Local models via Ollama',
     models: [
@@ -811,6 +823,7 @@ export const PROVIDERS: Record<string, ProviderDef> = {
     envKey: 'VLLM_API_KEY',
     baseUrl: 'http://127.0.0.1:8000/v1',
     apiMode: 'openai-compat',
+    reasoningDisplay: 'public',
     defaultModel: 'meta-llama/Llama-3.1-8B-Instruct',
     hint: 'OpenAI-compatible local endpoint',
     models: [

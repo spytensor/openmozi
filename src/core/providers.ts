@@ -178,6 +178,13 @@ export interface ProviderDef {
   autoDetect: boolean;
   /** CLI backend config (only for apiMode === 'cli-pipe'). */
   cliBackend?: CliBackendConfig;
+  /**
+   * Whether this provider's streamed reasoning is an official, display-safe
+   * API surface ('public' — e.g. DeepSeek reasoning_content, Anthropic
+   * thinking blocks) or an internal trace MOZI must keep private ('private',
+   * the default when unset).
+   */
+  reasoningDisplay?: 'public' | 'private';
 }
 
 // ---------------------------------------------------------------------------
