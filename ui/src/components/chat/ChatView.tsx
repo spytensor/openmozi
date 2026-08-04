@@ -1168,7 +1168,11 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
     return terminalRuns;
   }, [logicalTurnIdsByTurn, timeline, turns]);
 
-  if (timeline.length === 0 && sessionState === "IDLE" && terminalRunModels.length === 0) {
+  // liveRunModels must gate the empty state too: with the conversation
+  // projection, a restored ACTIVE tool-only turn has an empty conversation
+  // timeline and IDLE foreground state — the welcome screen must not cover
+  // its live run capsule.
+  if (timeline.length === 0 && sessionState === "IDLE" && terminalRunModels.length === 0 && liveRunModels.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="w-full max-w-[520px]">

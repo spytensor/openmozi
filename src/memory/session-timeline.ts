@@ -619,9 +619,32 @@ function backfillConversationIds(sessionId: string, tenantId: string): void {
   })();
 }
 
+/**
+ * Conversation allowlist for `projection: 'conversation'`. Every type here is
+ * bounded per turn (task/artifact/approval rows upsert by event_key;
+ * memory_update's only writer is the per-turn extraction path). A NEW item
+ * type is excluded from the conversation page BY DEFAULT — add it here only
+ * after confirming its per-turn volume is bounded. This is the third
+ * recurrence of "high-volume process rows evict chat messages from the page
+ * window" (plan skeletons, then hero/approval cards, then messages); the
+ * allowlist is what prevents a fourth.
+ *
+ * Known bounded budget leak, deliberately NOT solved here: runtime-diagnostic
+ * messages (dropped post-window below) and legacy lifecycle task rows
+ * (dropped client-side) still consume page budget. Both are capped per turn.
+ *
+ * `tool_event` is special-cased rather than listed: legacy turns without a
+ * `session_turns` envelope have no run projection, so the chat surface still
+ * builds their execution blocks from tool rows — those stay. Envelope-backed
+ * turns serve tool rows exclusively via getSessionRunTimeline.
+ */
+const CONVERSATION_ITEM_TYPES = [
+  'message', 'plan_started', 'task_update', 'artifact', 'approval_request', 'memory_update',
+] as const;
+
 export function getSessionTimelinePage(
   sessionId: string,
-  options: { limit?: number; tenantId?: string; before?: string } = {},
+  options: { limit?: number; tenantId?: string; before?: string; projection?: 'full' | 'conversation' } = {},
 ): SessionTimelinePage {
   const db = getDb();
   const tenantId = options.tenantId ?? 'default';
@@ -629,14 +652,32 @@ export function getSessionTimelinePage(
   const before = decodeCursor(options.before);
   if (options.before && !before) throw new Error('Invalid timeline cursor');
   backfillConversationIds(sessionId, tenantId);
+  const conversationOnly = options.projection === 'conversation';
+  const typePlaceholders = CONVERSATION_ITEM_TYPES.map(() => '?').join(', ');
+  // Projection filter runs in SQL before ORDER BY/LIMIT on every page, so the
+  // (timestamp_ms, id) keyset cursor semantics are identical in both
+  // projections and previously issued mixed-stream cursors stay valid.
+  // tool_event rows with turn_id IS NULL (pre-#627 writes that cannot be
+  // attributed to any turn) stay in the window: they cannot be backfilled per
+  // turn and are a finite historical residue.
+  const projectionClause = conversationOnly
+    ? `AND (
+        item_type IN (${typePlaceholders})
+        OR (item_type = 'tool_event' AND turn_id IS NULL)
+      )`
+    : '';
+  const projectionParams = conversationOnly
+    ? [...CONVERSATION_ITEM_TYPES]
+    : [];
   const rows = db.prepare(`
     SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
     FROM session_timeline_events
     WHERE tenant_id = ? AND session_id = ?
+      ${projectionClause}
       AND (? IS NULL OR timestamp_ms < ? OR (timestamp_ms = ? AND id < ?))
     ORDER BY timestamp_ms DESC, id DESC
     LIMIT ?
-  `).all(tenantId, sessionId, before?.timestamp ?? null, before?.timestamp ?? null, before?.timestamp ?? null, before?.id ?? null, limit + 1) as TimelineRow[];
+  `).all(tenantId, sessionId, ...projectionParams, before?.timestamp ?? null, before?.timestamp ?? null, before?.timestamp ?? null, before?.id ?? null, limit + 1) as TimelineRow[];
   const hasMore = rows.length > limit;
   const selected = rows.slice(0, limit);
   const oldest = selected.at(-1);
@@ -690,7 +731,29 @@ export function getSessionTimelinePage(
       oldest.id,
     ) as TimelineRow[];
   }
-  const timeline = [...structural, ...[...selected].reverse()].flatMap((row) => {
+  // Legacy tool augmentation (conversation projection only): turns WITHOUT a
+  // session_turns envelope have no run projection — the chat surface still
+  // builds their execution blocks from tool rows. Serve those rows OUTSIDE the
+  // cursor budget (same pattern as the structural backfill above) so a legacy
+  // tool flood can never evict conversation rows either. Legacy turns are
+  // terminal, so their tool volume is finite; cursor pages may re-serve rows —
+  // the client dedupes by eventId.
+  let legacyTools: TimelineRow[] = [];
+  if (conversationOnly && windowTurnIds.length > 0) {
+    const turnPlaceholders = windowTurnIds.map(() => '?').join(', ');
+    legacyTools = db.prepare(`
+      SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
+      FROM session_timeline_events
+      WHERE tenant_id = ? AND session_id = ?
+        AND item_type = 'tool_event'
+        AND turn_id IN (${turnPlaceholders})
+        AND turn_id NOT IN (
+          SELECT turn_id FROM session_turns WHERE tenant_id = ? AND session_id = ?
+        )
+      ORDER BY timestamp_ms ASC, id ASC
+    `).all(tenantId, sessionId, ...windowTurnIds, tenantId, sessionId) as TimelineRow[];
+  }
+  const timeline = [...structural, ...legacyTools, ...[...selected].reverse()].flatMap((row) => {
     const parsed = classifyInternalQaMessage(
       sanitizeTimelinePayload(row.item_type, parsePayload(row.payload)),
       row,

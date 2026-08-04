@@ -323,6 +323,23 @@ describe("ChatView", () => {
     expect(screen.queryByTestId("chat-jump-to-latest")).not.toBeInTheDocument();
   });
 
+  it("keeps the live run capsule instead of the welcome screen when a restored active turn has no conversation rows", () => {
+    // Conversation projection: a restored ACTIVE tool-only turn arrives with an
+    // empty conversation timeline and IDLE foreground state — the empty-state
+    // gate must yield to the live envelope.
+    renderChat([], {
+      sessionState: "IDLE",
+      timelineCapabilities: ["timeline_v1"],
+      turns: [{
+        tenantId: "default", sessionId: "s", chatId: "c", turnId: "turn_bg_only",
+        origin: "background", status: "active", seqHighWater: 1, startedAt: 1,
+      } as import("@/types").TurnEnvelope],
+    });
+
+    expect(screen.queryByText("What are we doing today?")).not.toBeInTheDocument();
+    expect(screen.getByTestId("live-run-summary")).toBeInTheDocument();
+  });
+
   it("shows the quiet empty state suggestions and sends their prompts", () => {
     const onSend = vi.fn();
     const onRegenerate = vi.fn();

@@ -147,8 +147,23 @@ rows included even when they fall before the window (artifact rows keep their
 FIRST timestamp across patches, so hero cards anchor early too — MEDIUM-3), so
 a reloaded page projects the same plan/hero/approval cards as the live path —
 no card may depend on live WS traffic to "self-heal". Each of these types is
-bounded per turn (rows upsert by event_key); only the tool_event flood stays
-paginated. Clients dedupe re-served rows by eventId.
+bounded per turn (rows upsert by event_key). Clients dedupe re-served rows by
+eventId.
+
+Conversation projection (2026-08-04, third recurrence fix): the session
+timeline history page (`GET /api/sessions/:id/timeline`) serves the
+CONVERSATION projection — an allowlist of per-turn-bounded types (`message`,
+`plan_started`, `task_update`, `artifact`, `approval_request`,
+`memory_update`). `tool_event` rows of envelope-backed turns are served
+exclusively by `GET /api/sessions/:id/runs/:turnId` (the Workbench's source)
+and never consume conversation page budget — an active turn's tool flood can
+no longer evict chat history on reload. Legacy turns without a
+`session_turns` envelope keep their tool rows in the conversation page, since
+the chat surface still builds their execution blocks from those rows. A new
+item type is excluded from the conversation page by default and must be
+allowlisted deliberately. Accepted degradation: a restored ACTIVE turn with
+no plan/tasks shows the generic working label until the next live tool frame
+(plan-backed turns keep semantic headlines from plan/task rows).
 
 ### Artifact classes (2026-07-18, PR #746)
 

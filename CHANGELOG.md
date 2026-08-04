@@ -40,6 +40,14 @@ OpenMozi maintains its own version line.
 
 ### Fixed
 
+- Switching away from a session and back no longer wipes the visible chat
+  history while a heavy task runs. The session timeline page now serves a
+  conversation projection (messages, plans, tasks, artifacts, approvals,
+  memory updates); an active turn's tool-event flood is served exclusively by
+  the per-run endpoint and can never evict messages from the page window.
+  Legacy sessions without turn envelopes keep their tool rows, and a restored
+  active tool-only turn keeps its live run capsule instead of the welcome
+  screen.
 - Recovered tool attempts and private quality checks no longer surface as failed product status or verification warnings when a real result was delivered.
 - Mixed legacy and envelope-backed sessions keep each turn's process history under the correct renderer, including envelope-only crash recovery.
 - Verifier evidence budgeting now reserves persisted result and artifact context before optional source excerpts.
