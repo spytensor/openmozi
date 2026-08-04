@@ -907,8 +907,22 @@ describe('memory/session-timeline — conversation projection (fourth-recurrence
 
     const page = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 100, projection: 'conversation' });
     expect(page.timeline.filter((item) => item.type === 'message')).toHaveLength(10);
-    // The orphan rows arrive as augmentation, not window occupants.
+    // The orphan rows arrive as augmentation, not window occupants — and they
+    // fall inside this page's keyset interval, so all 150 ride along.
     expect(page.timeline.filter((item) => item.type === 'tool_event')).toHaveLength(150);
+  });
+
+  it('turn-less rows outside the page keyset interval stay on their own page (review round 2)', () => {
+    // An OLD orphan tool must not teleport onto the newest page; it appears
+    // when pagination reaches its chronological position.
+    save({ eventKey: 'ancient-orphan', timestamp: 10 });
+    for (let index = 0; index < 6; index++) message(`kp:${index}`, 1000 + index);
+
+    const first = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation' });
+    expect(first.timeline.some((item) => item.type === 'tool_event')).toBe(false);
+    expect(first.hasMore).toBe(true);
+    const second = getSessionTimelinePage('conv-session', { tenantId: 't', limit: 5, projection: 'conversation', before: first.nextCursor! });
+    expect(second.timeline.some((item) => item.type === 'tool_event' && item.timestamp === 10)).toBe(true);
   });
 
   it('caps the legacy augmentation so an unbounded legacy turn cannot balloon the payload (review P2)', () => {

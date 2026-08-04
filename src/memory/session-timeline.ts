@@ -740,7 +740,15 @@ export function getSessionTimelinePage(
   // Cursor pages may re-serve augmented rows — the client dedupes by eventId.
   const LEGACY_TOOL_AUGMENT_CAP = 500;
   let legacyTools: TimelineRow[] = [];
-  if (conversationOnly && (windowTurnIds.length > 0 || selected.length > 0)) {
+  if (conversationOnly && selected.length > 0 && oldest) {
+    // Turn-less rows have no run projection AND no turn to key on, so they are
+    // scoped to the current page's keyset interval [oldest, cursor) — they
+    // appear on the page where their chronological position falls, never
+    // teleported onto newer pages. On the LAST page the lower bound opens so
+    // orphans older than every conversation row still surface. Envelope-less
+    // TURN rows key on window membership instead (their skeleton rows anchor
+    // the turn in the window).
+    const orphanLowerBound = hasMore ? oldest : null;
     const turnPlaceholders = windowTurnIds.length > 0 ? windowTurnIds.map(() => '?').join(', ') : "''";
     legacyTools = (db.prepare(`
       SELECT id, conversation_id, item_type, timestamp_ms, payload, turn_id, turn_seq
@@ -748,7 +756,11 @@ export function getSessionTimelinePage(
       WHERE tenant_id = ? AND session_id = ?
         AND item_type = 'tool_event'
         AND (
-          turn_id IS NULL
+          (
+            turn_id IS NULL
+            AND (? IS NULL OR timestamp_ms > ? OR (timestamp_ms = ? AND id >= ?))
+            AND (? IS NULL OR timestamp_ms < ? OR (timestamp_ms = ? AND id < ?))
+          )
           OR (
             turn_id IN (${turnPlaceholders})
             AND turn_id NOT IN (
@@ -758,7 +770,14 @@ export function getSessionTimelinePage(
         )
       ORDER BY timestamp_ms DESC, id DESC
       LIMIT ?
-    `).all(tenantId, sessionId, ...windowTurnIds, tenantId, sessionId, LEGACY_TOOL_AUGMENT_CAP) as TimelineRow[]).reverse();
+    `).all(
+      tenantId, sessionId,
+      orphanLowerBound?.timestamp_ms ?? null, orphanLowerBound?.timestamp_ms ?? null, orphanLowerBound?.timestamp_ms ?? null, orphanLowerBound?.id ?? null,
+      before?.timestamp ?? null, before?.timestamp ?? null, before?.timestamp ?? null, before?.id ?? null,
+      ...windowTurnIds,
+      tenantId, sessionId,
+      LEGACY_TOOL_AUGMENT_CAP,
+    ) as TimelineRow[]).reverse();
   }
   // Augmented rows (structural skeletons, legacy tools) can be NEWER than the
   // oldest selected row — merge and re-sort so the page keeps its
