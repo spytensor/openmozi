@@ -136,7 +136,7 @@ import {
   type ServiceUninstallResult,
 } from '../runtime/service-install.js';
 import { getConfigPath, getMoziHome } from '../paths.js';
-import { getAllProviders, getProvider, getModel, resolveRuntimeModel, resolveApiKey, resolveBaseUrl, isChatRoleEligibleProvider, getChatRoleEligibleProviders, type ProviderDef, type ModelDef } from '../core/providers.js';
+import { getAllProviders, getProvider, getModel, resolveRuntimeModel, resolveApiKey, resolveBaseUrl, resolveApiVersion, isChatRoleEligibleProvider, getChatRoleEligibleProviders, type ProviderDef, type ModelDef } from '../core/providers.js';
 import { clearCache as clearModelRouterCache } from '../core/model-router.js';
 import { enrich, type EnrichedModelMetadata } from '../core/model-registry-enrichment.js';
 import { discoverProviderModels, isSafeCustomModelId, type ModelDiscoveryResult } from '../core/model-discovery.js';
@@ -4308,24 +4308,54 @@ export async function registerApiRoutes(
       return reply.code(400).send({ success: false, error: 'Body must have "key" string field' });
     }
     let normalizedBaseUrl: string | undefined;
+    let clearBaseUrl = false;
     if (body.baseUrl !== undefined) {
       const providerDef = getProvider(provider);
-      if (!providerDef?.regions?.length) {
+      if (!providerDef) {
+        return reply.code(400).send({ success: false, error: 'Unknown provider' });
+      }
+      if (providerDef.apiMode === 'cli-pipe') {
         return reply.code(400).send({ success: false, error: 'This provider does not support a configurable endpoint' });
       }
-      if (typeof body.baseUrl !== 'string' || !body.baseUrl.trim()) {
-        return reply.code(400).send({ success: false, error: 'Body baseUrl must be a non-empty URL string' });
+      if (typeof body.baseUrl !== 'string') {
+        return reply.code(400).send({ success: false, error: 'Body baseUrl must be a URL string' });
       }
-      try {
-        const parsed = new URL(body.baseUrl.trim());
-        if (parsed.protocol !== 'https:') {
-          return reply.code(400).send({ success: false, error: 'Provider endpoint must use HTTPS' });
+      const trimmedBaseUrl = body.baseUrl.trim();
+      if (!trimmedBaseUrl) {
+        // Blank endpoint = revert to the registry/env default.
+        clearBaseUrl = true;
+      } else {
+        try {
+          const parsed = new URL(trimmedBaseUrl);
+          const isLoopback = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(parsed.hostname);
+          if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && isLoopback)) {
+            return reply.code(400).send({ success: false, error: 'Provider endpoint must use HTTPS (plain HTTP is only allowed for localhost)' });
+          }
+          parsed.hash = '';
+          parsed.search = '';
+          normalizedBaseUrl = parsed.toString().replace(/\/$/, '');
+        } catch {
+          return reply.code(400).send({ success: false, error: 'Body baseUrl must be a valid URL' });
         }
-        parsed.hash = '';
-        parsed.search = '';
-        normalizedBaseUrl = parsed.toString().replace(/\/$/, '');
-      } catch {
-        return reply.code(400).send({ success: false, error: 'Body baseUrl must be a valid URL' });
+      }
+    }
+    let normalizedApiVersion: string | undefined;
+    let clearApiVersion = false;
+    if (body.apiVersion !== undefined) {
+      const providerDef = getProvider(provider);
+      if (providerDef?.apiMode !== 'azure-openai') {
+        return reply.code(400).send({ success: false, error: 'apiVersion is only supported for Azure OpenAI providers' });
+      }
+      if (typeof body.apiVersion !== 'string') {
+        return reply.code(400).send({ success: false, error: 'Body apiVersion must be a string' });
+      }
+      const trimmedApiVersion = body.apiVersion.trim();
+      if (!trimmedApiVersion) {
+        clearApiVersion = true;
+      } else if (!/^[0-9A-Za-z._-]{1,64}$/.test(trimmedApiVersion)) {
+        return reply.code(400).send({ success: false, error: 'Body apiVersion contains invalid characters' });
+      } else {
+        normalizedApiVersion = trimmedApiVersion;
       }
     }
     const masterSecret = resolveTenantMasterSecret({ createIfMissing: true });
@@ -4333,16 +4363,24 @@ export async function registerApiRoutes(
       return reply.code(500).send({ success: false, error: 'Unable to initialize tenant API key encryption' });
     }
     upsertTenantApiKey(ctx.tenant_id, provider, body.key, masterSecret, ctx.user_id);
-    if (normalizedBaseUrl) {
+    if (normalizedBaseUrl || clearBaseUrl || normalizedApiVersion || clearApiVersion) {
       const raw = readConfigWithLegacyFallback(getConfigPath()).config;
       const rawProviders = ensureRawConfigRecord(raw, 'providers');
       const rawProvider = ensureRawConfigRecord(rawProviders, provider);
-      rawProvider.baseurl = normalizedBaseUrl;
+      if (normalizedBaseUrl) rawProvider.baseurl = normalizedBaseUrl;
+      else if (clearBaseUrl) delete rawProvider.baseurl;
+      if (normalizedApiVersion) rawProvider.apiversion = normalizedApiVersion;
+      else if (clearApiVersion) delete rawProvider.apiversion;
       writeConfigObject(getConfigPath(), raw);
       loadConfig(getConfigPath());
       clearModelRouterCache();
     }
-    return reply.send({ success: true, provider, ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}) });
+    return reply.send({
+      success: true,
+      provider,
+      ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+      ...(normalizedApiVersion ? { apiVersion: normalizedApiVersion } : {}),
+    });
   });
 
   /**
@@ -4572,9 +4610,11 @@ export async function registerApiRoutes(
         lightEligible: isChatRoleEligibleProvider(provider),
         embeddingEligible: ['openai', 'ollama'].includes(provider.id),
         hasKey,
-        ...(provider.regions?.length ? {
+        ...(provider.apiMode !== 'cli-pipe' ? {
           baseUrl: resolveBaseUrl(provider.id, process.env, rawProviders),
-          regions: provider.regions,
+          defaultBaseUrl: provider.baseUrl,
+          ...(provider.apiMode === 'azure-openai' ? { apiVersion: resolveApiVersion(provider.id, process.env, rawProviders) } : {}),
+          ...(provider.regions?.length ? { regions: provider.regions } : {}),
         } : {}),
         discovery: {
           supported: discovery.supported,
@@ -4640,7 +4680,7 @@ export async function registerApiRoutes(
       if (!resolveBaseUrl(provider.id, process.env, brainRawProviders)) {
         return reply.code(400).send({
           success: false,
-          error: 'Azure OpenAI needs a resource URL first. Set AZURE_OPENAI_BASE_URL (or providers.azure.baseurl), then select this provider.',
+          error: 'Azure OpenAI needs a resource URL first. Save your Azure endpoint with your API key in Settings, then select this provider.',
         });
       }
     }

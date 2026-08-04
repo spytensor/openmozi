@@ -99,6 +99,7 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const [providers, setProviders] = useState<CatalogProvider[]>([]);
   const [providerId, setProviderId] = useState("");
   const [providerBaseUrl, setProviderBaseUrl] = useState("");
+  const [providerApiVersion, setProviderApiVersion] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [testingProvider, setTestingProvider] = useState(false);
@@ -116,10 +117,24 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
   const providerReady = !!selectedProvider && readyProviderId === selectedProvider.id;
   const selectedProviderRegions = selectedProvider?.regions ?? [];
   const selectedRegionId = selectedProviderRegions.find((region) => region.baseUrl === providerBaseUrl)?.id ?? "custom";
+  const selectedProviderApiMode = selectedProvider?.apiMode ?? selectedProvider?.apiType;
+  const selectedProviderIsAzure = selectedProviderApiMode === "azure-openai";
+  const selectedProviderDefaultBaseUrl = selectedProvider?.defaultBaseUrl ?? "";
+  // Providers without regions but with a known default endpoint get a
+  // default/custom selector; Azure has no default and requires a resource URL.
+  const selectedProviderHasEndpointChoice =
+    selectedProviderRegions.length === 0 && !selectedProviderIsAzure
+    && !!selectedProviderDefaultBaseUrl && selectedProviderApiMode !== "cli-pipe";
+  const selectedEndpointMode = providerBaseUrl === selectedProviderDefaultBaseUrl ? "default" : "custom";
+  const showEndpointInput =
+    (selectedProviderRegions.length > 0 && selectedRegionId === "custom")
+    || selectedProviderIsAzure
+    || (selectedProviderHasEndpointChoice && selectedEndpointMode === "custom");
 
   useEffect(() => {
     setProviderBaseUrl(selectedProvider?.baseUrl ?? "");
-  }, [selectedProvider?.baseUrl, selectedProvider?.id]);
+    setProviderApiVersion(selectedProvider?.apiVersion ?? "");
+  }, [selectedProvider?.apiVersion, selectedProvider?.baseUrl, selectedProvider?.id]);
 
   const loadInitialState = useCallback(async () => {
     setLoadingProfile(true);
@@ -198,16 +213,28 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
     setProviderError(null);
     setModelSkipped(false);
     const normalizedKey = apiKey.trim();
-    const normalizedBaseUrl = selectedProviderRegions.length > 0 ? providerBaseUrl.trim() : "";
-    if (selectedProviderRegions.length > 0 && !normalizedBaseUrl) {
-      setTestingProvider(false);
-      setProviderError(t("onboarding.provider.endpointRequired"));
-      return;
+    const trimmedBaseUrl = providerBaseUrl.trim();
+    let baseUrlPayload: string | undefined;
+    if (selectedProviderRegions.length > 0 || selectedProviderIsAzure) {
+      if (!trimmedBaseUrl) {
+        setTestingProvider(false);
+        setProviderError(t("onboarding.provider.endpointRequired"));
+        return;
+      }
+      baseUrlPayload = trimmedBaseUrl;
+    } else if (selectedProviderHasEndpointChoice && trimmedBaseUrl && trimmedBaseUrl !== selectedProviderDefaultBaseUrl) {
+      baseUrlPayload = trimmedBaseUrl;
     }
+    const trimmedApiVersion = providerApiVersion.trim();
+    const apiVersionPayload = selectedProviderIsAzure
+      && trimmedApiVersion && trimmedApiVersion !== (selectedProvider.apiVersion ?? "")
+      ? trimmedApiVersion
+      : undefined;
     if (normalizedKey) {
       const saveResult = await post(`/api/keys/${selectedProvider.id}`, {
         key: normalizedKey,
-        ...(normalizedBaseUrl ? { baseUrl: normalizedBaseUrl } : {}),
+        ...(baseUrlPayload !== undefined ? { baseUrl: baseUrlPayload } : {}),
+        ...(apiVersionPayload !== undefined ? { apiVersion: apiVersionPayload } : {}),
       });
       if (saveResult.error) {
         setTestingProvider(false);
@@ -421,7 +448,25 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                         </select>
                       </label>
                     )}
-                    {selectedProviderRegions.length > 0 && selectedRegionId === "custom" && (
+                    {selectedProviderHasEndpointChoice && (
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11.5px] text-ink/42">{t("onboarding.provider.endpointLabel")}</span>
+                        <select
+                          value={selectedEndpointMode}
+                          onChange={(event) => {
+                            setProviderBaseUrl(event.target.value === "default" ? selectedProviderDefaultBaseUrl : "");
+                            setProviderError(null);
+                          }}
+                          data-testid="onboarding-provider-endpoint-mode"
+                          className="h-10 w-full rounded-md border px-3 text-[13px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        >
+                          <option value="default">{t("onboarding.provider.endpointDefault")}</option>
+                          <option value="custom">{t("onboarding.provider.endpointCustom")}</option>
+                        </select>
+                      </label>
+                    )}
+                    {showEndpointInput && (
                       <label className="block">
                         <span className="mb-1.5 block text-[11.5px] text-ink/42">{t("onboarding.provider.endpointLabel")}</span>
                         <input
@@ -432,7 +477,26 @@ export default function OnboardingWizard({ onComplete }: OnboardingWizardProps) 
                             setProviderError(null);
                           }}
                           data-testid="onboarding-provider-endpoint"
-                          placeholder={t("onboarding.provider.endpointPlaceholder")}
+                          placeholder={selectedProviderIsAzure
+                            ? t("onboarding.provider.azureEndpointPlaceholder")
+                            : t("onboarding.provider.endpointPlaceholder")}
+                          className="h-10 w-full rounded-md border px-3 font-mono text-[12px] outline-none"
+                          style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
+                        />
+                      </label>
+                    )}
+                    {selectedProviderIsAzure && (
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11.5px] text-ink/42">{t("onboarding.provider.apiVersionLabel")}</span>
+                        <input
+                          type="text"
+                          value={providerApiVersion}
+                          onChange={(event) => {
+                            setProviderApiVersion(event.target.value);
+                            setProviderError(null);
+                          }}
+                          data-testid="onboarding-provider-apiversion"
+                          placeholder="2024-10-21"
                           className="h-10 w-full rounded-md border px-3 font-mono text-[12px] outline-none"
                           style={{ background: "var(--surface-input)", borderColor: "var(--border-subtle)", color: "var(--text-primary)" }}
                         />

@@ -32,8 +32,10 @@ describe('provider registry integration', () => {
     for (const provider of getAllProviders()) {
       expect(provider.id).toBeTruthy();
       expect(provider.name).toBeTruthy();
-      // CLI-pipe providers use local CLI tools — no baseUrl or envKey needed
-      if (provider.apiMode !== 'cli-pipe') {
+      // CLI-pipe providers use local CLI tools — no baseUrl or envKey needed.
+      // Azure OpenAI ships an intentionally empty default: the endpoint is the
+      // operator's per-resource URL, entered through the UI.
+      if (provider.apiMode !== 'cli-pipe' && provider.apiMode !== 'azure-openai') {
         expect(provider.baseUrl).toBeTruthy();
       }
       expect(provider.models.length).toBeGreaterThan(0);

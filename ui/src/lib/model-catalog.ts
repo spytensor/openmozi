@@ -29,6 +29,8 @@ export interface CatalogProvider {
   embeddingEligible?: boolean;
   hasKey?: boolean;
   baseUrl?: string;
+  defaultBaseUrl?: string;
+  apiVersion?: string;
   regions?: Array<{ id: string; name: string; baseUrl: string }>;
   discovery?: {
     supported: boolean;

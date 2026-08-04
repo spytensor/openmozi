@@ -287,6 +287,9 @@ export async function checkProviderHealth(provider: ProviderInfo): Promise<boole
       model: model.id,
       apiKey: provider.apiKey,
       baseUrl: provider.baseUrl,
+      // Config-level overrides (e.g. providers.azure.apiversion saved from the
+      // UI) must reach the health-check client, not just the runtime path.
+      configProviders: loadConfig(getConfigPath()).providers,
     });
 
     // Reasoning models (GPT-5, DeepSeek R1, etc.) don't support temperature

@@ -146,6 +146,93 @@ describe("OnboardingWizard", () => {
     await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/api/providers/dashscope/check", { model: "qwen3.7-plus" }));
   });
 
+  it("saves an Azure key with its resource URL from the wizard", async () => {
+    apiMocks.get.mockImplementation((url: string) => {
+      if (url === "/api/users/me") {
+        return Promise.resolve({ data: { user: { name: "Ada", role: "admin" } }, error: null });
+      }
+      if (url === "/api/keys") return Promise.resolve({ data: { keys: [] }, error: null });
+      if (url === "/api/providers") {
+        return Promise.resolve({
+          data: {
+            providers: [{
+              id: "azure",
+              name: "Azure OpenAI",
+              apiMode: "azure-openai",
+              apiType: "azure-openai",
+              defaultModel: "gpt-4o",
+              baseUrl: "",
+              defaultBaseUrl: "",
+              apiVersion: "2024-10-21",
+              models: [{ id: "gpt-4o", name: "GPT-4o deployment" }],
+            }],
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    renderWithLocale(<OnboardingWizard onComplete={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("Ada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    // Azure has no region select and no default endpoint — the URL input is direct.
+    expect(screen.queryByTestId("onboarding-provider-region")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("onboarding-provider-endpoint-mode")).not.toBeInTheDocument();
+    fireEvent.change(await screen.findByTestId("onboarding-provider-endpoint"), {
+      target: { value: "https://myres.openai.azure.com" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Paste provider API key"), { target: { value: "azure-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and test" }));
+
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/api/keys/azure", {
+      key: "azure-key",
+      baseUrl: "https://myres.openai.azure.com",
+    }));
+  });
+
+  it("saves a relay endpoint through the wizard endpoint selector", async () => {
+    apiMocks.get.mockImplementation((url: string) => {
+      if (url === "/api/users/me") {
+        return Promise.resolve({ data: { user: { name: "Ada", role: "admin" } }, error: null });
+      }
+      if (url === "/api/keys") return Promise.resolve({ data: { keys: [] }, error: null });
+      if (url === "/api/providers") {
+        return Promise.resolve({
+          data: {
+            providers: [{
+              id: "openai",
+              name: "OpenAI",
+              apiMode: "openai-responses",
+              apiType: "openai-responses",
+              defaultModel: "gpt-4.1",
+              baseUrl: "https://api.openai.com/v1",
+              defaultBaseUrl: "https://api.openai.com/v1",
+              models: [{ id: "gpt-4.1", name: "GPT-4.1" }],
+            }],
+          },
+          error: null,
+        });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+    renderWithLocale(<OnboardingWizard onComplete={vi.fn()} />);
+
+    expect(await screen.findByDisplayValue("Ada")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.change(await screen.findByTestId("onboarding-provider-endpoint-mode"), { target: { value: "custom" } });
+    fireEvent.change(await screen.findByTestId("onboarding-provider-endpoint"), {
+      target: { value: "https://litellm.example.com/v1" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Paste provider API key"), { target: { value: "sk-relay" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and test" }));
+
+    await waitFor(() => expect(apiMocks.post).toHaveBeenCalledWith("/api/keys/openai", {
+      key: "sk-relay",
+      baseUrl: "https://litellm.example.com/v1",
+    }));
+  });
+
   it("keeps non-admin onboarding on viewer-safe APIs", async () => {
     apiMocks.get.mockImplementation((url: string) => {
       apiMocks.requests.push({ method: "GET", url });
