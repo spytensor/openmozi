@@ -101,7 +101,7 @@ afterEach(async () => {
 });
 
 describe("InputBar", () => {
-  it("filters ready agents, supports keyboard selection, and sends confirmed mentions structurally", async () => {
+  it("filters ready agents, supports keyboard selection, and sends selected mentions structurally", async () => {
     const onSend = vi.fn();
     renderWithLocale(
       <InputBar variant="active" onSend={onSend} connectionStatus="connected" queueCount={0} />,
@@ -118,6 +118,47 @@ describe("InputBar", () => {
 
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(textarea.value).toBe("@reviewer ");
+    fireEvent.change(textarea, { target: { value: "@reviewer inspect this", selectionStart: 22 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledWith("@reviewer inspect this", undefined, ["reviewer"]);
+  });
+
+  it("opens the mention menu when the Agent roster arrives after the user types", async () => {
+    let resolveAgents!: (response: Response) => void;
+    const agentsResponse = new Promise<Response>((resolve) => {
+      resolveAgents = resolve;
+    });
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/agents") return agentsResponse;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+
+    renderWithLocale(<InputBar onSend={noop} connectionStatus="connected" queueCount={0} />);
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "@rev", selectionStart: 4 } });
+    expect(screen.queryByTestId("agent-mention-menu")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveAgents({
+        ok: true,
+        json: () => Promise.resolve({
+          agents: [{ name: "reviewer", description: "Reviews changes", enabled: true, status: "ready" }],
+        }),
+      } as Response);
+      await agentsResponse;
+    });
+
+    expect(await screen.findByTestId("agent-mention-menu")).toHaveTextContent("reviewer");
+  });
+
+  it("sends a manually typed ready Agent mention structurally without menu selection", async () => {
+    const onSend = vi.fn();
+    renderWithLocale(<InputBar onSend={onSend} connectionStatus="connected" queueCount={0} />);
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "@", selectionStart: 1 } });
+    await screen.findByTestId("agent-mention-menu");
     fireEvent.change(textarea, { target: { value: "@reviewer inspect this", selectionStart: 22 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 

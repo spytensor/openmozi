@@ -264,7 +264,6 @@ export default function InputBar({
   const [cmdSearch, setCmdSearch] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [readyAgents, setReadyAgents] = useState<MentionAgent[]>([]);
-  const [confirmedMentions, setConfirmedMentions] = useState<string[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -287,10 +286,9 @@ export default function InputBar({
     return readyAgents.filter((agent) => agent.name.toLowerCase().includes(query));
   }, [mentionQuery, readyAgents]);
 
-  // Load on mount (typing `@` is gated on a non-empty roster) and refresh
-  // whenever a mention starts, so agents created in MY AGENTS show up without
-  // a reload. Routed through useApi so an expired token is refreshed and
-  // retried instead of silently emptying the roster.
+  // Load on mount and refresh whenever a mention starts, so agents created in
+  // MY AGENTS show up without a reload. Input recognition remains independent
+  // from this async roster: a late response can populate an already-open menu.
   const mentionOpen = mentionQuery !== null;
   useEffect(() => {
     if (!mentionControlsEnabled) return;
@@ -374,10 +372,12 @@ export default function InputBar({
   const handleSend = () => {
     const trimmed = text.trim();
     if (!trimmed || disabled || isWorking || uploading) return;
-    // A confirmed mention only counts while its exact token is still in the
-    // text: `@code` must not survive the user typing the `r` of `@coder`.
-    const typedMentions = new Set((trimmed.match(/@[a-z0-9][a-z0-9_-]*/gi) ?? []).map((token) => token.slice(1)));
-    const mentions = confirmedMentions.filter((name) => typedMentions.has(name));
+    const readyAgentNames = new Map(readyAgents.map((agent) => [agent.name.toLowerCase(), agent.name]));
+    const mentions = [...new Set(
+      (trimmed.match(/@[a-z0-9][a-z0-9_-]*/gi) ?? [])
+        .map((token) => readyAgentNames.get(token.slice(1).toLowerCase()))
+        .filter((name): name is string => Boolean(name)),
+    )];
     if (mentions.length > 0) {
       onSend(trimmed, attachments.length > 0 ? attachments : undefined, mentions);
     } else {
@@ -385,7 +385,6 @@ export default function InputBar({
     }
     setText("");
     setAttachments([]);
-    setConfirmedMentions([]);
     setMentionQuery(null);
     setMentionStart(null);
     setUploadError(null);
@@ -548,11 +547,6 @@ export default function InputBar({
   }, [isWorking]);
 
   const updateMentionQuery = (value: string, caret: number) => {
-    if (readyAgents.length === 0) {
-      setMentionQuery(null);
-      setMentionStart(null);
-      return;
-    }
     const beforeCaret = value.slice(0, caret);
     const match = beforeCaret.match(/(?:^|\s)@([^\s@]*)$/);
     if (!match) {
@@ -572,7 +566,6 @@ export default function InputBar({
     const inserted = `@${agent.name} `;
     const next = text.slice(0, mentionStart) + inserted + text.slice(caret);
     setText(next);
-    setConfirmedMentions((current) => current.includes(agent.name) ? current : [...current, agent.name]);
     setMentionQuery(null);
     setMentionStart(null);
     requestAnimationFrame(() => {
