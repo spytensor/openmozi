@@ -87,6 +87,36 @@ describe('api fs roots', () => {
     }
   });
 
+  it('publishes the authenticated user workspace root', async () => {
+    const app = Fastify();
+    const userId = 'workspace-user-uuid';
+    try {
+      await registerApiRoutes(app, {
+        jwtSecret: 'test-secret',
+        config: {
+          server: { auth_mode: 'none', host: '127.0.0.1' },
+          security: { enterprise: {} },
+          http_rate_limit: { global_rpm: 100, auth_rpm: 10, pair_rpm: 5 },
+        },
+      });
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/api/fs/roots',
+        headers: {
+          authorization: `Bearer ${jwtSign(userId, 'test-secret', 3600, { tenant_id: 'default', roles: ['admin'] })}`,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().roots).toEqual(expect.arrayContaining([
+        expect.objectContaining({ tier: 'workspace', path: getWorkspaceDir(userId) }),
+      ]));
+    } finally {
+      await app.close();
+    }
+  });
+
   it('joins registry identity onto deliverables and leaves legacy files null', async () => {
     const app = Fastify();
     const tenantId = 'default';

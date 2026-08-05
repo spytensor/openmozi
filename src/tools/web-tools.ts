@@ -4,7 +4,7 @@ import { analyzeImage } from '../capabilities/vision.js';
 import type { ToolDefinition } from '../core/llm.js';
 import { validatePath } from '../tel/router.js';
 import type { ToolResult, ToolContext, ToolSourceRef } from './types.js';
-import { resolveReadPath } from './tool-utils.js';
+import { resolveReadPath, resolveReadRoots } from './tool-utils.js';
 
 /** Caps keep the source list a lean UI payload, not a transcript. */
 const MAX_SOURCES_PER_CALL = 10;
@@ -196,8 +196,9 @@ export async function executeWebTool(
       }
       let resolved: string;
       try {
-        resolved = resolveReadPath(path, context?.userId, context?.workspaceRootPath);
-        validatePath(resolved, context?.allowedPaths, context?.agentId, context?.tenantId ?? 'default');
+        const allowedPaths = resolveReadRoots(context);
+        resolved = resolveReadPath(path, context?.userId, context?.workspaceRootPath, allowedPaths);
+        validatePath(resolved, allowedPaths, context?.agentId, context?.tenantId ?? 'default');
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { tool_call_id: id, content: `Error: ${msg}`, is_error: true };

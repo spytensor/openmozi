@@ -33,7 +33,7 @@ vi.mock('../config/index.js', () => ({
   }),
 }));
 
-import { expandHome, resolveReadPath, resolveWritePath, assertFsPathAllowed, PathScopeError, SensitiveWriteError, resolveWriteRoots, isFullAccessContext } from './tool-utils.js';
+import { expandHome, resolveReadPath, resolveWritePath, assertFsPathAllowed, PathScopeError, SensitiveWriteError, resolveReadRoots, resolveWriteRoots, isFullAccessContext } from './tool-utils.js';
 import type { ToolContext } from './types.js';
 
 describe('tools/tool-utils path normalization', () => {
@@ -190,6 +190,52 @@ describe('write scope × permission level — L3 bypasses project-scope gate (BU
     const roots = resolveWriteRoots(ctx('L3_FULL_ACCESS'));
     // /etc is outside even the global workspace roots — still blocked at L3.
     expect(() => resolveWritePath('/etc/evil.txt', '', roots, projectRoot)).toThrow(PathScopeError);
+  });
+});
+
+describe('read/write scope parity — one Full Access workspace contract', () => {
+  const projectRoot = '/tmp/mozi-proj-scope/alpha';
+  const legacyWorkspaceFile = resolve(hoisted.workspaceDir, 'ashare_20260805/env_probe.json');
+
+  it('admits the configured workspace for both reads and writes at Full Access', () => {
+    hoisted.workspaceOnly = true;
+    const context = {
+      userId: 'user-uuid',
+      permissionLevel: 'L3_FULL_ACCESS',
+      workspaceRootPath: projectRoot,
+    } as ToolContext;
+    const readRoots = resolveReadRoots(context) ?? [];
+    const writeRoots = resolveWriteRoots(context) ?? [];
+
+    expect(readRoots).toContain(resolve(hoisted.workspaceDir));
+    expect(writeRoots).toContain(resolve(hoisted.workspaceDir));
+    expect(resolveReadPath(legacyWorkspaceFile, context.userId, projectRoot, readRoots)).toBe(legacyWorkspaceFile);
+    expect(resolveWritePath(legacyWorkspaceFile, context.userId, writeRoots, projectRoot)).toBe(legacyWorkspaceFile);
+  });
+
+  it('does not widen a project-scoped lower-permission read to the shared workspace', () => {
+    hoisted.workspaceOnly = true;
+    const context = {
+      userId: 'user-uuid',
+      permissionLevel: 'L1_READ_WRITE',
+      workspaceRootPath: projectRoot,
+    } as ToolContext;
+    const roots = resolveReadRoots(context) ?? [];
+
+    expect(roots).not.toContain(resolve(hoisted.workspaceDir));
+    expect(() => resolveReadPath(legacyWorkspaceFile, context.userId, projectRoot, roots)).toThrow(PathScopeError);
+  });
+
+  it('keeps an explicit delegated read allow-list pinned even at Full Access', () => {
+    const runDir = resolve('/tmp/mozi-agent-run');
+    const roots = resolveReadRoots({
+      userId: 'user-uuid',
+      permissionLevel: 'L3_FULL_ACCESS',
+      allowedPaths: [runDir],
+    } as ToolContext);
+
+    expect(roots).toEqual([runDir]);
+    expect(() => resolveReadPath(legacyWorkspaceFile, 'user-uuid', undefined, roots)).toThrow(PathScopeError);
   });
 });
 

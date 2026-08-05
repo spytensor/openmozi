@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createTempDir, removeTempDir } from '../test-helpers.js';
 import type { ArtifactEvent } from '../artifacts/types.js';
 import { ArtifactCoordinator } from '../artifacts/coordinator.js';
@@ -60,6 +60,25 @@ afterAll(() => {
 });
 
 describe('tools/fs-tools write_file artifact terminalization', () => {
+  it('reads back a Full Access write to the configured workspace for a UUID user', async () => {
+    const context: ToolContext = {
+      tenantId: 'default',
+      userId: '08adcd45-6f72-43ed-b08a-b3713209ee54',
+      agentId: 'test-agent',
+      permissionLevel: 'L3_FULL_ACCESS',
+    };
+    const path = `${tmpDir}/ashare_20260805/env_probe.json`;
+    const content = '{"is_trading_day":true}';
+
+    const written = await executeFsTool('write_file', { path, content }, 'call_write_legacy_workspace', context);
+    const read = await executeFsTool('read_file', { path }, 'call_read_legacy_workspace', context);
+
+    expect(written).toMatchObject({ is_error: false });
+    expect(read).toMatchObject({ is_error: false, content });
+    expect(realpathSync(written!.file_path!)).toBe(realpathSync(path));
+    expect(realpathSync(read!.file_path!)).toBe(realpathSync(path));
+  });
+
   it('emits a terminal completed patch carrying plugin_id when reusing a pre-opened coordinator id, even for content <= 20 chars', async () => {
     const events: ArtifactEvent[] = [];
     const toolCallId = 'call_short_reuse';

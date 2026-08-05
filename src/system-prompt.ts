@@ -17,6 +17,7 @@ import { getAllRegisteredTools } from './tools/dynamic-registry.js';
 import { getRuntimeProjectRoot } from './runtime/project-root.js';
 import { getDefaultOutputDir } from './paths.js';
 import { formatAvailableToolsSection } from './prompt-sections.js';
+import { getWorkspaceDir } from './tools/workspace-policy.js';
 
 /**
  * Resolve the workspace directory from config, expanding ~ to home.
@@ -40,8 +41,9 @@ export function resolveTenantId(tenantId?: string): string {
 export function loadSystemPrompt(
   config: MoziConfig,
   tenantId?: string,
+  userId?: string,
 ): string {
-  return loadSystemPromptLayers(config, tenantId, true);
+  return loadSystemPromptLayers(config, tenantId, true, userId);
 }
 
 /**
@@ -53,16 +55,19 @@ export function loadSystemPrompt(
 export function loadDelegationSystemPrompt(
   config: MoziConfig,
   tenantId?: string,
+  userId?: string,
 ): string {
-  return loadSystemPromptLayers(config, tenantId, false);
+  return loadSystemPromptLayers(config, tenantId, false, userId);
 }
 
 function loadSystemPromptLayers(
   config: MoziConfig,
   tenantId: string | undefined,
   includeUserProfile: boolean,
+  userId: string | undefined,
 ): string {
-  const workspaceDir = resolveWorkspaceDir(config);
+  const overrideWorkspaceDir = resolveWorkspaceDir(config);
+  const workspaceDir = getWorkspaceDir(userId);
   const outputDir = resolveOutputDir();
   const parts: string[] = [];
   const runtimeRoot = getRuntimeProjectRoot();
@@ -81,7 +86,7 @@ function loadSystemPromptLayers(
     ? ['SOUL.local.md', 'AGENTS.local.md', 'USER.md']
     : ['SOUL.local.md', 'AGENTS.local.md'];
   for (const file of userOverrideFiles) {
-    const userPath = join(workspaceDir, file);
+    const userPath = join(overrideWorkspaceDir, file);
     if (existsSync(userPath)) {
       parts.push(readFileSync(userPath, 'utf-8'));
     }
