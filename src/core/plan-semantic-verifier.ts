@@ -12,6 +12,7 @@ import {
   isPathInsideRoot,
   resolvePersistedRuntimePath,
 } from '../tools/workspace-policy.js';
+import { remoteArtifactDependencies, unresolvedArtifactPlaceholders } from '../artifacts/content-contract.js';
 
 const FRESHNESS_REQUEST = /\b(?:latest|recent|newest|up[- ]to[- ]date)\b|\bcurrent\s+(?:data|information|news|release|figures?|numbers?|rates?|prices?|version|status|forecast|expectations?|yields?|indicators?)\b|\b(?:today|as of now|real[- ]time)\b|最新|(?:当前|近期|最近|截至|实时).{0,12}(?:数据|信息|新闻|版本|价格|利率|收益率|指标|预期|预测|状态)/i;
 const SELF_CONTAINED_REQUEST = /\bself[- ]contained\b|\boffline\b|\bno external (?:resources?|dependencies)\b|自包含|不依赖外部(?:资源|依赖)?/i;
@@ -212,21 +213,6 @@ function verifiedArtifactPath(path: string, userId?: string): { path: string; si
   return null;
 }
 
-function remoteResourceDependencies(content: string): string[] {
-  const matches = new Set<string>();
-  const tagPattern = /<(?:script|img|iframe|source|video|audio|embed|input)\b[^>]*?\bsrc\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
-  const objectPattern = /<object\b[^>]*?\bdata\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
-  const linkPattern = /<link\b(?=[^>]*\brel\s*=\s*["'](?:stylesheet|preload|modulepreload|icon|manifest)["'])[^>]*?\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
-  const cssPattern = /url\(\s*["']?(https?:\/\/[^)'"\s]+)["']?\s*\)/gi;
-  const cssImportPattern = /@import\s+(?:url\(\s*)?["']?(https?:\/\/[^)'";\s]+)["']?\s*\)?/gi;
-  const runtimeCallPattern = /\b(?:fetch|import|d3\.(?:json|csv|tsv))\s*\(\s*["'](https?:\/\/[^"']+)["']/gi;
-  const constructorPattern = /\bnew\s+(?:WebSocket|EventSource|Worker)\s*\(\s*["'](https?:\/\/[^"']+)["']/gi;
-  for (const pattern of [tagPattern, objectPattern, linkPattern, cssPattern, cssImportPattern, runtimeCallPattern, constructorPattern]) {
-    for (const match of content.matchAll(pattern)) matches.add(match[1]);
-  }
-  return [...matches].slice(0, 12);
-}
-
 function isTextArtifact(path: string): boolean {
   return new Set([
     '.css', '.csv', '.htm', '.html', '.js', '.json', '.jsx', '.md', '.mjs', '.svg',
@@ -295,8 +281,8 @@ function collectArtifactMaterial(input: VerifyPlanSemanticsInput): ArtifactMater
       size: verified?.size,
       readError,
       excerpt: artifactExcerpt(content),
-      remoteDependencies: remoteResourceDependencies(content),
-      placeholders: [...new Set(content.match(/\b[A-Z0-9_]*PLACEHOLDER[A-Z0-9_]*\b/gi) ?? [])].slice(0, 12),
+      remoteDependencies: remoteArtifactDependencies(content),
+      placeholders: unresolvedArtifactPlaceholders(content),
     };
   });
 }

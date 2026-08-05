@@ -181,6 +181,32 @@ describe('artifacts/coordinator', () => {
     expect(coordinator.resolveByPath('/tmp/deck.pptx')).toBe(artifactId);
   });
 
+  it('reuses a previously published path for a new write tool call without opening a duplicate card', () => {
+    const { events, coordinator } = eventsForCoordinator();
+    coordinator.adoptToolCallByPath('rewrite-html', 'sandpack-prior', '/out/dashboard.html', {
+      plugin_id: 'sandpack_v1',
+      title: 'dashboard.html',
+      content_type: 'html',
+      status: 'running',
+      data: { persisted_path: '/out/dashboard.html', content_type: 'html' },
+      persisted_path: '/out/dashboard.html',
+    });
+
+    expect(coordinator.openOrGet('rewrite-html', {
+      plugin_id: 'sandpack_v1',
+      title: 'dashboard.html',
+      content_type: 'html',
+      status: 'running',
+      data: { code: '<!doctype html><h1>repaired</h1>', content_type: 'html' },
+    })).toBe('sandpack-prior');
+    coordinator.complete('rewrite-html', { status: 'completed' });
+
+    expect(events.filter((event) => event.type === 'open')).toHaveLength(0);
+    expect(events.some((event) => event.type === 'patch'
+      && event.artifactId === 'sandpack-prior'
+      && event.patch.status === 'completed')).toBe(true);
+  });
+
   it('terminalizes open artifacts on success and error idempotently', () => {
     const { events, coordinator } = eventsForCoordinator();
     const successId = coordinator.openOrGet('success-call', {

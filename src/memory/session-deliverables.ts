@@ -1,5 +1,5 @@
 import { realpathSync, statSync } from 'node:fs';
-import { basename, isAbsolute, resolve } from 'node:path';
+import { basename, extname, isAbsolute, resolve } from 'node:path';
 import { getDb } from '../store/db.js';
 import { sessionDeliverableBindingStore } from '../store/session-deliverable-bindings.js';
 import {
@@ -74,6 +74,16 @@ function parseArtifactPayload(payload: string): Record<string, unknown> | null {
   }
 }
 
+function persistedArtifactPath(
+  artifact: Record<string, unknown>,
+  data: Record<string, unknown>,
+): string | null {
+  for (const value of [data.path, data.persisted_path, artifact.persisted_path]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
 /**
  * Return recent, runtime-verifiable file deliverables owned by one session.
  *
@@ -102,7 +112,7 @@ export function getVerifiedSessionDeliverables(input: {
       AND session.user_id = ?
       AND timeline.item_type = 'artifact'
       AND CASE WHEN json_valid(timeline.payload) THEN
-        json_extract(timeline.payload, '$.plugin_id') = 'file_v1'
+        json_extract(timeline.payload, '$.plugin_id') IN ('file_v1', 'sandpack_v1', 'document_v1')
         AND json_extract(timeline.payload, '$.status') = 'completed'
       ELSE 0 END
     ORDER BY timeline.timestamp_ms DESC, timeline.id DESC
@@ -144,9 +154,9 @@ export function getVerifiedSessionDeliverables(input: {
     if (!artifact) continue;
     const data = artifact.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
-    const persistedPath = (data as Record<string, unknown>).path;
-    if (typeof persistedPath !== 'string' || !persistedPath.trim()) continue;
-    const verified = verifiedCurrentPath(persistedPath.trim(), input.userId, canonicalRoots);
+    const persistedPath = persistedArtifactPath(artifact, data as Record<string, unknown>);
+    if (!persistedPath) continue;
+    const verified = verifiedCurrentPath(persistedPath, input.userId, canonicalRoots);
     if (!verified || seenPaths.has(verified.path)) continue;
     const artifactId = artifact.id;
     if (typeof artifactId !== 'string' || !artifactId.trim()) continue;
@@ -215,7 +225,7 @@ export function getVerifiedDeliverableLibrary(input: {
       AND session.user_id = ?
       AND timeline.item_type = 'artifact'
       AND CASE WHEN json_valid(timeline.payload) THEN
-        json_extract(timeline.payload, '$.plugin_id') = 'file_v1'
+        json_extract(timeline.payload, '$.plugin_id') IN ('file_v1', 'sandpack_v1', 'document_v1')
         AND json_extract(timeline.payload, '$.status') = 'completed'
       ELSE 0 END
     ORDER BY timeline.timestamp_ms DESC, timeline.id DESC
@@ -238,9 +248,9 @@ export function getVerifiedDeliverableLibrary(input: {
     const data = artifact.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
     const record = data as Record<string, unknown>;
-    const persistedPath = record.path;
-    if (typeof persistedPath !== 'string' || !persistedPath.trim()) continue;
-    const verified = verifiedCurrentPath(persistedPath.trim(), input.userId, canonicalRoots);
+    const persistedPath = persistedArtifactPath(artifact, record);
+    if (!persistedPath) continue;
+    const verified = verifiedCurrentPath(persistedPath, input.userId, canonicalRoots);
     if (!verified || seenPaths.has(verified.path)) continue;
     const artifactId = artifact.id;
     if (typeof artifactId !== 'string' || !artifactId.trim()) continue;
@@ -261,8 +271,14 @@ export function getVerifiedDeliverableLibrary(input: {
       size: verified.size,
       timestamp: row.timestamp_ms,
       role: record.role === 'supporting' ? 'supporting' : 'primary',
-      ...(typeof record.kind === 'string' ? { kind: record.kind } : {}),
-      ...(typeof record.ext === 'string' ? { ext: record.ext } : {}),
+      ...(typeof record.kind === 'string'
+        ? { kind: record.kind }
+        : artifact.plugin_id === 'sandpack_v1'
+          ? { kind: 'code' }
+          : {}),
+      ...(typeof record.ext === 'string'
+        ? { ext: record.ext }
+        : { ext: extname(verified.path).replace(/^\./, '').toLowerCase() }),
       ...(row.turn_id ? { turnId: row.turn_id } : {}),
     });
     groups.set(row.session_id, group);

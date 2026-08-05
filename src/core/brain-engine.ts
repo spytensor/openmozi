@@ -23,7 +23,7 @@ import { refreshMcpToolSnapshot } from '../mcp/tool-adapter.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
 import { ArtifactCoordinator } from '../artifacts/coordinator.js';
 import { createTurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
-import { findPublishedArtifactIdByPath } from '../memory/session-timeline.js';
+import { findPublishedArtifactByPath } from '../memory/session-timeline.js';
 import { buildActivePlanContext } from './plan-grounding.js';
 import type { BrainExecutionOptions, BrainExecutionResult } from './brain-execution-types.js';
 export type { BrainExecutionOptions, BrainExecutionResult } from './brain-execution-types.js';
@@ -302,8 +302,8 @@ export async function brainExecute(opts: BrainExecutionOptions): Promise<BrainEx
           userId: opts.toolContext.userId,
           richArtifactPaths: turnRichArtifactPaths,
           artifactCoordinator,
-          resolvePublishedArtifactId: opts.toolContext.sessionId
-            ? (path) => findPublishedArtifactIdByPath({
+          resolvePublishedArtifact: opts.toolContext.sessionId
+            ? (path) => findPublishedArtifactByPath({
                 tenantId: opts.toolContext.tenantId,
                 sessionId: opts.toolContext.sessionId!,
                 path,

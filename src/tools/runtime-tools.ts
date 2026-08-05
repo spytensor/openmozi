@@ -11,7 +11,11 @@ import type { ToolDefinition } from '../core/llm.js';
 import type { ToolResult, ToolContext } from './types.js';
 import { ensureArtifactCoordinator } from '../artifacts/coordinator.js';
 import type { ArtifactEnvelope } from '../artifacts/types.js';
-import { normalizeArtifactContentType } from '../artifacts/content-contract.js';
+import {
+  normalizeArtifactContentType,
+  remoteArtifactDependencies,
+  unresolvedArtifactPlaceholders,
+} from '../artifacts/content-contract.js';
 import {
   findLatestArtifactIdentityByPersistedPath,
   getLatestArtifactVersion,
@@ -54,6 +58,16 @@ function createArtifactValidationError(args: Record<string, unknown>): string {
     'Coercible aliases: content/markdown/text→code, name→title.',
     'Expected example: {"title":"Report","content_type":"markdown","code":"# Report"}',
   ].join(' ');
+}
+
+function artifactPublicationBlockers(contentType: string, content: string): string[] {
+  if (contentType === 'markdown' || contentType === 'document') return [];
+  const placeholders = unresolvedArtifactPlaceholders(content);
+  const remoteDependencies = remoteArtifactDependencies(content);
+  return [
+    ...(placeholders.length > 0 ? [`unresolved placeholders: ${placeholders.join(', ')}`] : []),
+    ...(remoteDependencies.length > 0 ? [`remote runtime dependencies: ${remoteDependencies.join(', ')}`] : []),
+  ];
 }
 
 // ── Definitions ──
@@ -632,6 +646,16 @@ export async function executeRuntimeTool(
           'create_artifact corrected content type from strong content signature',
         );
       }
+      const publicationBlockers = artifactPublicationBlockers(contentType, code);
+      if (publicationBlockers.length > 0) {
+        const message = `Artifact not published: ${publicationBlockers.join('; ')}`;
+        context?.artifactCoordinator?.complete(id, {
+          status: 'failed',
+          fallback_text: message,
+          data: { content_type: contentType, publication_blockers: publicationBlockers },
+        });
+        return { tool_call_id: id, content: `Error creating artifact: ${message}`, is_error: true };
+      }
       const pluginId = pluginIdForArtifactContent(contentType);
       let persistedPath: string | undefined;
       let parentId: string | undefined;
@@ -796,6 +820,14 @@ export async function executeRuntimeTool(
       }
 
       const contentType = inferPersistedContentType(latestVersion.persisted_path);
+      const publicationBlockers = artifactPublicationBlockers(contentType, newContent);
+      if (publicationBlockers.length > 0) {
+        return {
+          tool_call_id: id,
+          content: `Error updating artifact: Artifact not published: ${publicationBlockers.join('; ')}`,
+          is_error: true,
+        };
+      }
       let persistedPath: string;
       let versionNumber: number;
       try {

@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadConfig } from '../config/index.js';
+import { setupTestDb, teardownTestDb } from '../test-helpers.js';
+import { deliverableRegistry } from '../store/deliverables.js';
 import { getOutputDir, getWorkspaceAllowedRoots, getWorkspaceDir } from '../tools/workspace-policy.js';
 import type { ArtifactEvent } from './types.js';
 import { createTurnFileArtifactTracker, curateDeliverables } from './file-artifacts.js';
@@ -436,7 +438,7 @@ describe('artifacts/file-artifacts', () => {
     expect(titles).toEqual(['华东报告.pdf', '华南报告.pdf']);
   });
 
-  it('skips file_v1 when the same realpath was surfaced as a rich artifact this turn', async () => {
+  it('updates the rich artifact instead of minting file_v1 for the same realpath', async () => {
     const outputDir = getOutputDir();
     mkdirSync(outputDir, { recursive: true });
     const htmlPath = join(outputDir, 'deck.html');
@@ -455,15 +457,78 @@ describe('artifacts/file-artifacts', () => {
     for (const path of [htmlPath, pptxPath]) {
       utimesSync(path, future, future);
     }
-    richArtifactPaths.add(realpathSync(htmlPath));
+    const richPath = realpathSync(htmlPath);
+    coordinator.openOrGet('write-html', {
+      plugin_id: 'sandpack_v1',
+      title: 'deck.html',
+      status: 'running',
+      data: { code: '<!doctype html><html><body>Deck</body></html>', content_type: 'html', persisted_path: richPath },
+      persisted_path: richPath,
+    });
+    coordinator.registerFileWrite('write-html', richPath);
+    richArtifactPaths.add(richPath);
 
     await tracker.scanAndEmit();
 
     const fileArtifactTitles = artifactEvents
-      .filter((event): event is Extract<ArtifactEvent, { type: 'open' }> => event.type === 'open')
+      .filter((event): event is Extract<ArtifactEvent, { type: 'open' }> => event.type === 'open' && event.artifact.plugin_id === 'file_v1')
       .map((event) => event.artifact.title);
 
     expect(fileArtifactTitles).toEqual(['deck.pptx']);
+    const completedRich = artifactEvents.find((event) => event.type === 'patch' && event.patch.status === 'completed');
+    expect(completedRich && completedRich.type === 'patch' ? completedRich.artifactId : null)
+      .toBe(coordinator.resolveByPath(richPath));
+  });
+
+  it('publishes staged HTML only after final disk bytes pass validation, using the same card and registry path', async () => {
+    const { tmpDir: dbDir } = setupTestDb();
+    try {
+      const outputDir = getOutputDir();
+      mkdirSync(outputDir, { recursive: true });
+      const htmlPath = join(outputDir, 'staged-dashboard.html');
+      writeFileSync(htmlPath, '<!doctype html><script>const DATA = FINAL_DATA_JSON_PLACEHOLDER;</script>');
+      let future = new Date(Date.now() + 2_000);
+      utimesSync(htmlPath, future, future);
+      const richPath = realpathSync(htmlPath);
+
+      const events: ArtifactEvent[] = [];
+      const publishedPaths = new Set<string>();
+      const coordinator = new ArtifactCoordinator('turn-staged-publish', (event) => events.push(event));
+      const artifactId = coordinator.openOrGet('write-staged-html', {
+        plugin_id: 'sandpack_v1',
+        title: 'staged-dashboard.html',
+        status: 'running',
+        data: { code: 'staged', content_type: 'html', persisted_path: richPath },
+        persisted_path: richPath,
+      });
+      coordinator.registerFileWrite('write-staged-html', richPath);
+      const tracker = createTurnFileArtifactTracker({
+        tenantId: 'staged-tenant',
+        sessionId: 'staged-session',
+        richArtifactPaths: publishedPaths,
+        artifactCoordinator: coordinator,
+      });
+
+      await tracker.scanAndEmit();
+      expect(events.some((event) => event.type === 'patch' && event.patch.status === 'completed')).toBe(false);
+      expect(publishedPaths.has(richPath)).toBe(false);
+      expect(deliverableRegistry.getByPath('staged-tenant', richPath)).toBeNull();
+
+      writeFileSync(htmlPath, '<!doctype html><html><body><h1>Final dashboard</h1><script>const DATA = {"ready":true};</script></body></html>');
+      future = new Date(Date.now() + 4_000);
+      utimesSync(htmlPath, future, future);
+      await tracker.scanAndEmit();
+
+      const completed = events.find((event) => event.type === 'patch' && event.patch.status === 'completed');
+      expect(completed && completed.type === 'patch' ? completed.artifactId : null).toBe(artifactId);
+      expect(publishedPaths.has(richPath)).toBe(true);
+      expect(deliverableRegistry.getByPath('staged-tenant', richPath)).toEqual(
+        expect.objectContaining({ path: richPath, title: 'staged-dashboard.html', versionCount: 1 }),
+      );
+      expect(events.filter((event) => event.type === 'open' && event.artifact.plugin_id === 'file_v1')).toHaveLength(0);
+    } finally {
+      teardownTestDb(dbDir);
+    }
   });
 
   it('does not auto-publish build metadata, cache files, or generator source', async () => {
@@ -776,7 +841,9 @@ describe('artifacts/file-artifacts', () => {
       const tracker = createTurnFileArtifactTracker({
         artifactCoordinator: new ArtifactCoordinator('turn-foreground', (event) => events.push(event)),
         // Stands in for the durable timeline: the background turn's card.
-        resolvePublishedArtifactId: (path) => (path === realpathSync(pdfPath) ? 'file_from_background_turn' : null),
+        resolvePublishedArtifact: (path) => (path === realpathSync(pdfPath)
+          ? { artifactId: 'file_from_background_turn', pluginId: 'file_v1' }
+          : null),
       });
 
       await tracker.scanAndEmit();
@@ -799,7 +866,7 @@ describe('artifacts/file-artifacts', () => {
       const events: ArtifactEvent[] = [];
       const tracker = createTurnFileArtifactTracker({
         artifactCoordinator: new ArtifactCoordinator('turn-fresh', (event) => events.push(event)),
-        resolvePublishedArtifactId: () => null,
+        resolvePublishedArtifact: () => null,
       });
 
       await tracker.scanAndEmit();
@@ -818,7 +885,7 @@ describe('artifacts/file-artifacts', () => {
       const events: ArtifactEvent[] = [];
       const tracker = createTurnFileArtifactTracker({
         artifactCoordinator: new ArtifactCoordinator('turn-two', (event) => events.push(event)),
-        resolvePublishedArtifactId: () => 'file_from_turn_one',
+        resolvePublishedArtifact: () => ({ artifactId: 'file_from_turn_one', pluginId: 'file_v1' }),
       });
 
       writeFileSync(pdfPath, '%PDF-1.4\nv2 regenerated with Q3 numbers');
@@ -831,6 +898,34 @@ describe('artifacts/file-artifacts', () => {
       const patches = events.filter((e): e is Extract<ArtifactEvent, { type: 'patch' }> => e.type === 'patch');
       expect(patches.map((p) => p.artifactId)).toContain('file_from_turn_one');
       expect(patches.at(-1)?.patch.data).toMatchObject({ filename: 'owned_report.pdf' });
+    });
+
+    it('updates a prior turn rich card when the same persisted HTML path is repaired', async () => {
+      const outputDir = getOutputDir();
+      mkdirSync(outputDir, { recursive: true });
+      const htmlPath = join(outputDir, 'repaired-dashboard.html');
+      writeFileSync(htmlPath, '<!doctype html><html><body><h1>Repaired</h1></body></html>');
+      utimesSync(htmlPath, new Date(Date.now() + 2_000), new Date(Date.now() + 2_000));
+      const richPath = realpathSync(htmlPath);
+      const events: ArtifactEvent[] = [];
+      const publishedPaths = new Set<string>();
+      const tracker = createTurnFileArtifactTracker({
+        artifactCoordinator: new ArtifactCoordinator('turn-repair', (event) => events.push(event)),
+        richArtifactPaths: publishedPaths,
+        resolvePublishedArtifact: () => ({
+          artifactId: 'sandpack_from_prior_turn',
+          pluginId: 'sandpack_v1',
+          contentType: 'html',
+        }),
+      });
+
+      await tracker.scanAndEmit();
+
+      expect(events.filter((event) => event.type === 'open')).toHaveLength(0);
+      const completed = events.find((event) => event.type === 'patch' && event.patch.status === 'completed');
+      expect(completed && completed.type === 'patch' ? completed.artifactId : null)
+        .toBe('sandpack_from_prior_turn');
+      expect(publishedPaths.has(richPath)).toBe(true);
     });
   });
 });

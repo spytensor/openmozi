@@ -1876,7 +1876,9 @@ export function ArtifactsIndexRenderer({ artifact, onOpen }: { artifact: Artifac
 function usePersistedArtifactCode(artifact: Artifact): string | null {
   const persistedPath = typeof artifact.data?.persisted_path === "string" ? (artifact.data.persisted_path as string) : null;
   const eligible = artifact.status === "completed" && !!persistedPath;
-  const fetchKey = eligible ? `${persistedPath}::${String(artifact.data?.version_number ?? "")}` : null;
+  const fetchKey = eligible
+    ? `${persistedPath}::${String(artifact.data?.version_number ?? "")}::${artifact.timestamp}`
+    : null;
   const [state, setState] = useState<{ key: string; code: string } | null>(null);
 
   useEffect(() => {

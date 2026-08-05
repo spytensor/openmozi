@@ -48,6 +48,34 @@ function saveFileArtifact(input: {
   });
 }
 
+function saveRichArtifact(input: {
+  tenantId: string;
+  sessionId: string;
+  chatId: string;
+  artifactId: string;
+  path: string;
+  timestamp: number;
+}): void {
+  saveTimelineItem({
+    tenantId: input.tenantId,
+    sessionId: input.sessionId,
+    chatId: input.chatId,
+    type: 'artifact',
+    eventKey: `artifact:${input.artifactId}`,
+    timestamp: input.timestamp,
+    data: {
+      id: input.artifactId,
+      plugin_id: 'sandpack_v1',
+      title: 'Dashboard',
+      status: 'completed',
+      data: {
+        persisted_path: input.path,
+        content_type: 'html',
+      },
+    },
+  });
+}
+
 describe('memory/session-deliverables', () => {
   let tmpDir: string;
   let previousMoziWorkspaces: string | undefined;
@@ -86,6 +114,38 @@ describe('memory/session-deliverables', () => {
     ]);
     expect(getVerifiedSessionDeliverables({ tenantId, userId: userB, sessionId: sessionA.id })).toEqual([]);
     expect(getVerifiedSessionDeliverables({ tenantId: 'other-tenant', userId: userA, sessionId: sessionA.id })).toEqual([]);
+  });
+
+  it('treats a completed persisted rich artifact as a session deliverable', () => {
+    const tenantId = 'rich-deliverable-tenant';
+    const userId = 'rich-deliverable-user';
+    const session = createSession(userId, 'Dashboard session', tenantId);
+    const workspace = getWorkspaceDir(userId);
+    mkdirSync(workspace, { recursive: true });
+    const dashboardPath = join(workspace, 'dashboard.html');
+    writeFileSync(dashboardPath, '<!doctype html><html><body>Dashboard</body></html>');
+    saveRichArtifact({
+      tenantId,
+      sessionId: session.id,
+      chatId: userId,
+      artifactId: 'dashboard-artifact',
+      path: dashboardPath,
+      timestamp: 30,
+    });
+
+    expect(getVerifiedSessionDeliverables({ tenantId, userId, sessionId: session.id })).toEqual([
+      expect.objectContaining({
+        artifactId: 'dashboard-artifact',
+        path: realpathSync(dashboardPath),
+        filename: 'dashboard.html',
+      }),
+    ]);
+    expect(getVerifiedDeliverableLibrary({ tenantId, userId })).toEqual([
+      expect.objectContaining({
+        sessionTitle: 'Dashboard session',
+        deliverables: [expect.objectContaining({ filename: 'dashboard.html', kind: 'code', ext: 'html' })],
+      }),
+    ]);
   });
 
   it('merges binding-backed registry pointers with timeline pointers and formats registry fields', () => {

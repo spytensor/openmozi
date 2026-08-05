@@ -10,6 +10,7 @@ import {
 } from '../artifacts/file-artifacts.js';
 import { buildFileArtifactPreviewFields } from '../artifacts/file-preview.js';
 import { ensureArtifactCoordinator } from '../artifacts/coordinator.js';
+import { remoteArtifactDependencies, unresolvedArtifactPlaceholders } from '../artifacts/content-contract.js';
 import {
   resolveReadPath,
   resolveWritePath,
@@ -57,6 +58,15 @@ function fileArtifactDataForWrite(path: string, content: string): FileArtifactDa
     downloadUrl: `/api/fs/file?${new URLSearchParams({ path }).toString()}`,
     ...buildFileArtifactPreviewFields(path, ext),
   };
+}
+
+function renderablePublicationBlockers(content: string): string[] {
+  const placeholders = unresolvedArtifactPlaceholders(content);
+  const remoteDependencies = remoteArtifactDependencies(content);
+  return [
+    ...(placeholders.length > 0 ? [`unresolved placeholders: ${placeholders.join(', ')}`] : []),
+    ...(remoteDependencies.length > 0 ? [`remote runtime dependencies: ${remoteDependencies.join(', ')}`] : []),
+  ];
 }
 
 // ── Definitions ──
@@ -259,10 +269,19 @@ export async function executeFsTool(
       const isRenderableExt = ext === 'html' || ext === 'htm' || ext === 'svg';
       const hasExistingArtifact = artifactCoordinator?.has(id) === true;
       let artifactVerified = false;
+      let publicationBlockers: string[] = [];
       if (isRenderableExt && artifactCoordinator && (hasExistingArtifact || content.length > 20)) {
         const contentType = ext === 'svg' ? 'svg' : 'html';
         const title = basename(resolved) || 'Preview';
-        const data = { code: content, content_type: contentType };
+        const blockers = renderablePublicationBlockers(content);
+        publicationBlockers = blockers;
+        const data = {
+          code: content,
+          content_type: contentType,
+          persisted_path: canonicalResolved,
+          publication_blockers: blockers,
+          live_preview: blockers.length > 0,
+        };
         const artifactId = artifactCoordinator.openOrGet(id, {
           plugin_id: 'sandpack_v1',
           title,
@@ -271,41 +290,54 @@ export async function executeFsTool(
           collapsed_by_default: false,
           fallback_text: `File: ${path}`,
           data,
+          persisted_path: canonicalResolved,
         });
         const artifact = {
           id: artifactId,
           plugin_id: 'sandpack_v1',
           title,
-          status: 'completed' as const,
+          status: (blockers.length === 0 ? 'completed' : 'running') as 'completed' | 'running',
           collapsed_by_default: false,
-          fallback_text: `File: ${path}`,
+          fallback_text: blockers.length === 0
+            ? `File: ${path}`
+            : `Artifact staged but not published: ${blockers.join('; ')}`,
           data,
           updated_at: new Date().toISOString(),
+          persisted_path: canonicalResolved,
         };
         let emittedRenderableArtifact = false;
         try {
-          artifactCoordinator.complete(id, {
+          const patch = {
             plugin_id: artifact.plugin_id,
             title: artifact.title,
-            status: 'completed',
+            status: artifact.status,
             fallback_text: artifact.fallback_text,
             data: artifact.data,
             updated_at: artifact.updated_at,
-          });
-          emittedRenderableArtifact = true;
-          artifactVerified = true;
+            persisted_path: artifact.persisted_path,
+          };
+          if (blockers.length === 0) {
+            artifactCoordinator.complete(id, patch);
+            emittedRenderableArtifact = true;
+            artifactVerified = true;
+          } else {
+            artifactCoordinator.patch(id, patch);
+          }
         } catch (err) {
           logger.error(
             { err: err instanceof Error ? err.message : String(err), artifactId: artifact.id, chatId: context?.chatId, sessionId: context?.sessionId },
             'write_file: failed to emit artifact event',
           );
         }
-        if (emittedRenderableArtifact) {
+        if (artifactVerified) {
           context?.turnRichArtifactPaths?.add(canonicalResolved);
         }
         // Persist artifact so it survives page refresh.
         const chatId = context?.chatId;
-        if (!chatId) {
+        if (!emittedRenderableArtifact) {
+          // The timeline's running artifact remains the staged owner. The file
+          // tracker completes and persists it only after disk validation passes.
+        } else if (!chatId) {
           logger.warn(
             { artifactId: artifact.id, sessionId: context?.sessionId },
             'write_file: artifact not persisted — missing chatId',
@@ -375,9 +407,13 @@ export async function executeFsTool(
 
       return {
         tool_call_id: id,
-        content: `File written: ${path}`,
+        content: artifactVerified
+          ? `File written and artifact published: ${path}`
+          : publicationBlockers.length > 0
+            ? `File written but artifact is staged, not published: ${publicationBlockers.join('; ')}`
+            : `File written: ${path}`,
         is_error: false,
-        file_path: resolved,
+        file_path: canonicalResolved,
         artifact_verified: artifactVerified,
       };
     }

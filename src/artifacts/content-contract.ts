@@ -41,3 +41,25 @@ export function normalizeArtifactContentType(
   }
   return 'markdown';
 }
+
+/** Remote resources cannot load inside MOZI's self-contained artifact sandbox. */
+export function remoteArtifactDependencies(content: string): string[] {
+  const matches = new Set<string>();
+  const tagPattern = /<(?:script|img|iframe|source|video|audio|embed|input)\b[^>]*?\bsrc\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
+  const objectPattern = /<object\b[^>]*?\bdata\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
+  const linkPattern = /<link\b(?=[^>]*\brel\s*=\s*["'](?:stylesheet|preload|modulepreload|icon|manifest)["'])[^>]*?\bhref\s*=\s*["'](https?:\/\/[^"']+)["']/gi;
+  const cssPattern = /url\(\s*["']?(https?:\/\/[^)'"\s]+)["']?\s*\)/gi;
+  const cssImportPattern = /@import\s+(?:url\(\s*)?["']?(https?:\/\/[^)'";\s]+)["']?\s*\)?/gi;
+  const runtimeCallPattern = /\b(?:fetch|import|d3\.(?:json|csv|tsv))\s*\(\s*["'](https?:\/\/[^"']+)["']/gi;
+  const constructorPattern = /\bnew\s+(?:WebSocket|EventSource|Worker)\s*\(\s*["'](https?:\/\/[^"']+)["']/gi;
+  for (const pattern of [tagPattern, objectPattern, linkPattern, cssPattern, cssImportPattern, runtimeCallPattern, constructorPattern]) {
+    for (const match of content.matchAll(pattern)) matches.add(match[1]);
+  }
+  return [...matches].slice(0, 12);
+}
+
+/** Machine placeholders prove that staged content is not yet publishable. */
+export function unresolvedArtifactPlaceholders(content: string): string[] {
+  return [...new Set(content.match(/\b[A-Z0-9]+(?:_[A-Z0-9]+)*_PLACEHOLDER(?:_[A-Z0-9]+)*\b/g) ?? [])]
+    .slice(0, 12);
+}

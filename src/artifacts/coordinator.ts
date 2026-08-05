@@ -236,6 +236,14 @@ export class ArtifactCoordinator {
     return this.artifactIdByPath.get(normalizePathKey(absPath)) ?? null;
   }
 
+  /** Whether a physical path is already owned by a renderable artifact card. */
+  isRenderableArtifactPath(absPath: string): boolean {
+    const artifactId = this.resolveByPath(absPath);
+    if (!artifactId) return false;
+    const record = this.recordsByArtifactId.get(artifactId);
+    return record?.pluginId === 'sandpack_v1' || record?.pluginId === 'live_work_v1';
+  }
+
   /** Associate an additional physical path with an existing artifact identity. */
   bindPathToArtifact(artifactId: string, absPath: string): void {
     const record = this.recordsByArtifactId.get(artifactId);
@@ -243,6 +251,43 @@ export class ArtifactCoordinator {
     const key = normalizePathKey(absPath);
     record.paths.add(key);
     this.artifactIdByPath.set(key, artifactId);
+  }
+
+  /**
+   * Attach a new write tool call to the card already published for its path.
+   * No open event is emitted: the existing card becomes running again and the
+   * write's normal completion patch publishes the new bytes in place.
+   */
+  adoptToolCallByPath(toolCallId: string, artifactId: string, absPath: string, seed: ArtifactSeed): string {
+    const key = normalizePathKey(absPath);
+    let record = this.recordsByArtifactId.get(artifactId);
+    if (!record) {
+      const contentType = seed.content_type ?? dataContentType(seed.data);
+      record = {
+        artifactId,
+        key: toolCallId,
+        title: seed.title,
+        pluginId: seed.plugin_id,
+        contentType,
+        status: 'running',
+        fallbackText: seed.fallback_text ?? seed.title,
+        terminal: false,
+        paths: new Set([key]),
+        persistedPath: seed.persisted_path,
+        parentId: seed.parent_id,
+        versionNumber: seed.version_number,
+        changeDescription: seed.change_description,
+      };
+      this.recordsByArtifactId.set(artifactId, record);
+    } else {
+      record.status = 'running';
+      record.terminal = false;
+      record.paths.add(key);
+      if (seed.persisted_path !== undefined) record.persistedPath = seed.persisted_path;
+    }
+    this.recordsByToolCallId.set(toolCallId, record);
+    this.artifactIdByPath.set(key, artifactId);
+    return artifactId;
   }
 
   /**
