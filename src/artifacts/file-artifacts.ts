@@ -1,6 +1,6 @@
 import { createReadStream, realpathSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { readdir, lstat, realpath } from 'node:fs/promises';
+import { readdir, lstat, readFile, realpath } from 'node:fs/promises';
 import { basename, extname, relative, resolve } from 'node:path';
 import pino from 'pino';
 import type { ArtifactCoordinator } from './coordinator.js';
@@ -13,6 +13,8 @@ import {
 import { deliverableRegistry } from '../store/deliverables.js';
 import { deliverableVersionStore } from '../store/deliverable-versions.js';
 import { buildFileArtifactPreviewFields } from './file-preview.js';
+import { remoteArtifactDependencies, unresolvedArtifactPlaceholders } from './content-contract.js';
+import type { PublishedArtifactIdentity } from '../memory/session-timeline.js';
 
 const logger = pino({ name: 'mozi:file-artifacts' });
 
@@ -103,13 +105,13 @@ interface TurnFileArtifactTrackerOptions {
   sessionId?: string;
   userId?: string;
   artifactCoordinator?: ArtifactCoordinator;
-  richArtifactPaths?: ReadonlySet<string>;
+  richArtifactPaths?: Set<string>;
   /**
    * The artifact already published for a path by an earlier turn of this
    * session, if any. Injected rather than queried here so this module keeps no
    * database dependency and stays testable without one.
    */
-  resolvePublishedArtifactId?: (absPath: string) => string | null;
+  resolvePublishedArtifact?: (absPath: string) => PublishedArtifactIdentity | null;
 }
 
 export const DECK_EXTENSIONS = new Set(['pptx', 'key']);
@@ -445,7 +447,8 @@ function candidateFromStat(
   const ext = normalizeExt(filePath);
   const kind = classifyFileArtifactKind(ext);
   if (!kind) return null;
-  if (!explicit && (kind === 'code' || kind === 'other')) return null;
+  const isOutputHtml = root.kind === 'output' && (ext === 'html' || ext === 'htm');
+  if (!explicit && ((kind === 'code' && !isOutputHtml) || kind === 'other')) return null;
   // Scripts in a MOZI-owned root are how a deliverable got made, not the
   // deliverable. In a user's own project they may be the point, so this is
   // keyed on the root, not the extension alone.
@@ -519,6 +522,40 @@ function buildFileArtifactPatch(artifactId: string, data: FileArtifactData): Par
     status: 'completed',
     fallback_text: `File ready: ${data.filename}`,
     data: { ...data },
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function renderablePublicationBlockers(path: string): Promise<string[]> {
+  const content = await readFile(path, 'utf8');
+  const placeholders = unresolvedArtifactPlaceholders(content);
+  const remoteDependencies = remoteArtifactDependencies(content);
+  return [
+    ...(placeholders.length > 0 ? [`unresolved placeholders: ${placeholders.join(', ')}`] : []),
+    ...(remoteDependencies.length > 0 ? [`remote runtime dependencies: ${remoteDependencies.join(', ')}`] : []),
+  ];
+}
+
+function buildRenderableArtifactPatch(
+  data: FileArtifactData,
+  blockers: readonly string[],
+): Parameters<ArtifactCoordinator['patchArtifact']>[1] {
+  const contentType = data.ext === 'svg' ? 'svg' : 'html';
+  const completed = blockers.length === 0;
+  return {
+    plugin_id: 'sandpack_v1',
+    title: data.filename,
+    status: completed ? 'completed' : 'running',
+    fallback_text: completed
+      ? `File ready: ${data.filename}`
+      : `Artifact staged but not published: ${blockers.join('; ')}`,
+    persisted_path: data.path,
+    data: {
+      persisted_path: data.path,
+      content_type: contentType,
+      publication_blockers: [...blockers],
+      live_preview: !completed,
+    },
     updated_at: new Date().toISOString(),
   };
 }
@@ -620,6 +657,7 @@ export function createTurnFileArtifactTracker(options: TurnFileArtifactTrackerOp
   const baseline = new Map<string, FileFingerprint>();
   const emitted = new Map<string, EmittedFile>();
   const emittedByContent = new Map<string, ContentArtifact>();
+  const reconciledRich = new Map<string, FileFingerprint>();
   let lastSkillName: string | undefined;
   /** Latched for the turn: files are scanned per tool batch, the decision is per turn. */
   let turnHasPrimaryDoc = false;
@@ -758,7 +796,6 @@ export function createTurnFileArtifactTracker(options: TurnFileArtifactTrackerOp
       if (!servableRoots.some((root) => isPathUnderRoot(key, root))) continue;
       const nextFingerprint = fingerprint(candidate);
       if (sameFingerprint(baseline.get(key), nextFingerprint)) continue;
-      if (options.richArtifactPaths?.has(key)) continue;
       if (!explicit && candidate.mtimeMs < turnStartedAtMs && candidate.ctimeMs < turnStartedAtMs && !emitted.has(key)) continue;
       let candidateHash: string | null | undefined;
       const getCandidateHash = async (): Promise<string | null> => {
@@ -776,6 +813,48 @@ export function createTurnFileArtifactTracker(options: TurnFileArtifactTrackerOp
       const data: FileArtifactData = lastSkillName
         ? { ...canonicalData, skillName: lastSkillName }
         : canonicalData;
+
+      const previous = emitted.get(key);
+      if (!previous && !coordinator.resolveByPath(key)) {
+        const published = options.resolvePublishedArtifact?.(key);
+        if (published) {
+          const isRenderable = published.pluginId === 'sandpack_v1' || published.pluginId === 'live_work_v1';
+          coordinator.adoptFileByPath(published.artifactId, key, {
+            plugin_id: published.pluginId,
+            title: data.filename,
+            status: 'completed',
+            fallback_text: `File ready: ${data.filename}`,
+            data: isRenderable
+              ? {
+                  persisted_path: key,
+                  content_type: published.contentType ?? (data.ext === 'svg' ? 'svg' : 'html'),
+                }
+              : { ...data },
+            persisted_path: isRenderable ? key : undefined,
+          });
+        }
+      }
+
+      const richArtifactId = coordinator.isRenderableArtifactPath(key)
+        ? coordinator.resolveByPath(key)
+        : null;
+      let richPatch: Parameters<ArtifactCoordinator['patchArtifact']>[1] | null = null;
+      if (richArtifactId) {
+        if (sameFingerprint(reconciledRich.get(key), nextFingerprint)) continue;
+        let blockers: string[];
+        try {
+          blockers = await renderablePublicationBlockers(key);
+        } catch (error) {
+          blockers = [`persisted file could not be read: ${error instanceof Error ? error.message : String(error)}`];
+        }
+        richPatch = buildRenderableArtifactPatch(data, blockers);
+        reconciledRich.set(key, nextFingerprint);
+        if (blockers.length > 0) {
+          options.richArtifactPaths?.delete(key);
+          coordinator.patchArtifact(richArtifactId, richPatch);
+          continue;
+        }
+      }
 
       if (options.tenantId) {
         const currentMtimeMs = Math.trunc(candidate.mtimeMs);
@@ -817,7 +896,12 @@ export function createTurnFileArtifactTracker(options: TurnFileArtifactTrackerOp
         }
       }
 
-      const previous = emitted.get(key);
+      if (richArtifactId && richPatch) {
+        coordinator.patchArtifact(richArtifactId, richPatch);
+        options.richArtifactPaths?.add(key);
+        continue;
+      }
+
       // Identity lives in this turn's memory, so a path an *earlier* turn of the
       // session published looks brand new here — a plan's background turn
       // generates and publishes the deliverable, then this turn's scan finds the
@@ -828,18 +912,6 @@ export function createTurnFileArtifactTracker(options: TurnFileArtifactTrackerOp
       // the same path — both are "not mine, already on the timeline" — and would
       // leave the regenerating turn showing nothing at all. Adopting patches the
       // existing card in both cases, which is the single-card outcome either way.
-      if (!previous && !coordinator.resolveByPath(key)) {
-        const publishedId = options.resolvePublishedArtifactId?.(key);
-        if (publishedId) {
-          coordinator.adoptFileByPath(publishedId, key, {
-            plugin_id: 'file_v1',
-            title: data.filename,
-            status: 'completed',
-            fallback_text: `File ready: ${data.filename}`,
-            data: { ...data },
-          });
-        }
-      }
       const resolvedArtifactId = coordinator.resolveByPath(key);
       if (resolvedArtifactId) {
         if (previous && sameFingerprint(previous.fingerprint, nextFingerprint)) continue;

@@ -4,6 +4,7 @@ import {
   deleteTimelineAfterLatestUserMessage,
   deleteTimelineForSessionMessage,
   demoteDataFilePrimariesOnTurn,
+  findPublishedArtifactByPath,
   findLatestWorkspaceDocumentOnTurn,
   getSessionTimeline,
   getSessionTimelinePage,
@@ -34,6 +35,29 @@ afterEach(() => {
 });
 
 describe('memory/session-timeline', () => {
+  it('resolves persisted rich artifact identity by path for cross-turn convergence', () => {
+    saveTimelineItem({
+      tenantId: 'tenant-a',
+      sessionId: 'session-rich-path',
+      chatId: 'chat-1',
+      type: 'artifact',
+      eventKey: 'artifact:dashboard',
+      timestamp: 1,
+      data: {
+        id: 'dashboard',
+        plugin_id: 'sandpack_v1',
+        status: 'completed',
+        data: { persisted_path: '/output/dashboard.html', content_type: 'html' },
+      },
+    });
+
+    expect(findPublishedArtifactByPath({
+      tenantId: 'tenant-a',
+      sessionId: 'session-rich-path',
+      path: '/output/dashboard.html',
+    })).toEqual({ artifactId: 'dashboard', pluginId: 'sandpack_v1', contentType: 'html' });
+  });
+
   it('strips private reasoning text on writes and legacy reads', () => {
     saveTimelineItem({
       tenantId: 'tenant-a', sessionId: 'reasoning-session', chatId: 'chat-1', turnId: 'turn-1', type: 'message',

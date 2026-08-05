@@ -1,3 +1,4 @@
+import { realpathSync } from 'node:fs';
 import { basename, extname, normalize } from 'node:path';
 import type { ToolResult } from '../tools/types.js';
 
@@ -88,7 +89,12 @@ function parseArguments(raw: string): Record<string, unknown> {
 
 function normalizedPath(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.trim().length === 0) return undefined;
-  return normalize(value.trim());
+  const path = normalize(value.trim());
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
 }
 
 function isCodePath(path: string): boolean {
@@ -187,7 +193,13 @@ export function recordCompletionGateBatch(
         const paths = Array.isArray(args.checkpoint_paths) ? args.checkpoint_paths : [];
         for (const rawPath of paths) {
           const path = normalizedPath(rawPath);
-          if (path) state.mutations.set(path, { path, batch, kind: isCodePath(path) ? 'code' : 'non_code' });
+          if (!path) continue;
+          if (verifiedArtifactPaths.has(path)) {
+            state.mutations.delete(path);
+            state.artifactMutationBatch = batch;
+          } else {
+            state.mutations.set(path, { path, batch, kind: isCodePath(path) ? 'code' : 'non_code' });
+          }
         }
       }
       // A real interpreter invocation of an earlier-written code file is an

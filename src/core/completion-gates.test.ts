@@ -205,6 +205,19 @@ describe('completion gate', () => {
 
     expect(evaluateCompletionGate(state)).toMatchObject({ status: 'passed', verify_required: true });
   });
+
+  it('accepts final artifact publication after shell mutates its checkpointed HTML path', () => {
+    const state = createCompletionGateState('artifact');
+    const artifactPath = '/workspace/output/dashboard.html';
+    recordCompletionGateBatch(
+      state,
+      [call('shell', 'shell_exec', { command: 'python inject.py', checkpoint_paths: [artifactPath] })],
+      [result('shell')],
+      new Set([artifactPath]),
+    );
+
+    expect(evaluateCompletionGate(state)).toMatchObject({ status: 'passed', verify_required: true });
+  });
 });
 
 describe('completion gate blocked response', () => {

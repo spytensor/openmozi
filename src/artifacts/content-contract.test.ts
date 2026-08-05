@@ -4,6 +4,8 @@ import {
   explicitlyRequestsRenderableArtifact,
   inferStrongArtifactContentType,
   normalizeArtifactContentType,
+  remoteArtifactDependencies,
+  unresolvedArtifactPlaceholders,
 } from './content-contract.js';
 
 describe('artifact content contract', () => {
@@ -24,5 +26,15 @@ describe('artifact content contract', () => {
   it('promotes standalone SVG while preserving explicit code types', () => {
     expect(normalizeArtifactContentType('markdown', '<svg viewBox="0 0 10 10"></svg>')).toBe('svg');
     expect(normalizeArtifactContentType('react', '<html><body>literal in JSX</body></html>')).toBe('react');
+  });
+
+  it('detects publication blockers without treating ordinary HTML placeholder attributes as staged data', () => {
+    const content = `
+      <input placeholder="Search">
+      <script src="https://cdn.jsdelivr.net/npm/echarts"></script>
+      <script>const DATA = /* FINAL_DATA_JSON_PLACEHOLDER */;</script>
+    `;
+    expect(remoteArtifactDependencies(content)).toEqual(['https://cdn.jsdelivr.net/npm/echarts']);
+    expect(unresolvedArtifactPlaceholders(content)).toEqual(['FINAL_DATA_JSON_PLACEHOLDER']);
   });
 });

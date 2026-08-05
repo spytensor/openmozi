@@ -179,6 +179,25 @@ describe('runtime artifact versioning tools', () => {
     expect(artifact.version_number).toBe(1);
   });
 
+  it('rejects an explicit renderable publication while placeholders or remote runtime dependencies remain', async () => {
+    const result = await executeRuntimeTool(
+      'create_artifact',
+      {
+        title: 'Staged dashboard',
+        content_type: 'html',
+        code: '<!doctype html><script src="https://cdn.example/chart.js"></script><script>const DATA = FINAL_DATA_JSON_PLACEHOLDER;</script>',
+      },
+      'call-invalid-publication',
+      toolContext,
+    );
+
+    expect(result?.is_error).toBe(true);
+    expect(result?.content).toContain('Artifact not published');
+    expect(result?.content).toContain('FINAL_DATA_JSON_PLACEHOLDER');
+    expect(result?.content).toContain('https://cdn.example/chart.js');
+    expect(getDb().prepare('SELECT COUNT(*) AS count FROM conversations').get()).toEqual({ count: 0 });
+  });
+
   it('links same-session create_artifact calls with matching persisted_path as versions', async () => {
     await createMarkdownArtifact('# Version One\n\nOriginal body.', 'call-create-v1');
     const firstArtifact = latestPersistedArtifact();
@@ -229,6 +248,31 @@ describe('runtime artifact versioning tools', () => {
       persisted_path: firstArtifact.persisted_path,
       change_description: 'Replace original content',
     });
+  });
+
+  it('does not overwrite a valid persisted artifact with an invalid update', async () => {
+    const original = '<!doctype html><html><body><h1>Keep me</h1></body></html>';
+    await executeRuntimeTool(
+      'create_artifact',
+      { title: 'Guarded dashboard', content_type: 'html', code: original },
+      'call-update-guard-base',
+      toolContext,
+    );
+    const firstArtifact = latestPersistedArtifact();
+
+    const result = await executeRuntimeTool(
+      'update_artifact',
+      {
+        artifact_id: firstArtifact.id,
+        new_content: '<!doctype html><script>const DATA = FINAL_DATA_JSON_PLACEHOLDER;</script>',
+      },
+      'call-update-guard',
+      toolContext,
+    );
+
+    expect(result?.is_error).toBe(true);
+    expect(result?.content).toContain('Artifact not published');
+    expect(readFileSync(firstArtifact.persisted_path as string, 'utf8')).toBe(original);
   });
 
   it('preserves unchanged paragraphs across an artifact iteration', async () => {

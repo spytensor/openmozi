@@ -538,25 +538,47 @@ export function getCompletedArtifactsForTurn(input: {
  * the honest place to ask. Scoped by tenant and session: identity must not be
  * resolved across either boundary.
  */
-export function findPublishedArtifactIdByPath(input: {
+export interface PublishedArtifactIdentity {
+  artifactId: string;
+  pluginId: string;
+  contentType?: string;
+}
+
+export function findPublishedArtifactByPath(input: {
   tenantId?: string;
   sessionId: string;
   path: string;
-}): string | null {
+}): PublishedArtifactIdentity | null {
   if (!input.sessionId || !input.path) return null;
   try {
     const db = getDb();
     const row = db.prepare(`
-      SELECT json_extract(payload, '$.id') AS artifact_id
+      SELECT json_extract(payload, '$.id') AS artifact_id,
+             json_extract(payload, '$.plugin_id') AS plugin_id,
+             json_extract(payload, '$.data.content_type') AS content_type
       FROM session_timeline_events
       WHERE tenant_id = ?
         AND session_id = ?
         AND item_type = 'artifact'
-        AND json_extract(payload, '$.data.path') = ?
+        AND json_extract(payload, '$.status') = 'completed'
+        AND (
+          json_extract(payload, '$.data.path') = ?
+          OR json_extract(payload, '$.data.persisted_path') = ?
+        )
       ORDER BY id ASC
       LIMIT 1
-    `).get(input.tenantId ?? 'default', input.sessionId, input.path) as { artifact_id?: unknown } | undefined;
-    return typeof row?.artifact_id === 'string' && row.artifact_id ? row.artifact_id : null;
+    `).get(input.tenantId ?? 'default', input.sessionId, input.path, input.path) as {
+      artifact_id?: unknown;
+      plugin_id?: unknown;
+      content_type?: unknown;
+    } | undefined;
+    if (typeof row?.artifact_id !== 'string' || !row.artifact_id) return null;
+    if (typeof row.plugin_id !== 'string' || !row.plugin_id) return null;
+    return {
+      artifactId: row.artifact_id,
+      pluginId: row.plugin_id,
+      ...(typeof row.content_type === 'string' && row.content_type ? { contentType: row.content_type } : {}),
+    };
   } catch (err) {
     // This runs inside the end-of-turn artifact scan. It is a de-duplication
     // hint, not a correctness gate: failing to answer must degrade to "publish
@@ -565,6 +587,14 @@ export function findPublishedArtifactIdByPath(input: {
     logger.warn({ err: String(err), sessionId: input.sessionId }, 'could not resolve published artifact id; treating path as unpublished');
     return null;
   }
+}
+
+export function findPublishedArtifactIdByPath(input: {
+  tenantId?: string;
+  sessionId: string;
+  path: string;
+}): string | null {
+  return findPublishedArtifactByPath(input)?.artifactId ?? null;
 }
 
 function encodeCursor(timestamp: number, id: number): string {

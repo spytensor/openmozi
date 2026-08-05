@@ -1107,6 +1107,7 @@ describe('brainExecute', () => {
   it('converges streaming write_file live preview and final file artifact with the same toolCallId', async () => {
     const savedMoziHome = process.env.MOZI_HOME;
     const moziHome = mkdtempSync(join(tmpdir(), 'mozi-write-file-convergence-home-'));
+    const { tmpDir: dbTmpDir } = setupTestDb();
     process.env.MOZI_HOME = moziHome;
     loadConfig(getConfigPath());
 
@@ -1203,6 +1204,7 @@ describe('brainExecute', () => {
       expect(fileArtifacts).toHaveLength(0);
       expect(renderableArtifactIds.size).toBe(1);
     } finally {
+      teardownTestDb(dbTmpDir);
       rmSync(moziHome, { recursive: true, force: true });
       if (savedMoziHome === undefined) {
         delete process.env.MOZI_HOME;
@@ -1216,6 +1218,7 @@ describe('brainExecute', () => {
   it('keeps create_artifact and write_file outputs with different toolCallIds as two cards', async () => {
     const savedMoziHome = process.env.MOZI_HOME;
     const moziHome = mkdtempSync(join(tmpdir(), 'mozi-two-artifacts-home-'));
+    const { tmpDir: dbTmpDir } = setupTestDb();
     process.env.MOZI_HOME = moziHome;
     loadConfig(getConfigPath());
 
@@ -1280,6 +1283,7 @@ describe('brainExecute', () => {
       expect(completedIds.size).toBe(2);
       expect(opens.map((event) => event.artifact.title).sort()).toEqual(['Deck Notes', 'deck-preview.html']);
     } finally {
+      teardownTestDb(dbTmpDir);
       rmSync(moziHome, { recursive: true, force: true });
       if (savedMoziHome === undefined) {
         delete process.env.MOZI_HOME;
@@ -1291,6 +1295,12 @@ describe('brainExecute', () => {
   });
 
   it('fails a live write_file artifact from the abort event when the stream hangs', async () => {
+    const savedMoziHome = process.env.MOZI_HOME;
+    const moziHome = mkdtempSync(join(tmpdir(), 'mozi-abort-artifact-home-'));
+    process.env.MOZI_HOME = moziHome;
+    loadConfig(getConfigPath());
+
+    try {
     const controller = new AbortController();
     let releaseStream!: () => void;
     const streamBlocker = new Promise<void>((resolve) => {
@@ -1364,6 +1374,15 @@ describe('brainExecute', () => {
       (event as { patch?: { status?: string } }).patch?.status === 'failed'
     ));
     expect(failedPatches).toHaveLength(1);
+    } finally {
+      rmSync(moziHome, { recursive: true, force: true });
+      if (savedMoziHome === undefined) {
+        delete process.env.MOZI_HOME;
+      } else {
+        process.env.MOZI_HOME = savedMoziHome;
+      }
+      loadConfig('/nonexistent/mozi.json');
+    }
   });
 
   it('emits one file_v1 artifact for a generated deck and patches overwrites without surfacing the build script', async () => {

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { createTempDir, removeTempDir } from '../test-helpers.js';
 import type { ArtifactEvent } from '../artifacts/types.js';
 import { ArtifactCoordinator } from '../artifacts/coordinator.js';
@@ -132,9 +133,35 @@ describe('tools/fs-tools write_file artifact terminalization', () => {
     if (open.type !== 'open') throw new Error('expected open event');
     expect(open.artifact.status).toBe('running');
     expect(open.artifact.plugin_id).toBe('sandpack_v1');
+    expect(open.artifact.persisted_path).toBe(result?.file_path);
+    expect(open.artifact.data.persisted_path).toBe(result?.file_path);
     const completedPatch = events.find((e): e is Extract<ArtifactEvent, { type: 'patch' }> => (
       e.type === 'patch' && e.patch.status === 'completed'
     ));
     expect(completedPatch?.artifactId).toBe(open.artifact.id);
+    expect(completedPatch?.patch.persisted_path).toBe(result?.file_path);
+    expect(result?.artifact_verified).toBe(true);
+  });
+
+  it('writes staged HTML but does not publish it while deterministic blockers remain', async () => {
+    const events: ArtifactEvent[] = [];
+    const coordinator = new ArtifactCoordinator('turn-staged', (event) => events.push(event));
+    const context: ToolContext = {
+      tenantId: 'default',
+      chatId: 'chat-staged',
+      sessionId: 'sess-staged',
+      artifactCoordinator: coordinator,
+      turnRichArtifactPaths: new Set(),
+    };
+    const staged = '<!doctype html><script src="https://cdn.example/chart.js"></script><script>const DATA = FINAL_DATA_JSON_PLACEHOLDER;</script>';
+
+    const result = await executeFsTool('write_file', { path: 'staged.html', content: staged }, 'call-staged', context);
+
+    expect(result?.is_error).toBe(false);
+    expect(result?.artifact_verified).toBe(false);
+    expect(result?.content).toContain('staged, not published');
+    expect(readFileSync(result!.file_path!, 'utf8')).toBe(staged);
+    expect(events.some((event) => event.type === 'patch' && event.patch.status === 'completed')).toBe(false);
+    expect(context.turnRichArtifactPaths).toEqual(new Set());
   });
 });

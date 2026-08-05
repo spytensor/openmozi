@@ -552,6 +552,27 @@ describe("CodeRenderer — disk is the render truth (root-cause decision 2026-07
     }
   });
 
+  it("refetches the same persisted path after a later artifact patch", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve("<!doctype html><h1>Staged</h1>") } as Response)
+      .mockResolvedValueOnce({ ok: true, text: () => Promise.resolve("<!doctype html><h1>Final</h1>") } as Response);
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const first = artifact({
+        timestamp: 1,
+        data: { content_type: "html", code: SNAPSHOT, persisted_path: "/tmp/artifacts/dash.html" },
+      });
+      const { container, rerender } = renderWithLocale(<CodeRenderer artifact={first} showCode={false} />);
+      await waitFor(() => expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain("Staged"));
+
+      rerender(<CodeRenderer artifact={{ ...first, timestamp: 2 }} showCode={false} />);
+      await waitFor(() => expect(container.querySelector("iframe")?.getAttribute("srcdoc")).toContain("Final"));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("falls back to the snapshot when the persisted file is unreachable", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve("") } as Response)));
     try {

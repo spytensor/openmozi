@@ -4,7 +4,7 @@ import type { ToolContext } from '../tools/types.js';
 import { executeToolCalls, extractToolIntent, extractToolSkillName } from '../tools/executor.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
 import type { ProgressCallback, ReasoningProgress } from './brain-progress.js';
-import { createTurnFileArtifactTracker, type TurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
+import { canonicalPath, createTurnFileArtifactTracker, type TurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
 import { activeSkillScope, getActiveSkills } from '../skills/active-skills.js';
 import { formatActiveSkillSection } from '../memory/context-slots.js';
 import { evaluateCompletionGate, recordCompletionGateBatch, type CompletionGateState } from './completion-gates.js';
@@ -27,6 +27,8 @@ import {
   shapePromptMessagesForExecution,
   type ToolShapingResult,
 } from '../tools/tool-shaping.js';
+import { resolveWritePath, resolveWriteRoots } from '../tools/tool-utils.js';
+import { findPublishedArtifactByPath } from '../memory/session-timeline.js';
 
 const logger = pino({ name: 'mozi:brain-engine' });
 
@@ -341,6 +343,40 @@ async function handleToolCalls(
         const artifactData = preopen.contentType === 'markdown' || preopen.contentType === 'document'
           ? { markdown: preopen.code, content_type: 'markdown', live_preview: true, meta: { turn_id: params.turnId } }
           : { code: preopen.code, content_type: preopen.contentType, live_preview: true, meta: { turn_id: params.turnId } };
+        if (preopen.path) {
+          try {
+            const resolved = resolveWritePath(
+              preopen.path,
+              params.toolContext.userId,
+              resolveWriteRoots(params.toolContext),
+              params.toolContext.workspaceRootPath,
+            );
+            const path = await canonicalPath(resolved);
+            const currentArtifactId = params.toolContext.artifactCoordinator.resolveByPath(path);
+            const published = currentArtifactId
+              ? { artifactId: currentArtifactId }
+              : params.toolContext.sessionId
+                ? findPublishedArtifactByPath({
+                    tenantId: params.toolContext.tenantId,
+                    sessionId: params.toolContext.sessionId,
+                    path,
+                  })
+                : null;
+            if (published?.artifactId) {
+              params.toolContext.artifactCoordinator.adoptToolCallByPath(tc.id, published.artifactId, path, {
+                plugin_id: 'sandpack_v1',
+                title,
+                content_type: preopen.contentType,
+                status: 'running',
+                fallback_text: preopen.fallbackText,
+                data: { ...artifactData, persisted_path: path },
+                persisted_path: path,
+              });
+            }
+          } catch {
+            // The executor reports invalid/out-of-scope paths authoritatively.
+          }
+        }
         params.toolContext.artifactCoordinator.openOrGet(tc.id, {
           plugin_id: preopen.contentType === 'markdown' || preopen.contentType === 'document' ? 'document_v1' : 'sandpack_v1',
           title,
@@ -370,12 +406,6 @@ async function handleToolCalls(
   );
   throwIfAborted(params.abortSignal, 'Request cancelled');
   const toolElapsed = Date.now() - toolStart;
-  recordCompletionGateBatch(
-    params.completionGateState,
-    toolCalls,
-    results,
-    params.toolContext.turnRichArtifactPaths,
-  );
 
   for (const result of results) {
     loopMessages.push({
@@ -440,6 +470,15 @@ async function handleToolCalls(
       await params.fileArtifactTracker.scanAndEmit();
     }
   }
+
+  // Publication is evidence only after the file tracker has reconciled the
+  // final disk bytes with the owning artifact and deliverable registry.
+  recordCompletionGateBatch(
+    params.completionGateState,
+    toolCalls,
+    results,
+    params.toolContext.turnRichArtifactPaths,
+  );
 
   logger.info({ chatId, iteration: i + 1, toolCalls: toolCalls.map(tc => tc.function.name) }, 'Tool calls executed');
 

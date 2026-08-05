@@ -15,7 +15,7 @@ import { updateTask } from '../store/task-dag.js';
 import { executeToolCalls, extractToolIntent, extractToolSkillName } from '../tools/executor.js';
 import { STEP_RESULT_PERSISTENCE_NOTE } from './plan-grounding.js';
 import { createTurnFileArtifactTracker } from '../artifacts/file-artifacts.js';
-import { findPublishedArtifactIdByPath } from '../memory/session-timeline.js';
+import { findPublishedArtifactByPath } from '../memory/session-timeline.js';
 import { ArtifactCoordinator } from '../artifacts/coordinator.js';
 import type { ArtifactEvent } from '../artifacts/types.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
@@ -461,8 +461,8 @@ export async function executeSingleTask(
           userId: taskToolContext.userId,
           richArtifactPaths: turnRichArtifactPaths,
           artifactCoordinator: coordinator,
-          resolvePublishedArtifactId: taskToolContext.sessionId
-            ? (path) => findPublishedArtifactIdByPath({
+          resolvePublishedArtifact: taskToolContext.sessionId
+            ? (path) => findPublishedArtifactByPath({
                 tenantId: taskToolContext.tenantId,
                 sessionId: taskToolContext.sessionId!,
                 path,
