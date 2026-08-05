@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, renderWithLocale } from "@/test/render";
+import { fireEvent, screen, waitFor, within, renderWithLocale } from "@/test/render";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsView from "./SettingsView";
 import type { RuntimeHealth, RuntimeServiceStatus, RuntimeWorkspaceSnapshot } from "@/types/runtime";
@@ -441,11 +441,62 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByTestId("settings-save-active-models"));
 
     await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/quotas/default", {
-      allowed_models: ["deepseek-chat"],
+      allowed_models: ["deepseek:deepseek-chat"],
     }));
     await waitFor(() => expect(screen.getByTestId("settings-save-active-models")).toBeDisabled());
     expect(screen.getByTestId("settings-save-active-models")).toHaveTextContent("Saved");
     expect(getMock.mock.calls.filter(([url]) => url === "/api/providers")).toHaveLength(1);
+  });
+
+  it("keeps the same model id independent across providers when removing one", async () => {
+    // Reproduces the reported bug: a relay (e.g. LiteLLM behind Qwen) re-lists
+    // `deepseek-v4-flash`, so it appears under both DeepSeek and Qwen. Removing
+    // one provider's copy must not remove the other's.
+    getMock.mockImplementation((url: string) => {
+      if (url === "/api/models/roles") return Promise.resolve({
+        data: {
+          brain: { provider: "deepseek", model: "deepseek-v4-flash", ready: true },
+          light: { provider: "deepseek", model: "deepseek-v4-flash", ready: true },
+          embedding: { provider: "auto", model: "", ready: true },
+        },
+      });
+      if (url === "/api/keys") return Promise.resolve({ data: { keys: [] } });
+      if (url === "/api/services") return Promise.resolve({ data: { providers: [], activeSearchProvider: null } });
+      if (url === "/api/providers") {
+        return Promise.resolve({
+          data: {
+            providers: [
+              { id: "deepseek", name: "DeepSeek", apiType: "openai-compat", defaultModel: "deepseek-v4-flash", hasKey: true, models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] },
+              { id: "dashscope", name: "Qwen / Alibaba Cloud", apiType: "openai-compat", defaultModel: "deepseek-v4-flash", hasKey: true, models: [{ id: "deepseek-v4-flash", name: "deepseek-v4-flash" }] },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: null });
+    });
+
+    renderWithLocale(<SettingsView snapshot={snapshot} health={health} service={service} />);
+    await screen.findByRole("heading", { name: "Settings" });
+    clickCategory("models");
+    await openActiveModelManager();
+
+    const deepseekSection = await screen.findByTestId("settings-active-provider-deepseek");
+    const dashscopeSection = await screen.findByTestId("settings-active-provider-dashscope");
+
+    // Both providers start with their own active copy of the same model id.
+    expect(within(deepseekSection).getByTestId("settings-active-model-deepseek-v4-flash")).toHaveAccessibleName("Remove DeepSeek V4 Flash");
+    expect(within(dashscopeSection).getByTestId("settings-active-model-deepseek-v4-flash")).toHaveAccessibleName("Remove deepseek-v4-flash");
+
+    // Remove DeepSeek's copy — Qwen's copy must survive.
+    fireEvent.click(within(deepseekSection).getByTestId("settings-active-model-deepseek-v4-flash"));
+    expect(within(deepseekSection).queryByTestId("settings-active-model-deepseek-v4-flash")).not.toBeInTheDocument();
+    expect(within(dashscopeSection).getByTestId("settings-active-model-deepseek-v4-flash")).toBeInTheDocument();
+
+    // Saved allow-list keeps only Qwen's provider-scoped key.
+    fireEvent.click(screen.getByTestId("settings-save-active-models"));
+    await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/quotas/default", {
+      allowed_models: ["dashscope:deepseek-v4-flash"],
+    }));
   });
 
   it("keeps changed active models retryable when saving fails", async () => {
@@ -558,7 +609,7 @@ describe("SettingsView", () => {
     fireEvent.click(screen.getByTestId("settings-save-active-models"));
 
     await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/quotas/default", {
-      allowed_models: ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-pro-preview", "deepseek-private-preview"],
+      allowed_models: ["deepseek:deepseek-chat", "deepseek:deepseek-reasoner", "deepseek:deepseek-v4-pro-preview", "deepseek:deepseek-private-preview"],
     }));
   });
 

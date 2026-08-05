@@ -442,7 +442,7 @@ function applyEntitlementContext(selection: ModelSelection, routingContext?: Rou
 
   let resolution: AllowedModelsResolution | undefined;
   if (selection.model && tenantId && userId) {
-    resolution = assertModelAllowed(tenantId, userId, selection.model);
+    resolution = assertModelAllowed(tenantId, userId, selection.model, selection.provider);
   }
 
   return {

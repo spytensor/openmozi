@@ -140,7 +140,7 @@ import { getAllProviders, getProvider, getModel, resolveRuntimeModel, resolveApi
 import { clearCache as clearModelRouterCache } from '../core/model-router.js';
 import { enrich, type EnrichedModelMetadata } from '../core/model-registry-enrichment.js';
 import { discoverProviderModels, isSafeCustomModelId, type ModelDiscoveryResult } from '../core/model-discovery.js';
-import { assertModelAllowed, resolveAllowedModels, ModelNotAllowedError } from '../security/entitlements.js';
+import { assertModelAllowed, resolveAllowedModels, ModelNotAllowedError, modelEntitlementAllowed } from '../security/entitlements.js';
 import { resolveRuntimeApiKey } from '../core/runtime-provider-keys.js';
 import { readConfigWithLegacyFallback, writeConfigObject } from '../config/storage.js';
 import { loadConfig, getConfig } from '../config/index.js';
@@ -1146,7 +1146,7 @@ async function buildProviderModels(provider: ProviderDef, allowedModels: string[
   const liveById = new Map((discovery?.models ?? []).map(model => [model.id, model]));
   const models = provider.models.map((model) => serializeCatalogModel(
     model,
-    allowedModels === null || allowedModels.includes(model.id),
+    modelEntitlementAllowed(allowedModels, provider.id, model.id),
     false,
     liveById.get(model.id) as EnrichedModelMetadata | undefined ?? null,
     liveById.has(model.id) ? discovery?.source ?? 'catalog' : 'catalog',
@@ -1157,12 +1157,12 @@ async function buildProviderModels(provider: ProviderDef, allowedModels: string[
     if (bundledIds.has(live.id)) continue;
     const resolved = resolveRuntimeModel(provider.id, live.id, { allowUnknown: true });
     if (!resolved) continue;
-    const registryMetadata = allowedModels !== null && allowedModels.includes(live.id)
+    const registryMetadata = allowedModels !== null && modelEntitlementAllowed(allowedModels, provider.id, live.id)
       ? await enrich(provider.id, live.id)
       : null;
     models.push(serializeCatalogModel(
       { ...resolved, name: live.name ?? resolved.name },
-      allowedModels === null || allowedModels.includes(live.id),
+      modelEntitlementAllowed(allowedModels, provider.id, live.id),
       true,
       { ...(registryMetadata ?? {}), ...live } as EnrichedModelMetadata,
       discovery?.source ?? 'live',
@@ -1176,7 +1176,7 @@ async function buildProviderModels(provider: ProviderDef, allowedModels: string[
     const resolved = resolveRuntimeModel(provider.id, modelId, { allowUnknown: true });
     if (!resolved) continue;
     const confidence = getModel(provider.id, modelId) ? 'catalog' : 'conservative';
-    models.push(serializeCatalogModel(resolved, allowedModels === null || allowedModels.includes(modelId), true, null, 'manual', confidence));
+    models.push(serializeCatalogModel(resolved, modelEntitlementAllowed(allowedModels, provider.id, modelId), true, null, 'manual', confidence));
     includedIds.add(modelId);
   }
 
@@ -1187,11 +1187,18 @@ async function buildProviderModels(provider: ProviderDef, allowedModels: string[
     return models;
   }
 
-  for (const modelId of allowedModels) {
-    if (includedIds.has(modelId)) continue;
+  const providerPrefix = `${provider.id}:`;
+  for (const entry of allowedModels) {
+    // Composite `${provider}:${model}` entries only surface under their own
+    // provider; legacy bare ids (no colon) stay provider-agnostic.
+    const modelId = entry.startsWith(providerPrefix)
+      ? entry.slice(providerPrefix.length)
+      : (entry.includes(':') ? null : entry);
+    if (modelId === null || includedIds.has(modelId)) continue;
     const resolved = getModel(provider.id, modelId);
     if (!resolved) continue;
     models.push(serializeCatalogModel(resolved, true, true, await enrich(provider.id, modelId), 'catalog', 'catalog'));
+    includedIds.add(modelId);
   }
   return models;
 }
@@ -1200,15 +1207,25 @@ function validateKnownModelGrant(input: string[] | null): string[] | null {
   const normalized = normalizeModelGrant(input);
   if (normalized === null) return null;
   const providers = getAllProviders().filter(isChatRoleEligibleProvider);
+  const providerById = new Map(providers.map(provider => [provider.id, provider]));
   const raw = readConfigWithLegacyFallback(getConfigPath()).config;
   const registered = ((raw.model_discovery as Record<string, unknown> | undefined)?.models ?? {}) as Record<string, string[]>;
-  const unknown = normalized.filter(model => !isSafeCustomModelId(model) || !providers.some(provider => Boolean(
-    provider.apiMode === 'cli-pipe'
-      ? provider.models.some(candidate => candidate.id === model) || registered[provider.id]?.includes(model)
-      : provider.apiMode === 'azure-openai'
+  const knownForProvider = (provider: ProviderDef, model: string): boolean =>
+    isSafeCustomModelId(model) && Boolean(
+      provider.apiMode === 'cli-pipe' || provider.apiMode === 'azure-openai'
         ? provider.models.some(candidate => candidate.id === model) || registered[provider.id]?.includes(model)
-      : getModel(provider.id, model) || registered[provider.id]?.includes(model),
-  )));
+        : getModel(provider.id, model) || registered[provider.id]?.includes(model),
+    );
+  const unknown = normalized.filter(entry => {
+    // Composite `${provider}:${model}` when the prefix is a known provider id;
+    // otherwise a legacy bare id that must be known to at least one provider.
+    const colon = entry.indexOf(':');
+    if (colon > 0) {
+      const provider = providerById.get(entry.slice(0, colon));
+      if (provider) return !knownForProvider(provider, entry.slice(colon + 1));
+    }
+    return !providers.some(provider => knownForProvider(provider, entry));
+  });
   if (unknown.length > 0) {
     throw new Error(`Unknown model id(s): ${unknown.join(', ')}`);
   }

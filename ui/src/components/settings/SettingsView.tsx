@@ -64,6 +64,7 @@ import {
   applyRoleReadinessToProviders,
   buildKeyHint,
   findModel,
+  modelActivationKey,
   modelDisplayName,
   providerBrainEligible,
   providerDisplayName,
@@ -392,7 +393,7 @@ export default function SettingsView({
   const activationModelIds = useMemo(() => {
     const ids = new Set<string>();
     for (const provider of activationProviders) {
-      for (const model of provider.models) ids.add(model.id);
+      for (const model of provider.models) ids.add(modelActivationKey(provider.id, model.id));
     }
     return ids;
   }, [activationProviders]);
@@ -400,7 +401,7 @@ export default function SettingsView({
     const ids = new Set<string>();
     for (const provider of activationProviders) {
       for (const model of provider.models) {
-        if (!model.discovered) ids.add(model.id);
+        if (!model.discovered) ids.add(modelActivationKey(provider.id, model.id));
       }
     }
     return ids;
@@ -408,7 +409,7 @@ export default function SettingsView({
   const hasSelectedDiscoveredModels = useMemo(() => {
     for (const provider of activationProviders) {
       for (const model of provider.models) {
-        if (model.discovered && activeModelIds.has(model.id)) return true;
+        if (model.discovered && activeModelIds.has(modelActivationKey(provider.id, model.id))) return true;
       }
     }
     return false;
@@ -517,7 +518,7 @@ export default function SettingsView({
             capabilityConfidence: "conservative",
           }],
         }));
-    setActiveModelIds((current) => new Set(current).add(normalized));
+    setActiveModelIds((current) => new Set(current).add(modelActivationKey(providerId, normalized)));
     setActivationError(null);
     return true;
   };
@@ -543,7 +544,7 @@ export default function SettingsView({
       ...provider,
       models: provider.models.map((model) => ({
         ...model,
-        allowed: allowedModels === null || savedIds.has(model.id),
+        allowed: allowedModels === null || savedIds.has(modelActivationKey(provider.id, model.id)),
       })),
     }));
     setProviders(nextProviders);
@@ -1564,7 +1565,7 @@ function activeModelIdsFromProviders(providers: CatalogProvider[]): Set<string> 
   for (const provider of providers) {
     if (!provider.hasKey) continue;
     for (const model of provider.models) {
-      if (model.allowed !== false) ids.add(model.id);
+      if (model.allowed !== false) ids.add(modelActivationKey(provider.id, model.id));
     }
   }
   return ids;
@@ -1644,7 +1645,7 @@ function ActiveModelsBlock({
   }, [manualProviderId, providers]);
 
   const selectedCount = useMemo(() => providers.reduce(
-    (count, provider) => count + provider.models.filter((model) => activeModelIds.has(model.id)).length,
+    (count, provider) => count + provider.models.filter((model) => activeModelIds.has(modelActivationKey(provider.id, model.id))).length,
     0,
   ), [activeModelIds, providers]);
   const filteredProviders = useMemo(() => {
@@ -1671,7 +1672,7 @@ function ActiveModelsBlock({
   const renderModelGrid = (provider: CatalogProvider, models: CatalogModel[]) => (
     <div className="grid grid-cols-1 lg:grid-cols-2">
       {models.map((model, index) => {
-        const active = activeModelIds.has(model.id);
+        const active = activeModelIds.has(modelActivationKey(provider.id, model.id));
         const displayName = model.name || model.id;
         return (
           <div
@@ -1704,7 +1705,7 @@ function ActiveModelsBlock({
               type="button"
               data-testid={`settings-active-model-${model.id}`}
               aria-label={`${t(active ? "settings.models.activation.remove" : "settings.models.activation.add")} ${displayName}`}
-              onClick={() => onToggle(model.id, !active)}
+              onClick={() => onToggle(modelActivationKey(provider.id, model.id), !active)}
               className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-ink/[0.12] px-2 text-[10.5px] font-medium text-ink/54 transition-colors hover:border-ink/[0.22] hover:bg-ink/[0.04] hover:text-ink/78"
             >
               {active ? <Minus className="h-3 w-3" aria-hidden="true" /> : <Plus className="h-3 w-3" aria-hidden="true" />}
@@ -1783,8 +1784,8 @@ function ActiveModelsBlock({
               </div>
             ) : filteredProviders.map((provider) => {
               const catalogProvider = providers.find((candidate) => candidate.id === provider.id) ?? provider;
-              const selectedModels = catalogProvider.models.filter((model) => activeModelIds.has(model.id));
-              const availableModels = catalogProvider.models.filter((model) => !activeModelIds.has(model.id));
+              const selectedModels = catalogProvider.models.filter((model) => activeModelIds.has(modelActivationKey(catalogProvider.id, model.id)));
+              const availableModels = catalogProvider.models.filter((model) => !activeModelIds.has(modelActivationKey(catalogProvider.id, model.id)));
               const providerSearchQuery = providerSearchQueries[provider.id]?.trim().toLocaleLowerCase() ?? "";
               const pickerModels = providerSearchQuery
                 ? availableModels.filter((model) => [model.id, model.name].some((value) => value?.toLocaleLowerCase().includes(providerSearchQuery)))
@@ -1857,7 +1858,7 @@ function ActiveModelsBlock({
                                   type="button"
                                   data-testid={`settings-picker-model-${model.id}`}
                                   aria-label={`${t("settings.models.activation.add")} ${displayName}`}
-                                  onClick={() => onToggle(model.id, true)}
+                                  onClick={() => onToggle(modelActivationKey(provider.id, model.id), true)}
                                   className="group flex min-h-[50px] w-full min-w-0 items-center gap-3 rounded-md px-2.5 py-1.5 text-left transition-colors hover:bg-ink/[0.04]"
                                 >
                                   <span className="min-w-0 flex-1">
