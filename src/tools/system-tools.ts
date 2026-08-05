@@ -20,7 +20,7 @@ export {
 export {
   delegateCodingTaskTool,
 } from './delegation-tools.js';
-export { delegateToAgentTool } from './agent-delegation-tools.js';
+export { createAgentTool, delegateToAgentTool } from './agent-delegation-tools.js';
 export {
   useSkillTool, unloadSkillTool, listRuntimeSkillsTool, installSkillTool, setSkillStateTool,
   validateSkillTool, reloadSkillsTool,
@@ -37,7 +37,7 @@ export { findDeliverableTool } from './deliverable-tools.js';
 // Import domain arrays for aggregation
 import { TASK_TOOL_DEFINITIONS, executeTaskTool } from './task-tools.js';
 import { DELEGATION_TOOL_DEFINITIONS, executeDelegationTool } from './delegation-tools.js';
-import { AGENT_DELEGATION_TOOL_DEFINITIONS, executeAgentDelegationTool } from './agent-delegation-tools.js';
+import { AGENT_TOOL_DEFINITIONS, executeAgentTool } from './agent-delegation-tools.js';
 import { SKILL_TOOL_DEFINITIONS, executeSkillTool } from './skill-tools.js';
 import { RUNTIME_TOOL_DEFINITIONS, executeRuntimeTool } from './runtime-tools.js';
 import { INTEGRATION_TOOL_DEFINITIONS, executeIntegrationTool } from './integration-tools.js';
@@ -49,7 +49,7 @@ export const SYSTEM_TOOLS: ToolDefinition[] = [
   ...INTEGRATION_TOOL_DEFINITIONS,
   ...TASK_TOOL_DEFINITIONS,
   ...DELEGATION_TOOL_DEFINITIONS,
-  ...AGENT_DELEGATION_TOOL_DEFINITIONS,
+  ...AGENT_TOOL_DEFINITIONS,
   ...SKILL_TOOL_DEFINITIONS,
   ...RUNTIME_TOOL_DEFINITIONS,
 ];
@@ -67,7 +67,7 @@ export async function executeSystemTool(
     await executeIntegrationTool(name, args, id, context) ??
     await executeTaskTool(name, args, id, context) ??
     await executeDelegationTool(name, args, id, context) ??
-    await executeAgentDelegationTool(name, args, id, context) ??
+    await executeAgentTool(name, args, id, context) ??
     await executeSkillTool(name, args, id, context) ??
     await executeRuntimeTool(name, args, id, context);
 

@@ -72,6 +72,7 @@ export const TOOL_PERMISSION_MAP: Record<string, ToolPermission> = {
   find_deliverable: { category: 'filesystem', action: 'read' },
 
   // --- managed workers ---
+  create_agent: { category: 'filesystem', action: 'write' },
   delegate_coding_task: { category: 'shell', action: 'execute' },
   delegate_to_agent: { category: 'shell', action: 'execute' },
 
