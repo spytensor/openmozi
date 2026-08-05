@@ -145,12 +145,49 @@ Forbidden:
 - `dangerous` -> approval-gated broader access
 - Sandbox failures must be observable and classified distinctly from model failures.
 
-## 13. Testing Discipline
+## 13. Testing Discipline and Verification Budget
 
-- Any feature change is incomplete until relevant local tests have been executed and passed on the branch.
-- If a new feature introduces new behavior, the same change must add or update local automated tests that cover that behavior.
-- Static reasoning, prompt review, or code inspection are not substitutes for local verification.
-- If a new feature cannot yet be fully covered by automated local tests, the change must add or update a local acceptance/E2E scenario document in the same commit and explain the gap explicitly.
+Testing exists to establish the minimum sufficient evidence for the approved
+change. Test volume, elapsed time, repeated builds, and repeated end-to-end runs
+are not measures of quality.
+
+- Before running checks, map every acceptance criterion to the smallest check
+  that can prove it. The default set is the changed tests and their direct
+  neighbors, one relevant typecheck or build when the changed boundary requires
+  it, and one real-path observation for each affected product surface required
+  by this constitution.
+- A successful check must not be repeated unless code or the artifact covered by
+  that check changed afterward, or concrete evidence shows that the earlier
+  result was invalid. Reassurance is not a reason to rerun a check.
+- Stop verification as soon as every approved acceptance criterion has one valid
+  deterministic proof, every newly introduced failure path has focused coverage,
+  and no relevant failure remains unexplained. Any additional check must name a
+  specific unresolved risk that could change the completion decision.
+- Full suites, provider-availability checks, release gates, desktop packaging,
+  repeated App installation, and extra E2E scenarios are out of scope unless the
+  approved task or the affected delivery surface specifically requires them.
+  Never expand a focused fix into release certification by default.
+- Unless the user approved a longer verification plan in advance, reaching 30
+  minutes of verification, a second package/build cycle, or a second successful
+  E2E run is a hard expansion gate: stop, report the evidence already obtained,
+  and request approval before doing more.
+- A user instruction to stop or reduce testing is an immediate hard stop. Do not
+  finish the current test batch, add a final reassurance run, or substitute a
+  different check; preserve the results already obtained and report what remains
+  unverified.
+- Documentation-only changes require diff review and readback, not product tests,
+  typechecks, builds, packaging, installation, or E2E runs, unless the document
+  is generated from code and its generator changed.
+- If new behavior cannot be covered by focused automated tests, record the gap
+  explicitly and run the smallest relevant acceptance scenario. Do not create
+  new test infrastructure or a broad scenario matrix merely to compensate for
+  the gap.
+
+Recorded collaboration decision (2026-08-05): verification previously continued
+after the changed behavior had deterministic coverage and a successful installed-
+App path, adding repeated builds and end-to-end work without a new unresolved
+risk. The accepted correction is a bounded evidence model: one valid proof per
+criterion, explicit expansion gates, and immediate obedience to an operator stop.
 
 ## 14. Release Gate
 
