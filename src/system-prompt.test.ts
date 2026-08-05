@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MoziConfigSchema } from './config/index.js';
 import { loadDelegationSystemPrompt, loadSystemPrompt } from './system-prompt.js';
 import { setupTestDb, teardownTestDb } from './test-helpers.js';
+import { getWorkspaceDir } from './tools/workspace-policy.js';
 
 let dbTmpDir: string;
 let workspaceTmpDir: string;
@@ -20,6 +21,18 @@ afterAll(() => {
 });
 
 describe('system prompt assembly', () => {
+  it('publishes the canonical user workspace instead of the shared config workspace', () => {
+    const base = MoziConfigSchema.parse({});
+    const userId = 'prompt-user-uuid';
+    const prompt = loadSystemPrompt({
+      ...base,
+      workspace: { ...base.workspace, dir: workspaceTmpDir },
+    }, 'default', userId);
+
+    expect(prompt).toContain(`- workspaceDir: ${getWorkspaceDir(userId)}`);
+    expect(prompt).not.toContain(`- workspaceDir: ${workspaceTmpDir}`);
+  });
+
   it('keeps generic user turns focused on capabilities instead of product self-reference', () => {
     const base = MoziConfigSchema.parse({});
     const prompt = loadSystemPrompt({

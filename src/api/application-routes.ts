@@ -1631,8 +1631,9 @@ export async function registerApiRoutes(
   });
 
   // ── REST API: logical filesystem roots ──
-  app.get('/api/fs/roots', async (_request, reply) => {
-    return reply.send({ success: true, roots: listFsRoots() });
+  app.get('/api/fs/roots', async (request, reply) => {
+    const tenantContext = getRequestTenantContext(request as { tenantContext?: ApiTenantContext });
+    return reply.send({ success: true, roots: listFsRoots(tenantContext?.user_id) });
   });
 
   // The cross-session deliverable library (operator decision 2026-07-19):
@@ -2282,7 +2283,7 @@ export async function registerApiRoutes(
 
     try {
       const grant = grantProjectRoot(parsed.data.path);
-      const roots = listFsRoots();
+      const roots = listFsRoots(tenantContext?.user_id);
       logAudit({
         tenant_id: tenantContext?.tenant_id ?? 'default',
         user_id: tenantContext?.user_id,
@@ -2330,7 +2331,7 @@ export async function registerApiRoutes(
       ip_address: request.ip,
       user_agent: request.headers['user-agent'],
     });
-    return reply.send({ success: true, revoked, roots: listFsRoots() });
+    return reply.send({ success: true, revoked, roots: listFsRoots(tenantContext?.user_id) });
   });
 
   app.get('/api/runtime/logs', async (request, reply) => {

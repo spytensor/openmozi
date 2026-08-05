@@ -12,10 +12,9 @@ import { buildFileArtifactPreviewFields } from '../artifacts/file-preview.js';
 import { ensureArtifactCoordinator } from '../artifacts/coordinator.js';
 import { remoteArtifactDependencies, unresolvedArtifactPlaceholders } from '../artifacts/content-contract.js';
 import {
-  resolveReadPath,
   resolveWritePath,
   resolveWriteRoots,
-  getReadAllowedPaths,
+  resolveReadRoots,
   ensureToolWorkspaceDir,
   runTel,
   telErrorMessage,
@@ -206,8 +205,15 @@ export async function executeFsTool(
         return { tool_call_id: id, content: 'Error: "path" parameter is required and must be a string', is_error: true };
       }
       await ensureToolWorkspaceDir(userId);
+      const allowedPaths = resolveReadRoots(context);
       maybeEnableRepoInspection(context?.repoInspection, path, context?.workspaceRootPath);
-      const grounding = resolveInspectionReadPath(path, context?.repoInspection, userId, context?.workspaceRootPath);
+      const grounding = resolveInspectionReadPath(
+        path,
+        context?.repoInspection,
+        userId,
+        context?.workspaceRootPath,
+        allowedPaths,
+      );
       if (!grounding.resolvedPath) {
         return {
           tool_call_id: id,
@@ -216,7 +222,6 @@ export async function executeFsTool(
         };
       }
       const resolved = grounding.resolvedPath;
-      const allowedPaths = getReadAllowedPaths(userId, context?.workspaceRootPath);
       const telResult = await runTel('filesystem', 'read', {
         path: resolved,
         ...(allowedPaths ? { allowed_paths: allowedPaths } : {}),
@@ -500,8 +505,15 @@ export async function executeFsTool(
     case 'list_directory': {
       const path = (args.path as string) || '.';
       await ensureToolWorkspaceDir(userId);
+      const allowedPaths = resolveReadRoots(context);
       maybeEnableRepoInspection(context?.repoInspection, path, context?.workspaceRootPath);
-      const grounding = resolveInspectionDirectoryPath(path, context?.repoInspection, userId, context?.workspaceRootPath);
+      const grounding = resolveInspectionDirectoryPath(
+        path,
+        context?.repoInspection,
+        userId,
+        context?.workspaceRootPath,
+        allowedPaths,
+      );
       if (!grounding.resolvedPath) {
         return {
           tool_call_id: id,
@@ -510,7 +522,6 @@ export async function executeFsTool(
         };
       }
       const resolved = grounding.resolvedPath;
-      const allowedPaths = getReadAllowedPaths(userId, context?.workspaceRootPath);
       const telResult = await runTel('filesystem', 'list', {
         path: resolved,
         ...(allowedPaths ? { allowed_paths: allowedPaths } : {}),

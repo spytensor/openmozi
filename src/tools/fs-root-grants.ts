@@ -98,13 +98,13 @@ function writeFsConfig(raw: RawConfigObject): void {
   loadConfig(getConfigPath());
 }
 
-function defaultRootPaths(): string[] {
-  return [getOutputDir(), getWorkspaceDir()];
+function defaultRootPaths(userId?: string): string[] {
+  return [getOutputDir(), getWorkspaceDir(userId)];
 }
 
-function isDefaultRoot(path: string): boolean {
+function isDefaultRoot(path: string, userId?: string): boolean {
   const resolved = resolveRootPath(path);
-  return defaultRootPaths().some((root) => sameRoot(resolved, root));
+  return defaultRootPaths(userId).some((root) => sameRoot(resolved, root));
 }
 
 function uniqueRootRecords(records: FsRootRecord[]): FsRootRecord[] {
@@ -123,7 +123,7 @@ function uniqueRootRecords(records: FsRootRecord[]): FsRootRecord[] {
  * List the logical file-access roots known to Node. This is not an OS sandbox;
  * Track B adds native security-scoped enforcement underneath this allowlist.
  */
-export function listFsRoots(): FsRootRecord[] {
+export function listFsRoots(userId?: string): FsRootRecord[] {
   const policy = getFsPolicy();
   const roots: FsRootRecord[] = [
     {
@@ -135,7 +135,7 @@ export function listFsRoots(): FsRootRecord[] {
     },
     {
       tier: 'workspace',
-      path: getWorkspaceDir(),
+      path: getWorkspaceDir(userId),
       label: 'Workspace',
       granted_at: null,
       bookmark: null,
@@ -143,7 +143,7 @@ export function listFsRoots(): FsRootRecord[] {
   ];
 
   for (const grant of policy.grantedProjectRoots) {
-    if (isDefaultRoot(grant.path)) continue;
+    if (isDefaultRoot(grant.path, userId)) continue;
     roots.push({
       tier: 'project',
       path: grant.path,
@@ -154,7 +154,7 @@ export function listFsRoots(): FsRootRecord[] {
   }
 
   for (const root of policy.additionalAllowedRoots) {
-    if (isDefaultRoot(root)) continue;
+    if (isDefaultRoot(root, userId)) continue;
     if (roots.some((existing) => sameRoot(existing.path, root))) continue;
     roots.push({
       tier: 'project',

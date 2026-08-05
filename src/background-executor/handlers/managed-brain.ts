@@ -103,7 +103,7 @@ export async function managedBrainHandler(task: BackgroundTask, signal: AbortSig
   });
 
   const config = getConfig();
-  const delegationSystemPrompt = loadDelegationSystemPrompt(config, task.tenant_id);
+  const delegationSystemPrompt = loadDelegationSystemPrompt(config, task.tenant_id, run.userId);
   const existingRootId = typeof params.managed_plan_root_id === 'string'
     ? params.managed_plan_root_id.trim()
     : '';
@@ -139,7 +139,7 @@ export async function managedBrainHandler(task: BackgroundTask, signal: AbortSig
   const { client } = getBrainClient({ tenantId: task.tenant_id, userId: task.user_id });
   const response = await handleMessage(
     msg,
-    adaptPromptForChannel(loadSystemPrompt(config, task.tenant_id), task.channel_type),
+    adaptPromptForChannel(loadSystemPrompt(config, task.tenant_id, run.userId), task.channel_type),
     client,
     progress,
     undefined,

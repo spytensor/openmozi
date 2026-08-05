@@ -11,6 +11,8 @@ const hoisted = vi.hoisted(() => ({
   getById: vi.fn(),
   openCronRunSession: vi.fn(),
   broadcastSessionListChanged: vi.fn(),
+  loadSystemPrompt: vi.fn(() => 'system prompt'),
+  loadDelegationSystemPrompt: vi.fn(() => 'delegation prompt'),
 }));
 
 vi.mock('../../config/index.js', () => ({ getConfig: () => ({}) }));
@@ -18,8 +20,8 @@ vi.mock('../../core/model-router.js', () => ({
   getBrainClient: () => ({ client: { chat: vi.fn() } }),
 }));
 vi.mock('../../system-prompt.js', () => ({
-  loadSystemPrompt: () => 'system prompt',
-  loadDelegationSystemPrompt: () => 'delegation prompt',
+  loadSystemPrompt: hoisted.loadSystemPrompt,
+  loadDelegationSystemPrompt: hoisted.loadDelegationSystemPrompt,
   adaptPromptForChannel: (prompt: string) => prompt,
 }));
 vi.mock('../../gateway/handler.js', () => ({ handleMessage: hoisted.handleMessage }));
@@ -108,6 +110,8 @@ describe('managed Brain scheduled handler', () => {
       planDeliveryMode: 'caller',
       suppressAssistantMessagePersistence: true,
     });
+    expect(hoisted.loadSystemPrompt).toHaveBeenCalledWith(expect.anything(), 'default', 'local-user');
+    expect(hoisted.loadDelegationSystemPrompt).toHaveBeenCalledWith(expect.anything(), 'default', 'local-user');
     await vi.waitFor(() => expect(hoisted.broadcastSessionListChanged).toHaveBeenCalledWith({
       targetUserId: 'local-user', tenantId: 'default', sessionId: 'sess-run',
     }));

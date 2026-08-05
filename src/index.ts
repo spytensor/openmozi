@@ -378,16 +378,18 @@ export function createMessageHandler(
     return /aborted|cancelled|canceled|timed out/i.test(message);
   };
 
-  const resolveSystemPrompt = (tenantId?: string): string => {
+  const resolveSystemPrompt = (tenantId?: string, userId?: string): string => {
     const effectiveTenantId = resolveTenantId(tenantId);
-    const prompt = loadSystemPrompt(config, effectiveTenantId);
+    const promptKey = `${effectiveTenantId}:${userId ?? ''}`;
+    const prompt = loadSystemPrompt(config, effectiveTenantId, userId);
     const fingerprint = createHash('sha1').update(prompt).digest('hex');
-    const previousFingerprint = promptFingerprints.get(effectiveTenantId);
+    const previousFingerprint = promptFingerprints.get(promptKey);
     if (fingerprint !== previousFingerprint) {
-      promptFingerprints.set(effectiveTenantId, fingerprint);
+      promptFingerprints.set(promptKey, fingerprint);
       logger.info(
         {
           tenantId: effectiveTenantId,
+          userId,
           promptLength: prompt.length,
           tools: getAllRegisteredTools(effectiveTenantId).length,
         },
@@ -492,8 +494,8 @@ export function createMessageHandler(
   handlerRef = async (msg: IncomingMessage): Promise<string | null> => {
     const executeMessage = async (): Promise<string | null> => {
       const tenantId = msg.tenantId ?? process.env.MOZI_TENANT_ID ?? 'default';
-      const rawSystemPrompt = resolveSystemPrompt(tenantId);
-      const delegationSystemPrompt = loadDelegationSystemPrompt(config, tenantId);
+      const rawSystemPrompt = resolveSystemPrompt(tenantId, msg.userId);
+      const delegationSystemPrompt = loadDelegationSystemPrompt(config, tenantId, msg.userId);
       const systemPromptContent = adaptPromptForChannel(rawSystemPrompt, msg.channelType);
 
       // ── PAIRING GATE (Telegram / WeChat) ──

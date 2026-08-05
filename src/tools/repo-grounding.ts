@@ -380,10 +380,11 @@ export function resolveInspectionReadPath(
   state: RepoInspectionState | undefined,
   userId?: string,
   projectRoot?: string,
+  allowedRoots?: string[],
 ): RepoGroundingResult {
   if (!state?.enabled) {
     return {
-      resolvedPath: resolveReadPath(requestedPath, userId, projectRoot),
+      resolvedPath: resolveReadPath(requestedPath, userId, projectRoot, allowedRoots),
       reason: 'exact',
     };
   }
@@ -393,7 +394,7 @@ export function resolveInspectionReadPath(
     return { resolvedPath: exactProject, reason: 'exact' };
   }
 
-  const exactResolved = resolveReadPath(requestedPath, userId, projectRoot);
+  const exactResolved = resolveReadPath(requestedPath, userId, projectRoot, allowedRoots);
   if (existsSync(exactResolved)) {
     return { resolvedPath: exactResolved, reason: 'exact' };
   }
@@ -438,9 +439,10 @@ export function resolveInspectionDirectoryPath(
   state: RepoInspectionState | undefined,
   userId?: string,
   projectRoot?: string,
+  allowedRoots?: string[],
 ): RepoGroundingResult {
   if (!state?.enabled) {
-    const resolved = resolveReadPath(requestedPath, userId, projectRoot);
+    const resolved = resolveReadPath(requestedPath, userId, projectRoot, allowedRoots);
     if (existsSync(resolved) && statSync(resolved).isDirectory()) {
       return { resolvedPath: resolved, reason: 'exact' };
     }
@@ -459,7 +461,7 @@ export function resolveInspectionDirectoryPath(
   }
 
   for (const variant of variants) {
-    const resolved = resolveReadPath(variant, userId, projectRoot);
+    const resolved = resolveReadPath(variant, userId, projectRoot, allowedRoots);
     if (existsSync(resolved)) {
       try {
         if (statSync(resolved).isDirectory()) {

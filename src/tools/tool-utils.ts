@@ -167,12 +167,30 @@ export function assertNotSensitiveWrite(resolvedPath: string): void {
   }
 }
 
-export function resolveWriteRoots(context?: ToolContext): string[] | undefined {
+export type FsAccessKind = 'read' | 'write';
+
+/**
+ * Resolve the filesystem allow-list from the live ToolContext. This is the
+ * single owner for project scoping, session grants, and full-access workspace
+ * compatibility across read and write tools.
+ */
+export function resolveFsAccessRoots(
+  context: ToolContext | undefined,
+  access: FsAccessKind,
+): string[] | undefined {
+  const enforcedRead = access === 'read'
+    ? (context?.allowedPaths ?? []).filter(isAbsolute).map(p => resolve(p))
+    : [];
+  if (access === 'read' && enforcedRead.length > 0) {
+    return Array.from(new Set(enforcedRead));
+  }
   // Sandboxed runs (delegated agents) carry a hard allow-list that applies
   // regardless of fs policy or full-access level — the run-dir pin must not
   // dissolve into output-dir-wide or unrestricted writes.
-  const enforced = (context?.enforcedWriteRoots ?? []).filter(isAbsolute).map(p => resolve(p));
-  if (enforced.length > 0) {
+  const enforced = access === 'write'
+    ? (context?.enforcedWriteRoots ?? []).filter(isAbsolute).map(p => resolve(p))
+    : [];
+  if (access === 'write' && enforced.length > 0) {
     const grants = (context?.scopeGrants ?? []).filter(isAbsolute).map(p => resolve(p));
     return Array.from(new Set([...enforced, ...grants]));
   }
@@ -183,18 +201,35 @@ export function resolveWriteRoots(context?: ToolContext): string[] | undefined {
   const grants = (context?.scopeGrants ?? []).filter(isAbsolute).map(p => resolve(p));
   const scoped = context?.workspaceRootPath?.trim();
   if (scoped && !isFullAccessContext(context)) {
-    return Array.from(new Set([resolve(scoped), getOutputDir(), ...grants]));
+    const roots = access === 'write'
+      ? [resolve(scoped), getOutputDir(), ...grants]
+      : [resolve(scoped), ...getWorkspaceAllowedRoots(context?.userId), ...grants];
+    return Array.from(new Set(roots));
   }
   // Default (no project selected, or full access): the workspace roots PLUS any
   // approved out-of-scope dirs. Without merging grants here, an approved write
   // still failed the retry — the approval prompt was a dead end whenever no
   // project was scoped (the exact bug: user clicks Allow, write is blocked anyway).
   const roots = [...getWorkspaceAllowedRoots(context?.userId), ...grants];
+  // The configured workspace is MOZI's legacy/shared workspace. New work is
+  // rooted in the canonical per-user workspace, but persisted plans and files
+  // may still carry this absolute path. Full access admits that explicit
+  // compatibility root for every filesystem operation without opening the
+  // rest of MOZI home to reads.
+  if (isFullAccessContext(context)) roots.push(resolve(getWorkspaceDir()));
   // At full access, MOZI's entire home (~/.mozi) is writable without a per-write
   // approval prompt — it is MOZI's own sandbox, not the operator's files. The
   // assertNotSensitiveWrite denylist still hard-protects secrets/keys/DB inside it.
-  if (isFullAccessContext(context)) roots.push(resolve(getMoziHome()));
+  if (access === 'write' && isFullAccessContext(context)) roots.push(resolve(getMoziHome()));
   return Array.from(new Set(roots));
+}
+
+export function resolveWriteRoots(context?: ToolContext): string[] | undefined {
+  return resolveFsAccessRoots(context, 'write');
+}
+
+export function resolveReadRoots(context?: ToolContext): string[] | undefined {
+  return resolveFsAccessRoots(context, 'read');
 }
 
 export function dedupWorkspaceDir(resolved: string, wsDir: string): string {
@@ -270,7 +305,12 @@ function stripRepoNamePrefix(relPath: string, projectRoot: string): string | nul
   return null;
 }
 
-export function resolveReadPath(userPath: string, userId?: string, selectedProjectRoot?: string): string {
+export function resolveReadPath(
+  userPath: string,
+  userId?: string,
+  selectedProjectRoot?: string,
+  allowedRootsOverride?: string[],
+): string {
   const globalProjectRoot = getProjectRoot();
   const workspaceDir = getWorkspaceDir(userId);
   const { workspaceOnly, allowProjectRootRead } = getFsPolicy();
@@ -279,7 +319,10 @@ export function resolveReadPath(userPath: string, userId?: string, selectedProje
   // Allowed READ roots include the SELECTED project, so reading the project the
   // user pointed MOZI at is not blocked by the workspace-only gate. This mirrors
   // resolveWriteRoots — reads must be as project-aware as writes already are.
-  const allowed = getReadAllowedPaths(userId, selectedProjectRoot);
+  const allowed = allowedRootsOverride ?? resolveReadRoots({
+    userId,
+    workspaceRootPath: selectedProjectRoot,
+  });
 
   if (isAbsolute(expanded)) {
     const absoluteResolved = resolve(expanded);
@@ -343,17 +386,6 @@ export function resolveReadPath(userPath: string, userId?: string, selectedProje
   return workspaceResolved;
 }
 
-export function getReadAllowedPaths(userId?: string, selectedProjectRoot?: string): string[] | undefined {
-  if (!getFsPolicy().workspaceOnly) return undefined;
-  const roots = getWorkspaceAllowedRoots(userId);
-  const scoped = selectedProjectRoot?.trim();
-  return scoped ? Array.from(new Set([resolve(scoped), ...roots])) : roots;
-}
-
-export function getWriteAllowedPaths(userId?: string): string[] | undefined {
-  return getFsPolicy().workspaceOnly ? getWorkspaceAllowedRoots(userId) : undefined;
-}
-
 // ── TEL wrapper ──
 
 let telInitialized = false;
@@ -391,16 +423,16 @@ export async function runTel(
   const config = getConfig();
   const rawLevel = context?.permissionLevel ?? config.security?.default_permission ?? 'L3_FULL_ACCESS';
   const permissionLevel = isValidLevel(rawLevel) ? rawLevel : 'L0_READ_ONLY';
-  // Prefer an explicit allow-list the caller put in the intent params (fs tools
-  // pass the project-scoped write roots there). Fall back to the context list,
-  // then the global workspace roots. This keeps the router's validatePath in
-  // sync with the tool-level resolveWritePath gate under project scoping.
+  // Prefer an explicit allow-list the caller put in the intent params. Fall
+  // back to the context list, then the same context-derived read roots used by
+  // filesystem tools. This prevents TEL from making a second, contradictory
+  // workspace decision.
   const paramAllowedPaths = Array.isArray((params as { allowed_paths?: unknown }).allowed_paths)
     ? ((params as { allowed_paths?: string[] }).allowed_paths as string[])
     : undefined;
   const allowedPaths = paramAllowedPaths
     ?? context?.allowedPaths
-    ?? (getFsPolicy().workspaceOnly ? getWorkspaceAllowedRoots(context?.userId) : undefined);
+    ?? resolveReadRoots(context);
   const execContext: ExecutionContext = {
     agent_id: context?.agentId ?? `gateway:${context?.chatId ?? 'system'}`,
     permission_level: permissionLevel,
