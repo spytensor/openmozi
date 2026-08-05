@@ -99,6 +99,7 @@ describe('delegate agent runner', () => {
       );
     }
     let capturedSystem = '';
+    let capturedMaxTokens: number | undefined;
     const events: Array<{ workerStatus?: string; runDir?: string }> = [];
     const unsubscribe = on(event => {
       if (event.type === 'worker_status') events.push(event);
@@ -111,8 +112,9 @@ describe('delegate agent runner', () => {
         outputDir,
         ...skillDirs,
         registeredTools: [],
-        client: client(async messages => {
+        client: client(async (messages, options) => {
           capturedSystem = String(messages[0]?.content ?? '');
+          capturedMaxTokens = options?.max_tokens;
           return response(JSON.stringify({
             status: 'succeeded',
             summary: 'done',
@@ -129,6 +131,7 @@ describe('delegate agent runner', () => {
       expect(capturedSystem).toContain('BOUND INSTRUCTIONS');
       expect(capturedSystem).toContain('ALWAYS INSTRUCTIONS');
       expect(capturedSystem).not.toContain('MUST NOT APPEAR');
+      expect(capturedMaxTokens).toBe(8192);
       expect(events.map(event => event.workerStatus)).toEqual(expect.arrayContaining(['launching', 'running', 'completed']));
       expect(events.every(event => event.runDir?.includes('/agents/analyst/run-1'))).toBe(true);
     } finally {
@@ -183,6 +186,59 @@ describe('delegate agent runner', () => {
       blocker: 'timeout',
     });
     expect(readFileSync(envelope.transcript_path, 'utf-8')).toContain('"blocker": "timeout"');
+  });
+
+  it('fails immediately when the provider reports truncated Agent output', async () => {
+    const root = tempRoot();
+    let calls = 0;
+    const envelope = await delegateToAgent({
+      agent: 'analyst',
+      brief: 'Create a detailed report.',
+      definitions: [definition()],
+      outputDir: join(root, 'output'),
+      ...emptySkillDirs(root),
+      registeredTools: [],
+      client: client(async () => {
+        calls += 1;
+        return { ...response('{"status":"succeeded"'), stop_reason: 'length', truncated: true };
+      }),
+    });
+
+    expect(calls).toBe(1);
+    expect(envelope).toMatchObject({
+      status: 'failed',
+      summary: 'Agent model output was truncated.',
+      blocker: expect.stringContaining('agent_output_truncated:'),
+    });
+  });
+
+  it('stops after the same invalid tool call fails twice', async () => {
+    const root = tempRoot();
+    let calls = 0;
+    const invalidCall = [{
+      id: 'bad-write',
+      type: 'function' as const,
+      function: { name: 'write_file', arguments: '{"path":"report.md"' },
+    }];
+    const envelope = await delegateToAgent({
+      agent: 'analyst',
+      brief: 'Create a report.',
+      definitions: [definition()],
+      outputDir: join(root, 'output'),
+      ...emptySkillDirs(root),
+      registeredTools: [],
+      client: client(async () => {
+        calls += 1;
+        return response('', invalidCall);
+      }),
+    });
+
+    expect(calls).toBe(2);
+    expect(envelope).toMatchObject({
+      status: 'failed',
+      summary: 'Agent repeated the same invalid tool call.',
+      blocker: 'agent_repeated_tool_failure: write_file',
+    });
   });
 
   it('executes whitelisted tools with relative writes pinned to the run directory', async () => {

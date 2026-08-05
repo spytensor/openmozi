@@ -518,6 +518,20 @@ describe("ChatView", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("regenerates an Agent turn from canonical body text and structured metadata", () => {
+    const onRegenerate = vi.fn();
+    renderChat(
+      [
+        message("user", "@reviewer Review this change.", 1, { mentions: ["reviewer"] }),
+        message("assistant", "I found two issues.", 2),
+      ],
+      { onRegenerate },
+    );
+
+    fireEvent.click(within(screen.getByTestId("message-assistant")).getByRole("button", { name: "Regenerate" }));
+    expect(onRegenerate).toHaveBeenCalledWith("Review this change.", ["reviewer"]);
+  });
+
   it("keeps actions on a single assistant answer turn", () => {
     renderChat([
       message("user", "Research OpenClaw", 1),

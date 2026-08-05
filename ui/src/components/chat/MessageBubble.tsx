@@ -15,17 +15,21 @@ import MarkdownReadingSurface from "./MarkdownReadingSurface";
 import { CHAT_PROSE_CLASS, CHAT_PROSE_COMPACT_CLASS } from "./prose";
 import { formatDurationForLocale } from "@/i18n/format";
 import { cn } from "@/lib/utils";
+import { agentAvatarColor } from "@/lib/agent-colors";
+import { agentIcon } from "@/lib/agent-icons";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   /** Re-run an existing prompt as a fresh turn without creating a new user bubble. */
-  onRegenerate?: (content: string) => void;
+  onRegenerate?: (content: string, mentions?: string[]) => void;
   /**
    * The prompt to re-run when regenerating an assistant answer — the user
    * message that produced it. Ignored for user messages (they regenerate
    * themselves). Absent when there is no preceding prompt to re-run.
    */
   regenerateText?: string;
+  /** Structured Agent identities carried by the source user message. */
+  regenerateMentions?: string[];
   showAvatar?: boolean;
   showAssistantActions?: boolean;
   /** Reasoning can be owned by the turn-level Thinking Card instead. */
@@ -154,6 +158,20 @@ export function stripInjectedContext(text: string): string {
     .replace(/(^|\n)Workspace Context \(selected in Web UI\):(?:\n-[^\n]*)*\n?/g, "$1")
     .replace(/^\n+/, "")
     .trim();
+}
+
+/**
+ * Mentions are structured message metadata. Older local rows also embedded
+ * the same token in prose; remove only those redundant, metadata-confirmed
+ * markers before rendering or regenerating them.
+ */
+export function stripStructuredMentionTokens(text: string, mentions: string[] | undefined): string {
+  let result = text;
+  for (const name of mentions ?? []) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    result = result.replace(new RegExp(`(^|\\s)@${escaped}(?=\\s|$)`, "gi"), "$1");
+  }
+  return result.trim();
 }
 
 // User input is rendered independently from the assistant reading surface: it
@@ -445,6 +463,7 @@ export default memo(function MessageBubble({
   message,
   onRegenerate,
   regenerateText,
+  regenerateMentions,
   showAvatar = true,
   showAssistantActions = true,
   showReasoning = true,
@@ -454,7 +473,8 @@ export default memo(function MessageBubble({
 }: MessageBubbleProps) {
   const { t } = useLocale();
   const { role, streaming } = message;
-  const content = role === "user" ? stripInjectedContext(message.content) : normalizeAssistantMarkdown(message.content);
+  const rawContent = role === "user" ? stripInjectedContext(message.content) : normalizeAssistantMarkdown(message.content);
+  const content = role === "user" ? stripStructuredMentionTokens(rawContent, message.mentions) : rawContent;
   const chatError = role === "assistant" ? normalizeChatError(content) : null;
   const showStreamingPlaceholder = role === "assistant" && Boolean(streaming && message.requestId);
   const renderReasoning = showReasoning && role === "assistant" && hasRenderableReasoning(message);
@@ -472,15 +492,38 @@ export default memo(function MessageBubble({
 
   if (role === "user") {
     const attachments = message.attachments ?? [];
+    const mentions = [...new Set((message.mentions ?? []).map((name) => name.trim()).filter(Boolean))];
     return (
       <div data-testid="message-user" className="group flex flex-col items-end min-w-0">
-        {content && (
+        {(content || mentions.length > 0) && (
         <div data-testid="message-user-bubble" className="bg-surface-card border border-ink/[0.09] rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[75%] overflow-hidden shadow-sm">
-          <div data-testid="message-user-markdown" className={USER_MARKDOWN_CLASS}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={USER_MARKDOWN_COMPONENTS}>
-              {content}
-            </ReactMarkdown>
-          </div>
+          {mentions.length > 0 && (
+            <div data-testid="message-user-mentions" className="mb-1.5 flex flex-wrap items-center gap-1.5">
+              {mentions.map((name) => {
+                const Glyph = agentIcon(undefined, name);
+                const hue = agentAvatarColor(undefined, name);
+                return (
+                  <span
+                    key={name}
+                    data-testid="agent-mention-token"
+                    data-agent-name={name}
+                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11.5px] font-medium"
+                    style={{ color: hue, background: `color-mix(in srgb, ${hue} 14%, transparent)` }}
+                  >
+                    <Glyph className="h-3 w-3" strokeWidth={1.75} />
+                    @{name}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {content && (
+            <div data-testid="message-user-markdown" className={USER_MARKDOWN_CLASS}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={USER_MARKDOWN_COMPONENTS}>
+                {content}
+              </ReactMarkdown>
+            </div>
+          )}
         </div>
         )}
         {attachments.length > 0 && (
@@ -517,7 +560,10 @@ export default memo(function MessageBubble({
         <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <CopyAction text={content} />
           {onRegenerate && (
-            <MessageAction label={t("chat.regenerate")} onClick={() => onRegenerate(content)}>
+            <MessageAction
+              label={t("chat.regenerate")}
+              onClick={() => message.mentions?.length ? onRegenerate(content, message.mentions) : onRegenerate(content)}
+            >
               <RefreshCw size={13} />
             </MessageAction>
           )}
@@ -559,7 +605,9 @@ export default memo(function MessageBubble({
                   {chatError.kind === "request" && onRegenerate && regenerateText && (
                     <button
                       type="button"
-                      onClick={() => onRegenerate(regenerateText)}
+                      onClick={() => regenerateMentions?.length
+                        ? onRegenerate(regenerateText, regenerateMentions)
+                        : onRegenerate(regenerateText)}
                       className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-link hover:text-link-hover"
                     >
                       <RefreshCw size={12} />
@@ -612,7 +660,12 @@ export default memo(function MessageBubble({
           <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
             <CopyAction text={content} rich />
             {onRegenerate && regenerateText && (
-              <MessageAction label={t("chat.regenerate")} onClick={() => onRegenerate(regenerateText)}>
+              <MessageAction
+                label={t("chat.regenerate")}
+                onClick={() => regenerateMentions?.length
+                  ? onRegenerate(regenerateText, regenerateMentions)
+                  : onRegenerate(regenerateText)}
+              >
                 <RefreshCw size={13} />
               </MessageAction>
             )}

@@ -420,7 +420,7 @@ describe("ExecutionBlock", () => {
     renderWithLocale(<ExecutionBlock block={agentBlock(status)} />);
     expect(screen.getByTestId("agent-execution-block")).toHaveTextContent("reviewer");
     expect(screen.getByTestId("agent-execution-status")).toHaveTextContent(status);
-    if (status === "running") expect(screen.getByTestId("agent-execution-block")).toHaveTextContent("round 2");
+    if (status === "running") expect(screen.getByTestId("agent-execution-block")).not.toHaveTextContent("round 2");
   });
 
   it("keeps every delegation and the rest of the turn visible alongside agent cards", () => {

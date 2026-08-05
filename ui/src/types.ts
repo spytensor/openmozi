@@ -62,6 +62,8 @@ export interface ChatMessage {
   presentationRole?: "internal_qa";
   /** Files the user attached to this message, shown as chips in the bubble. */
   attachments?: UploadedAttachment[];
+  /** Runtime-resolved Agent identities explicitly mentioned by the user. */
+  mentions?: string[];
 }
 
 export interface UploadedAttachment {

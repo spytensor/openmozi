@@ -94,6 +94,32 @@ interface MentionAgent {
   enabled: boolean;
 }
 
+function uniqueMentionAgents(agents: MentionAgent[]): MentionAgent[] {
+  const seen = new Set<string>();
+  return agents.filter((agent) => {
+    const key = agent.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * A pasted/manual @agent remains supported, but becomes structured input at
+ * the composer boundary. It never becomes a second execution signal.
+ */
+function consumeReadyAgentMentions(text: string, readyAgents: MentionAgent[]) {
+  const byName = new Map(readyAgents.map((agent) => [agent.name.toLowerCase(), agent]));
+  const agents: MentionAgent[] = [];
+  const body = text.replace(/(^|\s)@([a-z0-9][a-z0-9_-]*)(?=\s|$)/gi, (token, prefix: string, name: string) => {
+    const agent = byName.get(name.toLowerCase());
+    if (!agent) return token;
+    agents.push(agent);
+    return prefix;
+  });
+  return { body, agents: uniqueMentionAgents(agents) };
+}
+
 const CATEGORY_META: Record<string, { labelKey: MessageKey; icon: typeof Search }> = {
   query: { labelKey: "composer.category.query", icon: Search },
   action: { labelKey: "composer.category.action", icon: Terminal },
@@ -264,6 +290,7 @@ export default function InputBar({
   const [cmdSearch, setCmdSearch] = useState("");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [readyAgents, setReadyAgents] = useState<MentionAgent[]>([]);
+  const [selectedMentionAgents, setSelectedMentionAgents] = useState<MentionAgent[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState<number | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -283,8 +310,9 @@ export default function InputBar({
   const filteredAgents = useMemo(() => {
     if (mentionQuery === null) return [];
     const query = mentionQuery.toLowerCase();
-    return readyAgents.filter((agent) => agent.name.toLowerCase().includes(query));
-  }, [mentionQuery, readyAgents]);
+    const selected = new Set(selectedMentionAgents.map((agent) => agent.name.toLowerCase()));
+    return readyAgents.filter((agent) => agent.name.toLowerCase().includes(query) && !selected.has(agent.name.toLowerCase()));
+  }, [mentionQuery, readyAgents, selectedMentionAgents]);
 
   // Load on mount and refresh whenever a mention starts, so agents created in
   // MY AGENTS show up without a reload. Input recognition remains independent
@@ -370,20 +398,17 @@ export default function InputBar({
   }, [text, textMaxHeight, textMinHeight]);
 
   const handleSend = () => {
-    const trimmed = text.trim();
+    const { body, agents: typedMentionAgents } = consumeReadyAgentMentions(text, readyAgents);
+    const trimmed = body.trim();
     if (!trimmed || disabled || isWorking || uploading) return;
-    const readyAgentNames = new Map(readyAgents.map((agent) => [agent.name.toLowerCase(), agent.name]));
-    const mentions = [...new Set(
-      (trimmed.match(/@[a-z0-9][a-z0-9_-]*/gi) ?? [])
-        .map((token) => readyAgentNames.get(token.slice(1).toLowerCase()))
-        .filter((name): name is string => Boolean(name)),
-    )];
+    const mentions = uniqueMentionAgents([...selectedMentionAgents, ...typedMentionAgents]).map((agent) => agent.name);
     if (mentions.length > 0) {
       onSend(trimmed, attachments.length > 0 ? attachments : undefined, mentions);
     } else {
       onSend(trimmed, attachments.length > 0 ? attachments : undefined);
     }
     setText("");
+    setSelectedMentionAgents([]);
     setAttachments([]);
     setMentionQuery(null);
     setMentionStart(null);
@@ -563,16 +588,21 @@ export default function InputBar({
     if (mentionStart === null) return;
     const textarea = inputRef.current;
     const caret = textarea?.selectionStart ?? text.length;
-    const inserted = `@${agent.name} `;
-    const next = text.slice(0, mentionStart) + inserted + text.slice(caret);
+    const next = text.slice(0, mentionStart) + text.slice(caret);
     setText(next);
+    setSelectedMentionAgents((current) => uniqueMentionAgents([...current, agent]));
     setMentionQuery(null);
     setMentionStart(null);
     requestAnimationFrame(() => {
-      const nextCaret = mentionStart + inserted.length;
+      const nextCaret = mentionStart;
       textarea?.focus();
       textarea?.setSelectionRange(nextCaret, nextCaret);
     });
+  };
+
+  const removeMention = (name: string) => {
+    setSelectedMentionAgents((current) => current.filter((agent) => agent.name !== name));
+    inputRef.current?.focus();
   };
 
 
@@ -719,7 +749,7 @@ export default function InputBar({
             >
               <span
                 className="flex h-7 w-7 shrink-0 items-center justify-center"
-                style={agentAvatarStyle(agent.color)}
+                style={agentAvatarStyle(agent.color, agent.name)}
               >
                 {(() => {
                   const Glyph = agentIcon(agent.icon, agent.name);
@@ -764,6 +794,30 @@ export default function InputBar({
               >
                 {t("composer.queued", { count: queueCount })}
               </span>
+            </div>
+          )}
+
+          {selectedMentionAgents.length > 0 && (
+            <div data-testid="composer-agent-mentions" className="mb-1.5 flex flex-wrap items-center gap-1.5">
+              {selectedMentionAgents.map((agent) => {
+                const Glyph = agentIcon(agent.icon, agent.name);
+                const identity = agentAvatarStyle(agent.color, agent.name);
+                return (
+                  <button
+                    type="button"
+                    key={agent.name}
+                    data-agent-name={agent.name}
+                    aria-label={`Remove @${agent.name}`}
+                    onClick={() => removeMention(agent.name)}
+                    className="inline-flex items-center gap-1 rounded-md bg-ink/[0.045] px-1.5 py-1 text-[11.5px] font-medium transition-colors hover:bg-ink/[0.08]"
+                    style={identity}
+                  >
+                    <Glyph className="h-3 w-3" strokeWidth={1.75} />
+                    @{agent.name}
+                    <X className="h-3 w-3 opacity-65" strokeWidth={1.75} />
+                  </button>
+                );
+              })}
             </div>
           )}
 

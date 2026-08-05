@@ -1218,7 +1218,10 @@ export function buildWorkerTaskProgressMessage(
   if (!taskId) return null;
 
   const mapped = mapWorkerStatus(event.workerStatus, event.heartbeat);
-  const title = event.summary?.trim() || mapped.title;
+  const rawSummary = event.summary?.trim();
+  // Model-loop counters belong in the transcript/Trace, never the product status.
+  const summary = rawSummary && !/^round\s+\d+$/i.test(rawSummary) ? rawSummary : undefined;
+  const title = summary || mapped.title;
 
   return {
     type: 'task_progress',
@@ -1235,7 +1238,7 @@ export function buildWorkerTaskProgressMessage(
     status: mapped.status,
     userStatus: mapped.userStatus,
     title,
-    detail: event.summary,
+    detail: summary,
     turnId: event.turnId,
     lane: event.lane,
     sandboxProfile: event.sandboxProfile,

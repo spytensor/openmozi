@@ -570,17 +570,23 @@ export async function handleMessage(
     // Save user message to DB for LLM context and the visible timeline. A Web UI
     // regenerate re-runs an existing prompt, so it must not append the same user
     // bubble again on refresh.
-    // Persist uploaded-file attachments in BOTH stores so the chip survives a
-    // reload: conversations.metadata (loadHistory fallback) AND the session
-    // timeline item (loadTimeline — the primary restore path). Keeping them in
-    // one list prevents the two stores from diverging again.
+    // Persist user-authored structured extras in BOTH stores so attachments and
+    // resolved Agent identity survive reload/regenerate without parsing prose:
+    // conversations.metadata (history fallback) and the primary session timeline.
     const attachmentList = msg.attachments?.length
       ? msg.attachments.map(a => ({ filename: a.filename ?? '', path: a.path, mimeType: a.mime }))
       : undefined;
-    const attachmentMeta = attachmentList ? JSON.stringify({ attachments: attachmentList }) : undefined;
+    const normalizedMentions = [...new Set((msg.mentions ?? []).map(name => name.trim()).filter(Boolean))];
+    const mentionList = normalizedMentions.length > 0 ? normalizedMentions : undefined;
+    const messageMetadata = attachmentList || mentionList
+      ? JSON.stringify({
+        ...(attachmentList ? { attachments: attachmentList } : {}),
+        ...(mentionList ? { mentions: mentionList } : {}),
+      })
+      : undefined;
     const persistUserMessage = msg.suppressUserMessagePersistence !== true;
     if (persistUserMessage) {
-      const conversationId = saveMessage(msg.chatId, 'user', userMessage, undefined, undefined, dbSession.id, tenantId, attachmentMeta);
+      const conversationId = saveMessage(msg.chatId, 'user', userMessage, undefined, undefined, dbSession.id, tenantId, messageMetadata);
       const userMessageTimestamp = Date.now();
       saveTimelineItem({
         tenantId,
@@ -597,6 +603,7 @@ export async function handleMessage(
           content: userMessage,
           timestamp: userMessageTimestamp,
           ...(attachmentList ? { attachments: attachmentList } : {}),
+          ...(mentionList ? { mentions: mentionList } : {}),
         },
       });
     } else if ((runtimeOptions.origin ?? 'user') === 'user') {
