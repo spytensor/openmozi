@@ -125,17 +125,65 @@ export function resolveAllowedModels(tenantId: string, userId: string): AllowedM
   };
 }
 
-export function isModelAllowed(tenantId: string, userId: string, modelId: string): boolean {
+/**
+ * Compose a provider-scoped entitlement key.
+ *
+ * Two providers can expose the same bare model id — e.g. a relay like LiteLLM
+ * re-listing `deepseek-v4-flash` under both DeepSeek and an OpenAI-compatible
+ * gateway. Keying the allow-list by bare id collapses them, so removing the
+ * model from one provider silently removes it from the other. The allow-list is
+ * therefore keyed by `${provider}:${model}`. Provider ids never contain ':', so
+ * the first colon is an unambiguous split even though model ids may contain one.
+ */
+export function makeModelEntitlementKey(providerId: string, modelId: string): string {
+  return `${providerId.trim()}:${modelId.trim()}`;
+}
+
+/**
+ * Match one (provider, model) pair against an allow-list.
+ *
+ * Accepts both the composite `${provider}:${model}` form and a legacy bare
+ * model id. A bare entry matches any provider — the pre-composite behavior,
+ * kept so allow-lists written before this change keep working until the
+ * operator next saves (which rewrites the list in composite form).
+ */
+export function modelEntitlementAllowed(models: string[] | null, providerId: string, modelId: string): boolean {
+  if (models === null) return true;
+  const model = modelId.trim();
+  if (!model) return true;
+  if (models.includes(model)) return true; // legacy bare id → any provider
+  return models.includes(makeModelEntitlementKey(providerId, model));
+}
+
+/**
+ * Provider-less coarse check: is the model allowed under ANY provider? Used by
+ * validation paths that only have a bare model id (e.g. role-selection checks).
+ */
+export function modelAllowedForAnyProvider(models: string[] | null, modelId: string): boolean {
+  if (models === null) return true;
+  const model = modelId.trim();
+  if (!model) return true;
+  if (models.includes(model)) return true;
+  const suffix = `:${model}`;
+  return models.some(entry => entry.endsWith(suffix));
+}
+
+export function isModelAllowed(tenantId: string, userId: string, modelId: string, providerId?: string): boolean {
   const normalizedModelId = modelId.trim();
   if (!normalizedModelId) return true;
   const { models } = resolveAllowedModels(tenantId, userId);
-  return models === null || models.includes(normalizedModelId);
+  return providerId
+    ? modelEntitlementAllowed(models, providerId, normalizedModelId)
+    : modelAllowedForAnyProvider(models, normalizedModelId);
 }
 
-export function assertModelAllowed(tenantId: string, userId: string, modelId: string): AllowedModelsResolution {
+export function assertModelAllowed(tenantId: string, userId: string, modelId: string, providerId?: string): AllowedModelsResolution {
   const resolution = resolveAllowedModels(tenantId, userId);
   const normalizedModelId = modelId.trim();
-  if (normalizedModelId && resolution.models !== null && !resolution.models.includes(normalizedModelId)) {
+  const allowed = providerId
+    ? modelEntitlementAllowed(resolution.models, providerId, normalizedModelId)
+    : modelAllowedForAnyProvider(resolution.models, normalizedModelId);
+  if (normalizedModelId && resolution.models !== null && !allowed) {
     throw new ModelNotAllowedError(tenantId, userId, normalizedModelId, resolution.models);
   }
   return resolution;

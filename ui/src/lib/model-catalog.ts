@@ -119,6 +119,16 @@ export function findModel(
   return findProvider(providers, providerId)?.models.find((model) => model.id === modelId);
 }
 
+/**
+ * Composite activation key for a model. Two providers can expose the same bare
+ * model id (a relay like LiteLLM re-listing another provider's model), so
+ * activation state must be keyed by `${provider}:${model}` — otherwise toggling
+ * one provider's copy toggles the other. Mirrors the backend entitlement key.
+ */
+export function modelActivationKey(providerId: string, modelId: string): string {
+  return `${providerId}:${modelId}`;
+}
+
 export function modelDisplayName(
   providers: CatalogProvider[],
   providerId: string,

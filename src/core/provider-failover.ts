@@ -12,7 +12,7 @@ import * as providerHealth from './provider-health.js';
 import { create, type LLMClient, type ChatMessage, type ChatOptions, type ChatResponse, type StreamChunk } from './llm.js';
 import { getConfig } from '../config/index.js';
 import { resolveApiKey, getProvider } from './providers.js';
-import { ModelNotAllowedError, resolveAllowedModels } from '../security/entitlements.js';
+import { ModelNotAllowedError, resolveAllowedModels, modelEntitlementAllowed } from '../security/entitlements.js';
 import { normalizeProviderError } from './error-surfacing.js';
 import * as providerRateLimiter from './rate-limiter.js';
 import pino from 'pino';
@@ -360,7 +360,7 @@ export function createFailoverManager(
       : resolveAllowedModels(entitlement.tenantId, entitlement.userId).models;
     if (allowedModels === null) return list;
 
-    const filtered = list.filter(entry => allowedModels.includes(entry.model));
+    const filtered = list.filter(entry => modelEntitlementAllowed(allowedModels, entry.provider, entry.model));
     if (filtered.length > 0) return filtered;
 
     throw new ModelNotAllowedError(
