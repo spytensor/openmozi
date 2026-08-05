@@ -259,38 +259,15 @@
     color: var(--work-active);
   }
 
-  .work-capsule {
+  /* Live-work rows are shell-less (operator, 2026-08-05): the activity orb is
+     the status visual, so no border/tinted box competes with it. The class
+     only carries the state-tint variable used by labels and progress bars. */
+  .work-live {
     --work-state: var(--work-active);
   }
 
-  .work-capsule[data-state="verifying"] {
+  .work-live[data-state="verifying"] {
     --work-state: var(--warning);
-  }
-
-  .work-capsule {
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--work-state) 78%, transparent);
-    border-radius: var(--radius-work);
-    background: color-mix(in srgb, var(--work-state) 7%, var(--surface-card));
-    transition:
-      background-color var(--motion-work-duration) var(--motion-work-ease),
-      border-color var(--motion-work-duration) var(--motion-work-ease),
-      transform var(--motion-work-duration) var(--motion-work-ease);
-  }
-
-  .work-capsule:hover {
-    background: color-mix(in srgb, var(--work-state) 10%, var(--surface-card));
-    border-color: color-mix(in srgb, var(--work-state) 92%, transparent);
-  }
-
-  .work-capsule:active {
-    transform: translateY(1px);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .work-capsule {
-      transition: none;
-    }
   }
 
   .glow-activity {
@@ -431,11 +408,6 @@
     50% { opacity: 0.4; }
   }
 
-  @keyframes typing-dot {
-    0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-    40% { transform: scale(1); opacity: 1; }
-  }
-
   @keyframes live-progress-slide {
     0% { transform: translateX(-120%); }
     100% { transform: translateX(320%); }
@@ -471,10 +443,6 @@
       animation: pulse-dot 1.5s ease-in-out infinite;
     }
 
-    .typing-dot:nth-child(1) { animation: typing-dot 1.2s infinite 0ms; }
-    .typing-dot:nth-child(2) { animation: typing-dot 1.2s infinite 200ms; }
-    .typing-dot:nth-child(3) { animation: typing-dot 1.2s infinite 400ms; }
-
     .live-progress-indicator {
       animation: live-progress-slide 1.4s ease-in-out infinite;
     }
@@ -495,7 +463,6 @@
 
   @media (prefers-reduced-motion: reduce) {
     .pulse-dot,
-    .typing-dot,
     .live-progress-indicator,
     .live-verb-shimmer,
     .work-title-shimmer {

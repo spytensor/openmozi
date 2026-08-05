@@ -124,7 +124,7 @@ describe("WorkspaceSidebar", () => {
 
     expect(screen.getByLabelText("Running")).toBeInTheDocument();
     expect(screen.getByLabelText("Approval needed")).toBeInTheDocument();
-    expect(screen.getByTestId("session-activity-running-sess-1")).toHaveClass("animate-spin");
+    expect(screen.getByTestId("session-activity-running-sess-1")).toHaveAttribute("data-orb-activity", "working");
   });
 
   it("supports search across visible session groups", () => {

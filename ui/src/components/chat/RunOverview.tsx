@@ -1,4 +1,4 @@
-import { Loader2 } from "lucide-react";
+import { ActivityOrb } from "@/components/ActivityOrb";
 import { formatDurationForLocale, useLocale } from "@/i18n";
 
 interface RunOverviewProps {
@@ -17,7 +17,7 @@ export default function RunOverview({ running, duration, metrics }: RunOverviewP
       >
         {running && (
           <div className="flex items-center gap-2 text-[14px] font-medium text-[color:var(--work-active)]">
-            <Loader2 size={16} className="animate-spin motion-reduce:animate-none" />{t("run.live.running")}
+            <ActivityOrb activity="working" size="inline" />{t("run.live.running")}
           </div>
         )}
         <div className={`${running ? "mt-4 " : ""}grid grid-cols-2 gap-x-5 gap-y-3 text-[11px] text-ink/38 sm:grid-cols-4`}>

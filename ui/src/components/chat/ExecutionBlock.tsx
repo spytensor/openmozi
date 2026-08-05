@@ -10,7 +10,6 @@ import {
   FileSearch,
   FileText,
   Globe,
-  ListTodo,
   Loader2,
   PenLine,
   Search,
@@ -19,6 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ActivityOrb } from "@/components/ActivityOrb";
 import type { TaskUpdate, ToolEvent } from "@/types";
 import {
   buildToolStepSummary,
@@ -219,7 +219,7 @@ function AgentDelegationExecution({
             {round ? ` · round ${round}` : ""}
           </span>
         </span>
-        {!terminal && <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" />}
+        {!terminal && <ActivityOrb activity="delegating" size="micro" className="shrink-0" />}
         {terminal && <ChevronRight aria-hidden="true" className={cn("h-3 w-3 shrink-0 text-ink/25 transition-transform", expanded && "rotate-90")} />}
       </button>
 
@@ -1021,51 +1021,44 @@ function LiveWorkCapsule({ block, locale, rows, onOpenSources }: { block: Execut
       <div
         data-testid="execution-plan-card"
         data-state="running"
-        className="work-capsule"
+        className="work-live"
       >
         <button
           type="button"
           data-testid="plan-capsule-toggle"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
-          className="group flex w-full flex-col text-left focus-visible:outline-none"
+          className="group inline-flex w-fit max-w-full items-center gap-4 rounded-full bg-ink/[0.04] py-3.5 pl-4 pr-6 text-left outline-none transition-colors duration-150 hover:bg-ink/[0.065] focus-visible:ring-2 focus-visible:ring-focus/45"
         >
-              <span className="flex w-full items-center gap-2.5 px-4 pb-1.5 pt-3.5">
-                <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" style={{ color: "var(--work-state)" }} strokeWidth={2.1} />
-                <span
-                  className="work-title-shimmer min-w-0 flex-1 truncate text-[13.5px] font-semibold"
-                >
-                  {title}
-                </span>
-                <ChevronDown className={cn("h-4 w-4 shrink-0 text-ink/38 transition-transform duration-180ms", expanded && "rotate-180")} aria-hidden="true" />
-              </span>
-              <span className="w-full truncate px-4 pb-3 pl-[42px] text-[12.5px] leading-5 text-ink/48">
-                {statusLabel}
-              </span>
+          <ActivityOrb activity="working" size="capsule" className="shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span
+              className="work-title-shimmer block truncate text-[14.5px] font-medium"
+            >
+              {title}
+            </span>
+            <span className="mt-0.5 flex items-center gap-2 text-[11.5px] text-ink/45">
+              <span>{statusLabel}</span>
               {progress && (
-                <span className="border-t border-ink/[0.07] px-4 py-3">
-                  <span className="flex items-center gap-2.5">
-                    <ListTodo className="h-4 w-4 shrink-0 text-ink/52" strokeWidth={1.8} aria-hidden="true" />
-                    <span className="text-[13px] font-medium text-ink/76">{translateMessage(locale, "execution.plan.title")}</span>
-                    <span className="ml-auto text-[11.5px] tabular-nums text-ink/38">
-                      {progress.done} / {progress.total}
-                    </span>
-                  </span>
-                  {pct != null && (
-                    <span className="mt-2 block h-0.5 w-full overflow-hidden rounded-full bg-ink/[0.07]">
-                      <span
-                        className="block h-full rounded-full transition-[width] duration-300"
-                        style={{ width: `${pct}%`, background: "var(--work-state)" }}
-                      />
-                    </span>
-                  )}
+                <span className="tabular-nums text-ink/38">
+                  {progress.done} / {progress.total}
                 </span>
               )}
+            </span>
+            {progress && pct != null && (
+              <span className="mt-1.5 block h-0.5 w-full max-w-[180px] overflow-hidden rounded-full bg-ink/[0.07]">
+                <span
+                  className="block h-full rounded-full transition-[width] duration-300"
+                  style={{ width: `${pct}%`, background: "var(--work-state)" }}
+                />
+              </span>
+            )}
+          </span>
         </button>
         {expanded && (
           <div
             data-testid="work-detail-timeline"
-            className="border-t border-ink/[0.07] px-4 py-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1"
+            className="ml-[80px] mt-1 rounded-xl border border-ink/[0.07] px-4 py-4 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-top-1"
           >
             <PlanTimelineBody rows={rows} onOpenSources={onOpenSources} />
             <TechnicalDetails block={block} locale={locale} />
@@ -1462,15 +1455,16 @@ function LiveExecutionLine({ block, locale }: { block: ExecutionBlockModel; loca
   const approximateDuration = elapsedMs == null ? null : formatApproximateDurationForLocale(elapsedMs, locale);
 
   return (
-    <div data-testid="execution-live-line" className="flex w-full max-w-[640px] items-center gap-2 py-1.5 text-[12px] text-ink/42">
-      <Loader2 aria-hidden="true" className="work-active-ink h-3.5 w-3.5 shrink-0 animate-spin" strokeWidth={2} />
-      <span className="live-verb-shimmer min-w-0 truncate">{liveLabel(block, locale)}</span>
-      <span className="flex-1" />
-      {approximateDuration && (
-        <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-ink/22">
-          {approximateDuration}
-        </span>
-      )}
+    <div className="w-full max-w-[640px] py-1">
+      <div data-testid="execution-live-line" className="inline-flex max-w-full items-center gap-2.5 rounded-full bg-ink/[0.04] px-4 py-2 text-[12px] text-ink/42">
+        <ActivityOrb activity="working" size="inline" className="shrink-0" />
+        <span className="live-verb-shimmer min-w-0 truncate">{liveLabel(block, locale)}</span>
+        {approximateDuration && (
+          <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-ink/22">
+            {approximateDuration}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

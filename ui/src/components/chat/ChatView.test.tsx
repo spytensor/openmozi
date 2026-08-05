@@ -584,7 +584,7 @@ describe("ChatView", () => {
     expect(screen.queryByTestId("chat-thinking-indicator")).not.toBeInTheDocument();
     expect(screen.queryByText("Thinking...")).not.toBeInTheDocument();
     expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
-    expect(document.querySelectorAll(".animate-spin")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-orb-activity]")).toHaveLength(1);
     expect(screen.getByTestId("mozi-avatar").querySelector(".animate-pulse")).toBeNull();
     fireEvent.click(screen.getByTestId("live-run-summary"));
     expect(onOpenRun).toHaveBeenCalledWith("turn-1");
@@ -608,9 +608,9 @@ describe("ChatView", () => {
     expect(capsule.compareDocumentPosition(narration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const userMsg = screen.getByText("Organize this project");
     expect(userMsg.compareDocumentPosition(capsule) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    // No suppressed same-turn block resurfaces, and only one spinner exists.
+    // No suppressed same-turn block resurfaces, and only one activity orb exists.
     expect(screen.queryByTestId("execution-summary")).not.toBeInTheDocument();
-    expect(document.querySelectorAll(".animate-spin")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-orb-activity]")).toHaveLength(1);
   });
 
   it("keeps current-run process in the Workbench and never promotes a shell command into the capsule", () => {

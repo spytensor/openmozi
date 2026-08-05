@@ -6,7 +6,6 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   LogOut,
-  Loader2,
   PanelLeftClose,
   Search,
   Settings,
@@ -21,6 +20,7 @@ import type { ComponentType, CSSProperties, ReactNode } from "react";
 import type { AppView, Session } from "@/types";
 import type { RuntimeWorkspaceRoot } from "@/types/runtime";
 import { pathLeaf, runtimeRootLabel } from "@/lib/runtime-display";
+import { ActivityOrb } from "@/components/ActivityOrb";
 import { useLocale } from "@/i18n";
 import { useApi } from "@/hooks/useApi";
 import MoziAvatar from "@/components/MoziAvatar";
@@ -627,7 +627,7 @@ function SessionLeaf({
         <span className="min-w-0 flex-1 truncate text-[12.5px]">{label}</span>
         {activity === "running" ? (
           <span className="flex shrink-0 items-center gap-1 text-[10.5px] text-activity/80" title={runningLabel} aria-label={runningLabel}>
-            <Loader2 data-testid={`session-activity-running-${id}`} className="h-3 w-3 animate-spin" />
+            <ActivityOrb activity="working" size="micro" data-testid={`session-activity-running-${id}`} />
           </span>
         ) : activity === "awaiting_approval" ? (
           <span className="flex max-w-[76px] shrink-0 items-center gap-1 truncate text-[10.5px] text-amber-500/90" title={awaitingLabel} aria-label={awaitingLabel}>

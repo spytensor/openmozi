@@ -1,4 +1,5 @@
 import type { Artifact, ChatMessage, PlanStartedUpdate, TimelineItem, ToolEvent, TaskUpdate } from "@/types";
+import type { OrbActivity } from "@/components/ActivityOrb";
 import { DEFAULT_LOCALE, translateMessage, type Locale, type MessageKey } from "@/i18n/messages";
 
 /**
@@ -600,6 +601,19 @@ function toolSemanticKind(tool?: string | null): ToolSemanticKind {
   if (normalized.includes("memory")) return "memory";
   if (normalized.includes("vision")) return "vision";
   return "generic";
+}
+
+/** Orb activity for a running tool — the visual twin of `toolRunningActionLabel`. */
+export function toolOrbActivity(tool?: string | null): OrbActivity {
+  switch (toolSemanticKind(tool)) {
+    case "search":
+    case "browser":
+      return "searching";
+    case "write":
+      return "writing";
+    default:
+      return "working";
+  }
 }
 
 function toolStepKind(tool?: string | null): ToolStepKind {

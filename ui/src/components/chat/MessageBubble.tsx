@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, ChevronDown, Copy, Lightbulb, Loader2, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Copy, Lightbulb, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { ActivityOrb } from "@/components/ActivityOrb";
 import { TypeIcon } from "./artifact-type-icons";
 import { buildFileArtifact } from "@/lib/file-artifact";
 import ReactMarkdown from "react-markdown";
@@ -317,7 +318,7 @@ function ReasoningDisclosure({ reasoning, showProvider = true }: { reasoning: Ch
         className="group flex w-full items-center gap-2 py-1.5 text-left focus-visible:outline-none"
       >
         {reasoning.streaming ? (
-          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} aria-hidden="true" />
+          <ActivityOrb activity="thinking" size="micro" className="shrink-0" />
         ) : (
           <Lightbulb className="h-3.5 w-3.5 shrink-0 text-ink/38" strokeWidth={1.8} aria-hidden="true" />
         )}
@@ -396,7 +397,7 @@ export function ReasoningGroup({ messages }: { messages: ChatMessage[] }) {
         className="group flex w-full items-center gap-2.5 px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus/35"
       >
         {streaming ? (
-          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-activity" strokeWidth={2} aria-hidden="true" />
+          <ActivityOrb activity="thinking" size="inline" className="shrink-0" />
         ) : (
           <Lightbulb className="h-4 w-4 shrink-0 text-ink/42" strokeWidth={1.8} aria-hidden="true" />
         )}
@@ -603,9 +604,7 @@ export default memo(function MessageBubble({
             )
           ) : streaming && !renderReasoning ? (
             <div className="flex items-center gap-1 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
-              <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
-              <span className="w-1.5 h-1.5 rounded-full bg-activity typing-dot" />
+              <ActivityOrb activity="responding" size="inline" />
             </div>
           ) : null}
         </div>

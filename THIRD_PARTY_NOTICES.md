@@ -51,6 +51,16 @@ The complete license text is distributed at
 and is included in the packaged macOS application under
 `Contents/Resources/licenses/third-party/`.
 
+## Thinking Orbs activity animations
+
+The animated activity indicators in the web UI (thinking, working, searching
+states) use the `thinking-orbs` package version 0.2.0, copyright 2026 Jakub
+Antalik. It is licensed under the MIT License. The orbs render locally on a
+2D canvas with no network access.
+
+The complete license text is distributed at
+[`third_party/licenses/thinking-orbs-MIT.txt`](third_party/licenses/thinking-orbs-MIT.txt).
+
 ## Other dependencies
 
 Dependency manifests and the lockfile identify the remaining third-party
