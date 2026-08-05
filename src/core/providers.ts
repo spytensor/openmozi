@@ -16,6 +16,7 @@ import {
   resolveForwardCompatModel,
 } from './provider-catalog.js';
 import { isSafeCustomModelId } from './model-discovery.js';
+import { getCachedModelMetadata } from './model-registry-enrichment.js';
 
 // Re-export catalog + migration for consumers that import from providers.js
 export { PROVIDERS, WIZARD_PROVIDER_IDS } from './provider-catalog.js';
@@ -369,16 +370,28 @@ export function resolveRuntimeModel(providerId: string, modelId: string, options
   const provider = PROVIDERS[providerId];
   const trimmed = modelId.trim();
   if (!options.allowUnknown || !provider || provider.apiMode === 'cli-pipe' || !isSafeCustomModelId(trimmed)) return undefined;
+  // A relay (LiteLLM, OpenRouter, a corporate gateway) fronts real models under
+  // custom ids that aren't in the built-in catalog. MOZI already ships LiteLLM's
+  // price/context registry, so consult it here: a relay-fronted model keeps its
+  // real context window, tool/vision support and pricing instead of the
+  // conservative fallback, which would silently cap context to 32k and disable
+  // vision routing. Falls back to the conservative profile when the registry has
+  // no entry (a genuinely private/unknown model id) or the cache is cold.
+  const enriched = getCachedModelMetadata(providerId, trimmed);
   return {
     id: trimmed,
     name: trimmed,
     tier: 'low',
-    contextWindow: 32_768,
-    maxOutputTokens: 4_096,
-    supportsTools: false,
+    contextWindow: enriched?.contextWindow ?? 32_768,
+    maxOutputTokens: enriched?.maxOutputTokens ?? 4_096,
+    supportsTools: enriched?.supportsTools ?? false,
     supportsStreaming: true,
-    supportsVision: false,
+    supportsVision: enriched?.supportsVision ?? false,
     reasoning: false,
+    ...(enriched?.inputCostPer1M != null ? { inputCostPer1M: enriched.inputCostPer1M } : {}),
+    ...(enriched?.outputCostPer1M != null ? { outputCostPer1M: enriched.outputCostPer1M } : {}),
+    ...(enriched?.cacheReadCostPer1M != null ? { cacheReadCostPer1M: enriched.cacheReadCostPer1M } : {}),
+    ...(enriched?.cacheWriteCostPer1M != null ? { cacheWriteCostPer1M: enriched.cacheWriteCostPer1M } : {}),
   };
 }
 
