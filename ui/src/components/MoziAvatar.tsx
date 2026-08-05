@@ -6,7 +6,7 @@ interface MoziAvatarProps {
 }
 
 /** The shared MOZI mark. */
-export default function MoziAvatar({ size = 26, className }: MoziAvatarProps) {
+export default function MoziAvatar({ size = 34, className }: MoziAvatarProps) {
   return (
     <span
       data-testid="mozi-avatar"

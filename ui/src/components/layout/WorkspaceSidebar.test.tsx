@@ -82,7 +82,7 @@ describe("WorkspaceSidebar", () => {
   it("renders the brand row and quiet top workbench actions", () => {
     const props = renderSidebar({ active: "projects" as WorkspaceNavKey });
 
-    expect(screen.getByTestId("mozi-avatar")).toHaveStyle({ width: "30px", height: "30px" });
+    expect(screen.getByTestId("mozi-avatar")).toHaveStyle({ width: "36px", height: "36px" });
     expect(screen.getByText("MOZI")).toHaveClass("text-[14px]", "text-ink/90");
     expect(screen.getByTestId("sidebar-window-drag-region")).toHaveClass("desktop-window-drag-region", "h-9");
     expect(screen.getByTestId("new-chat-command")).toHaveTextContent("New chat");

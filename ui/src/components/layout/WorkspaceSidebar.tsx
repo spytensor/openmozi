@@ -337,7 +337,7 @@ export default function WorkspaceSidebar({
       <div className="flex h-full min-h-0 w-[248px] flex-shrink-0 flex-col overflow-hidden">
       <div className="flex shrink-0 flex-col gap-3 px-3 pt-4">
         <div data-testid="sidebar-window-drag-region" className="desktop-window-drag-region flex h-9 items-center gap-2 px-1.5">
-          <MoziAvatar size={30} />
+          <MoziAvatar size={36} />
           <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-normal text-ink/90">{t("sidebar.brand")}</span>
           {onToggleCollapse && (
             <button

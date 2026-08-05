@@ -542,7 +542,7 @@ export default memo(function MessageBubble({
       {showAvatar ? (
         <MoziAvatar className="mt-0.5" />
       ) : (
-        <div aria-hidden="true" className="mt-0.5 h-[26px] w-[26px] shrink-0" />
+        <div aria-hidden="true" className="mt-0.5 h-[34px] w-[34px] shrink-0" />
       )}
       <div className="min-w-0 flex-1">
         {renderReasoning && message.reasoning && <ReasoningDisclosure reasoning={message.reasoning} />}
