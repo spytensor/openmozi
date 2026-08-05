@@ -8,6 +8,21 @@ OpenMozi maintains its own version line.
 
 ### Added
 
+- Agent activity indicators across the web UI — the run capsules, thinking /
+  working / responding status lines, streaming reasoning toggles, sub-agent
+  delegation rows, the sidebar session-busy marker, and the typing dots — are
+  now animated monochrome orbs (`thinking-orbs`, MIT © Jakub Antalik) instead
+  of generic spinners. Each orb state is driven by the real runtime signal:
+  reasoning shows `solving`, running search/browser tools show `searching`,
+  file writes show `composing`, sub-agent delegation shows `weaving`, response
+  streaming shows `composing`, and everything else works on `working`. Orbs
+  follow the app theme live (dark/light), honor `prefers-reduced-motion`, and
+  pause offscreen. All wiring goes through one `ActivityOrb` component.
+  The live work capsules and status lines adopt the thinking-orbs demo pill
+  form: a soft rounded-full fill with the orb and a single shimmer status
+  line — the old bordered/tinted capsule shell, chevrons, inline timer, and
+  typing dots are gone (timer and progress detail live in Run details).
+
 - Reasoning from providers whose thinking output is an official display
   surface (DeepSeek, Anthropic, Qwen, Kimi, GLM, MiniMax, Groq, Gemini,
   OpenRouter, Ollama, vLLM) is now visible: streamed live into the chat

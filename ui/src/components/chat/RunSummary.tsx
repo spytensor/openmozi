@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Activity, ChevronRight, Loader2 } from "lucide-react";
+import { Activity, ChevronRight } from "lucide-react";
+import { ActivityOrb } from "@/components/ActivityOrb";
 import type { TurnEnvelope } from "@/types";
 import { formatDurationForLocale, useLocale } from "@/i18n";
 
@@ -18,15 +18,14 @@ interface LiveRunSummaryProps {
   onOpen: () => void;
 }
 
-export function LiveRunSummary({ startedAt, headline, completed, total, onOpen }: LiveRunSummaryProps) {
-  const { locale, t } = useLocale();
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [startedAt]);
-  const progress = total > 0 ? Math.min(1, Math.max(0, completed / total)) : 0;
+/**
+ * Faithful thinking-orbs demo pill (operator, 2026-08-05): rounded-full soft
+ * fill, orb + one shimmer line. The headline IS the label; the only extra is
+ * the plan count the chat contract requires. Timer/progress live in Run
+ * details, which the whole pill opens.
+ */
+export function LiveRunSummary({ headline, completed, total, onOpen }: LiveRunSummaryProps) {
+  const { t } = useLocale();
 
   return (
     <button
@@ -34,24 +33,13 @@ export function LiveRunSummary({ startedAt, headline, completed, total, onOpen }
       data-testid="live-run-summary"
       onClick={onOpen}
       aria-label={t("run.live.open")}
-      className="work-capsule group relative mt-2 flex min-h-[72px] w-full max-w-[640px] items-center gap-3 px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-focus/45"
+      className="work-live group mt-2 inline-flex max-w-[640px] items-center gap-4 rounded-full bg-ink/[0.04] py-3.5 pl-4 pr-6 text-left outline-none transition-colors duration-150 hover:bg-ink/[0.065] focus-visible:ring-2 focus-visible:ring-focus/45 active:bg-ink/[0.08]"
     >
-      <Loader2 className="work-active-ink h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" strokeWidth={2} aria-hidden="true" />
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2 text-[12px] font-medium text-[color:var(--work-active)]">
-          <span>{t("run.live.running")}</span>
-          {total > 0 && <span className="tabular-nums text-ink/38">{completed}/{total}</span>}
-        </span>
-        <span className="mt-1 block truncate text-[13px] text-ink/72">{headline}</span>
-        <span className="mt-1 block text-[10.5px] tabular-nums text-ink/34">{formatDurationForLocale(Math.max(0, now - startedAt), locale)}</span>
+      <ActivityOrb activity="working" size="capsule" className="shrink-0" />
+      <span className="live-verb-shimmer min-w-0 truncate text-[14.5px] font-medium text-ink/62">
+        {headline || t("run.live.running")}
       </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-ink/28 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
-      <span aria-hidden="true" className="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden bg-ink/[0.04]">
-        <span
-          className="block h-full origin-left bg-[color:var(--work-active)] transition-transform duration-300 motion-reduce:transition-none"
-          style={{ transform: `scaleX(${progress})` }}
-        />
-      </span>
+      {total > 0 && <span className="shrink-0 text-[11px] tabular-nums text-ink/38">{completed}/{total}</span>}
     </button>
   );
 }

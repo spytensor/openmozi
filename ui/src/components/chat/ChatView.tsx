@@ -12,7 +12,8 @@ import InlineVisualCard, { isInlineVisualArtifact } from "./InlineVisualCard";
 import SupportingFilesGroup from "./SupportingFilesGroup";
 import RunSummary, { LiveRunSummary } from "./RunSummary";
 import { planProgress, timelineItemTurnId } from "./run-metrics";
-import { buildExecutionBlockModel, buildExecutionIssueSummaries, inferMessageLocale, isCancelledTask, isExecutionTimelineItem, toolRunningActionLabel, type ChatRenderItem } from "./execution";
+import { buildExecutionBlockModel, buildExecutionIssueSummaries, inferMessageLocale, isCancelledTask, isExecutionTimelineItem, toolOrbActivity, toolRunningActionLabel, type ChatRenderItem } from "./execution";
+import { ActivityOrb, type OrbActivity } from "@/components/ActivityOrb";
 import { canProjectDeterministically, projectLegacyTimeline, projectTimelineByTurn } from "./turn-projection";
 import { MemoryUpdateNotice } from "./MemoryUpdateNotice";
 import { translateMessage, useLocale, type Locale, type MessageKey } from "@/i18n";
@@ -31,7 +32,7 @@ function AssistantColumnRow({ children, showAvatar = false }: { children: ReactN
       {showAvatar ? (
         <MoziAvatar className="mt-0.5" />
       ) : (
-        <div data-testid="chat-assistant-column-spacer" aria-hidden="true" className="mt-0.5 h-[26px] w-[26px] shrink-0" />
+        <div data-testid="chat-assistant-column-spacer" aria-hidden="true" className="mt-0.5 h-[34px] w-[34px] shrink-0" />
       )}
       <div className="min-w-0 flex-1">{children}</div>
     </div>
@@ -39,11 +40,13 @@ function AssistantColumnRow({ children, showAvatar = false }: { children: ReactN
 }
 
 /** Brief bridge before the first persisted execution event creates a run capsule. */
-function LiveToolLine({ label }: { label: string }) {
+function LiveToolLine({ label, activity }: { label: string; activity: OrbActivity }) {
   return (
-    <div data-testid="chat-active-tool-line" className="flex w-full max-w-[640px] items-center gap-2 py-1.5 text-[12px] leading-none text-ink/42">
-      <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-      <span className="live-verb-shimmer min-w-0 truncate">{label}</span>
+    <div className="w-full max-w-[640px] py-1">
+      <div data-testid="chat-active-tool-line" className="inline-flex max-w-full items-center gap-2.5 rounded-full bg-ink/[0.04] px-4 py-2 text-[12px] leading-none text-ink/42">
+        <ActivityOrb activity={activity} size="inline" className="shrink-0" />
+        <span className="live-verb-shimmer min-w-0 truncate">{label}</span>
+      </div>
     </div>
   );
 }
@@ -1335,16 +1338,18 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         if (!activeTool) return null;
         return (
           <AssistantColumnRow showAvatar={claimTurnAvatar(activeTurnId ?? undefined)}>
-            <LiveToolLine label={toolRunningActionLabel(activeTool, turnLocale, activeToolSkillName)} />
+            <LiveToolLine label={toolRunningActionLabel(activeTool, turnLocale, activeToolSkillName)} activity={toolOrbActivity(activeTool)} />
           </AssistantColumnRow>
         );
       }
       case "responding":
         return (
           <AssistantColumnRow showAvatar={claimTurnAvatar(activeTurnId ?? undefined)}>
-            <div data-testid="chat-responding-status-line" className="flex items-center gap-2 py-1 text-xs text-ink/40">
-              <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-              <span>{translateMessage(turnLocale, "chat.status.responding")}</span>
+            <div className="py-1">
+              <div data-testid="chat-responding-status-line" className="inline-flex items-center gap-2.5 rounded-full bg-ink/[0.04] px-4 py-2 text-xs text-ink/40">
+                <ActivityOrb activity="responding" size="inline" className="shrink-0" />
+                <span className="live-verb-shimmer">{translateMessage(turnLocale, "chat.status.responding")}</span>
+              </div>
             </div>
           </AssistantColumnRow>
         );
@@ -1352,10 +1357,10 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
       case "working":
         return (
           <AssistantColumnRow showAvatar={claimTurnAvatar(activeTurnId ?? undefined)}>
-            <div data-testid="chat-thinking-indicator" className="flex items-center gap-2 py-1.5">
-              <div className="flex items-center gap-2 py-1">
-                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0 animate-spin text-activity" strokeWidth={2} />
-                <span className="text-xs text-ink/40">
+            <div data-testid="chat-thinking-indicator" className="py-1.5">
+              <div className="inline-flex items-center gap-2.5 rounded-full bg-ink/[0.04] px-4 py-2">
+                <ActivityOrb activity={activityIndicator === "working" ? "working" : "thinking"} size="inline" className="shrink-0" />
+                <span className="live-verb-shimmer text-xs text-ink/40">
                   {translateMessage(turnLocale, activityIndicator === "working" ? "chat.status.working" : "chat.status.thinking")}
                 </span>
               </div>
@@ -1882,7 +1887,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
             onClick={() => scrollToLatest()}
             className="pointer-events-auto inline-flex h-8 items-center gap-2 rounded-full border border-ink/[0.12] bg-base/95 px-3 text-[12px] text-ink/65 shadow-lg backdrop-blur transition-colors hover:border-ink/[0.2] hover:text-ink/90"
           >
-            {sessionState !== "IDLE" && <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin text-activity" />}
+            {sessionState !== "IDLE" && <ActivityOrb activity="responding" size="micro" />}
             <span>{sessionState !== "IDLE" ? t("chat.follow.responding") : t("chat.follow.latest")}</span>
             <ArrowDown aria-hidden="true" className="h-3.5 w-3.5" />
           </button>

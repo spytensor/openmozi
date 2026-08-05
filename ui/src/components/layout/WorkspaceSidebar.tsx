@@ -6,7 +6,6 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   LogOut,
-  Loader2,
   PanelLeftClose,
   Search,
   Settings,
@@ -21,6 +20,7 @@ import type { ComponentType, CSSProperties, ReactNode } from "react";
 import type { AppView, Session } from "@/types";
 import type { RuntimeWorkspaceRoot } from "@/types/runtime";
 import { pathLeaf, runtimeRootLabel } from "@/lib/runtime-display";
+import { ActivityOrb } from "@/components/ActivityOrb";
 import { useLocale } from "@/i18n";
 import { useApi } from "@/hooks/useApi";
 import MoziAvatar from "@/components/MoziAvatar";
@@ -337,7 +337,7 @@ export default function WorkspaceSidebar({
       <div className="flex h-full min-h-0 w-[248px] flex-shrink-0 flex-col overflow-hidden">
       <div className="flex shrink-0 flex-col gap-3 px-3 pt-4">
         <div data-testid="sidebar-window-drag-region" className="desktop-window-drag-region flex h-9 items-center gap-2 px-1.5">
-          <MoziAvatar size={30} />
+          <MoziAvatar size={36} />
           <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-normal text-ink/90">{t("sidebar.brand")}</span>
           {onToggleCollapse && (
             <button
@@ -627,7 +627,7 @@ function SessionLeaf({
         <span className="min-w-0 flex-1 truncate text-[12.5px]">{label}</span>
         {activity === "running" ? (
           <span className="flex shrink-0 items-center gap-1 text-[10.5px] text-activity/80" title={runningLabel} aria-label={runningLabel}>
-            <Loader2 data-testid={`session-activity-running-${id}`} className="h-3 w-3 animate-spin" />
+            <ActivityOrb activity="working" size="micro" data-testid={`session-activity-running-${id}`} />
           </span>
         ) : activity === "awaiting_approval" ? (
           <span className="flex max-w-[76px] shrink-0 items-center gap-1 truncate text-[10.5px] text-amber-500/90" title={awaitingLabel} aria-label={awaitingLabel}>

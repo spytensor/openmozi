@@ -65,6 +65,16 @@ if (!globalThis.DOMMatrix) {
   });
 }
 
+// thinking-orbs (ActivityOrb) calls canvas.getContext("2d") and no-ops on
+// null. jsdom's default getContext throws a "Not implemented" jsdomError
+// with a captured stack trace on EVERY orb mount — pure noise that is slow
+// enough under parallel workers to push slow findBy* waits past their
+// timeout. Returning null directly keeps orbs inert and free in tests.
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  value: () => null,
+});
+
 // Recharts uses ResizeObserver through ResponsiveContainer. jsdom has no
 // layout engine, so a no-op observer is sufficient for deterministic tests.
 if (!globalThis.ResizeObserver) {
