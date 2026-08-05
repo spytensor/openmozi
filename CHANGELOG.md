@@ -55,6 +55,10 @@ OpenMozi maintains its own version line.
 
 ### Fixed
 
+- Filesystem prompts and tools now agree on the authenticated user's canonical
+  workspace. Full Access uses one read/write root contract, so a file written
+  to an advertised workspace can be listed, reopened, analyzed, and verified
+  without a contradictory authorization failure.
 - Switching away from a session and back no longer wipes the visible chat
   history while a heavy task runs. The session timeline page now serves a
   conversation projection (messages, plans, tasks, artifacts, approvals,

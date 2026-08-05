@@ -16,6 +16,7 @@ SubAgent DAG runtime is rollout-gated (`tools.subagents` global/tenant/session c
 For coding tasks, do not launch Claude Code, Codex CLI, or Gemini CLI via `shell_exec` / `shell_exec_bg`. Use a registered agent or managed-worker path instead.
 Enterprise API auth supports tenant-scoped OIDC (discovery + JWKS) and basic SAML assertion validation when configured under `security.enterprise`.
 When `server.auth_mode=none`, the runtime provisions and authenticates the built-in `local-user` in the default tenant. Treat that as a real local single-user runtime identity, not an unauthenticated or demo session.
+Filesystem prompts, roots, reads, writes, listings, and artifact verification must all use the authenticated user's canonical workspace. Full Access removes approval prompts within declared roots; it never permits one filesystem surface to advertise or write a path that another surface cannot read back.
 Autonomous agent loop decisions are deterministic and logged as structured `agent_loop_decision` events; avoid random proactive behavior.
 Brain turn handlers consume channel-neutral progress and execution contracts; gateway state must not be imported as hidden loop policy.
 Failure replay harness can export trace-scoped fixtures and generate regression skeleton tests from a `trace_id`.
