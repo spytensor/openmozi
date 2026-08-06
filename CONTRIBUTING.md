@@ -18,7 +18,7 @@ Thank you for improving OpenMozi. Contributions must preserve truthful runtime b
 5. Run the relevant local tests and `pnpm verify:public-export`.
 6. Open a focused pull request using the repository template and report only checks that actually ran.
 
-GitHub Actions are intentionally disabled. Pull requests therefore require explicit local verification evidence; an empty check list is not proof that a change passed.
+GitHub Actions report deterministic policy, type, unit, integration, and E2E checks. Contributors must still provide focused local verification for the changed behavior; a skipped or missing check is not proof that a change passed.
 
 ## Security and privacy
 

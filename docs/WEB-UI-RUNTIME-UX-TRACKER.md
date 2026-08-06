@@ -271,11 +271,12 @@ Each PR in this workstream must run:
 
 - `git diff --check`
 - targeted unit/UI tests for touched components
-- `pnpm --filter mozi-ui test`
 - relevant backend tests when runtime/API contracts change
-- `pnpm build:all`
-- `pnpm test:e2e:web -- --skip-build`
-- real browser screenshots for changed surfaces
+- the relevant typecheck or build when the changed boundary requires it
+- a real browser check and screenshot only for changed UI behavior
+
+The repository-level Web UI smoke runs on `main` or by manual dispatch. It is
+not a blanket per-PR requirement and does not replace focused component tests.
 
 For runtime/task UX changes, also run one real read-only task through
 `http://127.0.0.1:9210`, capture:

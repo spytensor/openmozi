@@ -60,7 +60,21 @@ function makeToolClient(): LLMClient {
     chat: vi.fn().mockImplementation(async () => {
       callCount++;
       if (callCount === 1) {
-        // First call returns tool calls
+        return {
+          content: '',
+          tool_calls: [
+            {
+              id: 'activate_1',
+              type: 'function' as const,
+              function: { name: 'activate_tools', arguments: '{"names":["shell_exec"]}' },
+            },
+          ],
+          usage: { input_tokens: 10, output_tokens: 20 },
+          model: 'mock-model',
+          stop_reason: 'tool_calls',
+        };
+      }
+      if (callCount === 2) {
         return {
           content: '',
           tool_calls: [
@@ -75,7 +89,7 @@ function makeToolClient(): LLMClient {
           stop_reason: 'tool_calls',
         };
       }
-      // Second call returns final response
+      // Third call returns final response
       return {
         content: 'Done',
         usage: { input_tokens: 10, output_tokens: 20 },
@@ -126,7 +140,16 @@ describe('gateway/handler progress callbacks', () => {
       onToolEnd: vi.fn(),
     };
 
-    await handleMessage(makeMsg('run a command', 'tool_progress_test'), 'sys', client, progress);
+    await handleMessage(
+      makeMsg('run a command', 'tool_progress_test'),
+      'sys',
+      client,
+      progress,
+      undefined,
+      undefined,
+      undefined,
+      { permissionLevel: 'L2_SHELL_EXEC' },
+    );
 
     expect(progress.onToolStart).toHaveBeenCalledWith('shell_exec');
     expect(progress.onToolEnd).toHaveBeenCalledWith('shell_exec');

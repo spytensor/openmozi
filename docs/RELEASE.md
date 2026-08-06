@@ -1,6 +1,6 @@
 # Release Process
 
-OpenMozi releases are built and verified on a local macOS machine. GitHub is used only for source tags, the Release page, and artifact hosting. GitHub Actions are intentionally disabled and are not part of the release path.
+OpenMozi releases are built and verified on a local macOS machine. GitHub Actions validate source changes, but they do not build or publish a release. GitHub Releases hosts the source tags and release artifacts produced by the local release process.
 
 ## Commands
 

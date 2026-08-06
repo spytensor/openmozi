@@ -140,7 +140,7 @@ the shipped set and `docs/channels/UNSUPPORTED.md` for deferred ones.
 | Database | better-sqlite3 (WAL mode, single file) |
 | Logging | pino (structured JSON) |
 | Scheduler | croner |
-| Testing | vitest (targeted unit tests; explicit integration tests own real API calls) |
+| Testing | Vitest (deterministic unit, integration, and E2E suites; provider availability is not a CI test) |
 | LLM Layer | Vercel AI SDK (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/openai-compatible`) |
 | Agent Runtime | Direct `src/core/brain-engine.ts` LLM/tool loop using `executeToolCalls` |
 | Vector Memory | LanceDB (`@lancedb/lancedb`) |
@@ -405,14 +405,14 @@ the batch.
 - Create circular dependencies between layers
 - Skip verification steps in IMPLEMENTATION.md
 - Modify IMPLEMENTATION.md without also committing the code changes
-- Put real provider calls in explicit integration tests; unit tests mock external boundaries
+- Put real provider or provider-availability calls in CI tests
 
 ## Testing
 
 - **Framework:** vitest
-- **Test files:** `src/**/*.test.ts` (224 files as of 2026-07-03; run vitest for the current assertion count)
-- **Run:** `pnpm test`
-- **Style:** Targeted unit tests mock external boundaries. Real provider tests are explicit integration tests and require credentials.
+- **Test files:** deterministic unit, integration, and E2E tests under `src/` and `tests/`
+- **Run:** the focused config and files that cover the change; use `pnpm test:ci` only when the whole deterministic stack is the subject
+- **Style:** tests mock external provider boundaries. Provider availability is operational diagnostics, not a pass/fail code contract.
 - Every module should have tests for happy path + error cases.
 
 ## When Stuck

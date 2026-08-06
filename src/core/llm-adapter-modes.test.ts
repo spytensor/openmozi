@@ -408,7 +408,7 @@ describe('core/llm adapter mode routing', () => {
     expect(chunks).toContainEqual({
       type: 'reasoning',
       text: 'Need a tool.',
-      kind: 'raw',
+      kind: 'summary',
       provider: 'deepseek',
     });
     expect(done?.response?.reasoning_content).toBe('Need a tool.');

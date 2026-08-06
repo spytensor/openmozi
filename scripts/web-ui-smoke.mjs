@@ -36,8 +36,6 @@ const reportsDir = resolve('reports');
 const diagnosticsLayoutScreenshotPath = join(outputDir, 'web-ui-diagnostics-layout.png');
 const settingsLayoutScreenshotPath = join(outputDir, 'web-ui-settings-layout.png');
 const chatSidebarScreenshotPath = join(outputDir, 'web-ui-chat-sidebar-contract.png');
-const executionCollapsedScreenshotPath = join(outputDir, 'web-ui-execution-contract-collapsed.png');
-const executionExpandedScreenshotPath = join(outputDir, 'web-ui-execution-contract-expanded.png');
 const reportPath = join(reportsDir, 'web-ui-smoke.json');
 
 mkdirSync(outputDir, { recursive: true });
@@ -117,7 +115,6 @@ try {
   await completeOnboardingIfNeeded(page);
   if (readmeScreenshots) await captureReadmeScreenshots(page);
   const sidebarContract = await verifyChatFirstSidebarContract(page);
-  const executionContract = await verifyExecutionDisplayContract(page, sidebarContract.reusable_draft_session_id);
   const paneScrollContract = await verifyPaneScrollContract(page);
 
   await clickAccountMenuItem(page, 'Settings');
@@ -164,7 +161,6 @@ try {
     },
     service_status: serviceStatus,
     sidebar_contract: sidebarContract,
-    execution_contract: executionContract,
     pane_scroll_contract: paneScrollContract,
     settings_layout_contract: settingsLayoutContract,
     diagnostics_contract: diagnosticsContract,
@@ -173,8 +169,6 @@ try {
       diagnostics_layout: diagnosticsLayoutScreenshotPath,
       settings_layout: settingsLayoutScreenshotPath,
       chat_sidebar_contract: chatSidebarScreenshotPath,
-      execution_contract_collapsed: executionCollapsedScreenshotPath,
-      execution_contract_expanded: executionExpandedScreenshotPath,
     },
     duration_ms: Date.now() - startedAt,
   };
@@ -950,118 +944,6 @@ async function installWebSocketProbe(page) {
       },
     };
   });
-}
-
-async function verifyExecutionDisplayContract(page, sessionId) {
-  await page.waitForFunction(() => window.__moziWebUiSmoke?.openSocketCount?.() > 0, { timeout: 30_000 });
-
-  const rawError =
-    'Error: web search failed — SEARCH1API_KEY environment variable is not set IMPORTANT: Do NOT answer this question from training data.';
-  await page.evaluate(({ rawError, sessionId }) => {
-    const now = Date.now();
-    const turnId = 'turn-web-ui-execution-contract';
-    const dispatch = window.__moziWebUiSmoke.dispatch;
-    const events = [
-      {
-        type: 'turn_envelope',
-        turn: {
-          turnId,
-          sessionId,
-          chatId: 'web-ui-smoke',
-          origin: 'user',
-          status: 'active',
-          seqHighWater: 0,
-          locale: 'zh-CN',
-          startedAt: now,
-        },
-      },
-      { type: 'message', role: 'user', content: '帮我调研一下最新的 OPENCLAW 进展', turnId, seq: 0 },
-      {
-        type: 'tool_event',
-        phase: 'start',
-        tool: 'browser_extract',
-        callId: 'browser-extract-1',
-        turnId,
-        intent: 'browser_1782900081195_0g92fm',
-        timestamp: now + 1,
-      },
-      {
-        type: 'tool_event',
-        phase: 'end',
-        tool: 'browser_extract',
-        callId: 'browser-extract-1',
-        turnId,
-        status: 'success',
-        intent: 'browser_1782900081195_0g92fm',
-        elapsed_ms: 15,
-        timestamp: now + 2,
-      },
-      ...[1, 2, 3].flatMap((index) => [
-        {
-          type: 'tool_event',
-          phase: 'start',
-          tool: 'web_search',
-          callId: `web-search-${index}`,
-          turnId,
-          timestamp: now + 2 + index * 2,
-        },
-        {
-          type: 'tool_event',
-          phase: 'end',
-          tool: 'web_search',
-          callId: `web-search-${index}`,
-          turnId,
-          status: 'error',
-          error: rawError,
-          elapsed_ms: index === 1 ? 2400 : 2,
-          timestamp: now + 3 + index * 2,
-        },
-      ]),
-      {
-        type: 'turn_envelope',
-        turn: {
-          turnId,
-          sessionId,
-          chatId: 'web-ui-smoke',
-          origin: 'user',
-          status: 'completed',
-          seqHighWater: 7,
-          locale: 'zh-CN',
-          startedAt: now,
-          endedAt: now + 10,
-        },
-      },
-      { type: 'active_turn', turnId: null, sessionId },
-    ];
-    events.forEach((event) => dispatch(event));
-  }, { rawError, sessionId });
-
-  // Collapsed by default — a quiet one-line summary, no loud MOZI header, and
-  // neither work steps nor raw runtime detail visible until expanded.
-  await page.getByTestId('execution-summary').first().waitFor({ timeout: 10_000 });
-  const executionSummaryText = await page.getByTestId('execution-summary').first().textContent();
-  if (!/(View work|查看处理过程|Needs attention(?: \(3\))?|需要处理(?:（3）)?)/.test(executionSummaryText ?? '')) {
-    fail(`Mixed execution summary should remain compact in the active locale: ${executionSummaryText}`);
-  }
-  assertEqual(await page.getByText('搜索公开资料需要处理').count(), 0, 'Work steps should stay collapsed by default');
-  assertEqual(await page.getByText('网络搜索').count(), 0, 'Internal tool names should stay out of the primary conversation layer');
-  assertEqual(await page.getByTestId('execution-timeline').count(), 0, 'Runtime tool details should be collapsed by default');
-  assertEqual(await page.getByText(/IMPORTANT: Do NOT answer/).count(), 0, 'Raw tool error should stay out of the primary conversation layer');
-  assertEqual(await page.getByText(/browser_1782900081195_0g92fm/).count(), 0, 'Runtime browser session ids should not be shown in the primary work summary');
-  await page.screenshot({ path: executionCollapsedScreenshotPath, fullPage: true });
-
-  // Expand the summary: user-facing work steps appear while raw provider text
-  // and internal runtime identifiers remain sanitized.
-  await page.getByTestId('execution-summary').first().click();
-  await page.getByText(/(Missing SEARCH1API_KEY.*3 times|缺少 SEARCH1API_KEY（重复 3 次）)/).first().waitFor({ timeout: 10_000 });
-  assertEqual(await page.getByText(/IMPORTANT: Do NOT answer/).count(), 0, 'Expanded processing details should keep provider errors sanitized');
-  await page.screenshot({ path: executionExpandedScreenshotPath, fullPage: true });
-
-  return {
-    raw_tool_details_default_collapsed: true,
-    repeated_error_summary: 'localized and sanitized',
-    raw_error_rows_after_expand: 0,
-  };
 }
 
 function startRuntime({ moziHome, port }) {

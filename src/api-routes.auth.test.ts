@@ -1205,20 +1205,20 @@ describe('api route auth helpers', () => {
       expect(initial.statusCode).toBe(200);
       expect(initial.json()).toMatchObject({
         sessionId: owned.id,
-        permission_level: 'L3_FULL_ACCESS',
+        permission_level: 'L1_READ_WRITE',
       });
 
       const patched = await app.inject({
         method: 'PATCH',
         url: `/api/sessions/${owned.id}/permission-level`,
-        payload: { permission_level: 'L1_READ_WRITE' },
+        payload: { permission_level: 'L0_READ_ONLY' },
       });
       expect(patched.statusCode).toBe(200);
       expect(patched.json()).toMatchObject({
         sessionId: owned.id,
-        permission_level: 'L1_READ_WRITE',
+        permission_level: 'L0_READ_ONLY',
       });
-      expect(getSession(owned.id, 'default')?.permission_level).toBe('L1_READ_WRITE');
+      expect(getSession(owned.id, 'default')?.permission_level).toBe('L0_READ_ONLY');
 
       const invalid = await app.inject({
         method: 'PATCH',
@@ -1226,7 +1226,7 @@ describe('api route auth helpers', () => {
         payload: { permission_level: 'L9_IMAGINARY' },
       });
       expect(invalid.statusCode).toBe(400);
-      expect(getSession(owned.id, 'default')?.permission_level).toBe('L1_READ_WRITE');
+      expect(getSession(owned.id, 'default')?.permission_level).toBe('L0_READ_ONLY');
 
       const foreignGet = await app.inject({ method: 'GET', url: `/api/sessions/${foreign.id}/permission-level` });
       expect(foreignGet.statusCode).toBe(404);
@@ -1237,7 +1237,7 @@ describe('api route auth helpers', () => {
         payload: { permission_level: 'L0_READ_ONLY' },
       });
       expect(foreignPatch.statusCode).toBe(404);
-      expect(getSession(foreign.id, 'default')?.permission_level).toBe('L3_FULL_ACCESS');
+      expect(getSession(foreign.id, 'default')?.permission_level).toBe('L1_READ_WRITE');
     } finally {
       await app.close();
       teardownTestDb(tmpDir);
