@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { setupTestDb, teardownTestDb } from '../test-helpers.js';
 import { getDb } from '../store/db.js';
-import { create } from '../core/llm.js';
 import {
   recordLlmCall,
   recordToolCall,
@@ -14,11 +13,6 @@ import {
 } from './billing.js';
 
 let tmpDir: string;
-
-function isSkippableLiveLlmError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return /credit balance|billing|quota|EAI_AGAIN|ENOTFOUND|ECONNREFUSED|fetch failed|Could not resolve authentication method|API key/i.test(msg);
-}
 
 beforeAll(() => {
   const result = setupTestDb();
@@ -88,38 +82,6 @@ describe('tenants/billing', () => {
       expect(result.id).toBeGreaterThan(0);
     });
 
-    it('records usage from a real cheap OpenAI model call when credentials are available', async (ctx) => {
-      if (!process.env.OPENAI_API_KEY) {
-        ctx.skip();
-        return;
-      }
-
-      const tenantId = `billing-live-${Date.now()}`;
-      const client = create('openai', { model: 'gpt-4.1-mini' });
-      try {
-        await client.chat(
-          [{ role: 'user', content: 'Reply with ok.' }],
-          { max_tokens: 50, billing: { tenantId } },
-        );
-      } catch (err) {
-        if (isSkippableLiveLlmError(err)) {
-          ctx.skip();
-          return;
-        }
-        throw err;
-      }
-
-      const row = getDb().prepare(`
-        SELECT input_tokens, output_tokens, cost_usd
-        FROM billing_records
-        WHERE tenant_id = ? AND model = 'gpt-4.1-mini'
-        ORDER BY id DESC
-        LIMIT 1
-      `).get(tenantId) as { input_tokens: number; output_tokens: number; cost_usd: number } | undefined;
-      expect(row).toBeTruthy();
-      expect((row?.input_tokens ?? 0) + (row?.output_tokens ?? 0)).toBeGreaterThan(0);
-      expect(row?.cost_usd ?? 0).toBeGreaterThanOrEqual(0);
-    });
   });
 
   describe('getUsageAnalytics', () => {

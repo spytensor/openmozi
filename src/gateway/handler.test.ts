@@ -266,6 +266,7 @@ describe('gateway/handler', () => {
         undefined,
         undefined,
         delegationPrompt,
+        { permissionLevel: 'L2_SHELL_EXEC' },
       );
     } finally {
       if (previousInlineMode === undefined) delete process.env.MOZI_TEST_INLINE_DAG;
@@ -329,6 +330,7 @@ describe('gateway/handler', () => {
         undefined,
         undefined,
         delegationPrompt,
+        { permissionLevel: 'L2_SHELL_EXEC' },
       );
       const session = getDb().prepare(`
         SELECT session_id AS id FROM conversations

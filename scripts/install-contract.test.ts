@@ -23,12 +23,13 @@ const MANIFESTS = ['package.json', 'ui/package.json', 'desktop/package.json'];
 
 describe('install contract', () => {
   it('declares the same Node and pnpm range in every workspace manifest', () => {
+    const expected = manifest('package.json').engines;
+    expect(expected?.node).toBe('>=22.12');
+    expect(expected?.pnpm).toBe('10.29.2');
+
     for (const path of MANIFESTS) {
       const engines = manifest(path).engines;
-      // The upper bound tracks better-sqlite3 (no prebuilds past 25.x); the
-      // lower bound tracks vite/vitest, which need 22.12+.
-      expect(engines?.node, path).toBe('>=22.12 <26');
-      expect(engines?.pnpm, path).toBe('10.29.2');
+      expect(engines, path).toEqual(expected);
     }
   });
 

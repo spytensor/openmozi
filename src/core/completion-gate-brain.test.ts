@@ -17,6 +17,9 @@ vi.mock('../tools/executor.js', () => ({
         content: failed ? '2 tests failed' : `${call.function.name} ok`,
         is_error: failed,
         file_path: typeof args.path === 'string' ? args.path : undefined,
+        activatedToolNames: call.function.name === 'activate_tools' && Array.isArray(args.names)
+          ? args.names.filter((name): name is string => typeof name === 'string')
+          : undefined,
       };
     })
   )),
@@ -41,6 +44,10 @@ function textResponse(content: string): ChatResponse {
     model: 'scripted-gate',
     stop_reason: 'end_turn',
   };
+}
+
+function activationResponse(names: string[]): ChatResponse {
+  return toolResponse('activate', 'activate_tools', { names });
 }
 
 function scriptedClient(responses: ChatResponse[]): LLMClient {
@@ -87,6 +94,7 @@ describe('brain completion gate integration', () => {
 
   it('rejects a premature code completion and accepts it after diff and tests', async () => {
     const client = scriptedClient([
+      activationResponse(['write_file', 'git_diff', 'run_tests']),
       toolResponse('write', 'write_file', { path: 'src/fix.ts', content: 'export {}' }),
       textResponse('Done without verification.'),
       {
@@ -104,13 +112,14 @@ describe('brain completion gate integration', () => {
 
     expect(result.responseText).toBe('Verified and complete.');
     expect(result.completionGateDecision.status).toBe('passed');
-    const verifierCallMessages = vi.mocked(client.chat).mock.calls[2][0] as ChatMessage[];
+    const verifierCallMessages = vi.mocked(client.chat).mock.calls[3][0] as ChatMessage[];
     expect(verifierCallMessages.some(message => String(message.content).includes('RUNTIME VERIFIER'))).toBe(true);
   });
 
   it('cannot hide failed tests behind repeated completion text', async () => {
     hoisted.testsFail = true;
     const client = scriptedClient([
+      activationResponse(['write_file', 'git_diff', 'run_tests']),
       toolResponse('write', 'write_file', { path: 'src/fix.ts', content: 'broken' }),
       {
         ...textResponse(''),
@@ -130,11 +139,12 @@ describe('brain completion gate integration', () => {
     expect(result.completionGateBlocked).toBe(true);
     expect(result.completionGateDecision.status).toBe('failed');
     expect(result.responseText).not.toContain('Everything passed');
-    expect(result.responseText).toContain('2 tests failed');
+    expect(result.responseText).toContain('did not produce a usable result');
   });
 
   it('accepts non-code changes only after readback', async () => {
     const client = scriptedClient([
+      activationResponse(['write_file', 'read_file']),
       toolResponse('write', 'write_file', { path: 'docs/report.md', content: '# Report' }),
       textResponse('Report complete.'),
       toolResponse('read', 'read_file', { path: 'docs/report.md' }),
@@ -156,6 +166,7 @@ describe('brain completion gate integration', () => {
 
   it('does not stream an unverified completion claim to the user', async () => {
     const responses = [
+      activationResponse(['write_file']),
       toolResponse('write', 'write_file', { path: 'docs/report.md', content: '# Report' }),
       textResponse('Unverified completion claim.'),
       textResponse('Unverified completion claim.'),

@@ -34,8 +34,9 @@ describe('core/llm cli-pipe routing', () => {
     });
 
     const client = create('codex-cli', { model: 'gpt-5.3-codex' });
+    client.getAIModel?.();
 
-    expect(client.provider).toBe('cli-mock');
+    expect(client.provider).toBe('codex-cli');
     expect(hoisted.createCliAdapterMock).toHaveBeenCalledTimes(1);
     expect(hoisted.resolveCliOAuthKeyMock).not.toHaveBeenCalled();
   });
@@ -60,8 +61,9 @@ describe('core/llm cli-pipe routing', () => {
     hoisted.resolveCliOAuthKeyMock.mockReturnValue(null);
 
     const client = create('claude-cli', { model: 'claude-sonnet-4-6' });
+    client.getAIModel?.();
 
-    expect(client.provider).toBe('cli-mock');
+    expect(client.provider).toBe('claude-cli');
     expect(hoisted.resolveCliOAuthKeyMock).toHaveBeenCalledWith('claude-cli');
     expect(hoisted.createCliAdapterMock).toHaveBeenCalledTimes(1);
   });

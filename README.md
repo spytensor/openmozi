@@ -165,7 +165,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull request.
 
 ## Releases
 
-GitHub Actions are intentionally disabled. Releases are built and verified locally, then uploaded to [GitHub Releases](https://github.com/spytensor/openmozi/releases) with DMG, ZIP, SHA-256 checksums, and a release manifest. See [docs/RELEASE.md](docs/RELEASE.md).
+GitHub Actions run deterministic policy, type, unit, integration, and E2E checks. The browser smoke runs after changes land on `main` or when triggered manually; it does not block ordinary pull requests. Releases are still built and verified locally, then uploaded to [GitHub Releases](https://github.com/spytensor/openmozi/releases) with DMG, ZIP, SHA-256 checksums, and a release manifest. See [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Acknowledgments
 

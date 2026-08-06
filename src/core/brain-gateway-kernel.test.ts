@@ -106,6 +106,11 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
     const client = {
       chat: vi.fn()
         .mockResolvedValueOnce(response('', [{
+          id: 'activate-read-file',
+          type: 'function',
+          function: { name: 'activate_tools', arguments: JSON.stringify({ names: ['read_file'] }) },
+        }]))
+        .mockResolvedValueOnce(response('', [{
           id: 'read-missing',
           type: 'function',
           function: { name: 'read_file', arguments: JSON.stringify({ path: missingPath }) },
@@ -115,8 +120,8 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
     } as unknown as LLMClient;
 
     const result = await brainExecute(options(client));
-    const secondCallMessages = vi.mocked(client.chat).mock.calls[1][0];
-    const directives = systemText(secondCallMessages);
+    const recoveryCallMessages = vi.mocked(client.chat).mock.calls[2][0];
+    const directives = systemText(recoveryCallMessages);
 
     expect(result.responseText).toBe('Recovered with the correct path.');
     expect(directives).toContain('Runtime tool outcomes (ground truth)');
@@ -144,6 +149,11 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
       });
       const client = {
         chat: vi.fn()
+          .mockResolvedValueOnce(response('', [{
+            id: 'activate-write-file',
+            type: 'function',
+            function: { name: 'activate_tools', arguments: JSON.stringify({ names: ['write_file'] }) },
+          }]))
           .mockResolvedValueOnce(response('', [repeatedCall('write-1')]))
           .mockResolvedValueOnce(response('', [repeatedCall('write-2')]))
           .mockResolvedValueOnce(response('', [repeatedCall('write-3')])),
@@ -152,13 +162,13 @@ describe('interactive Brain UnifiedExecutionKernel wiring', () => {
       const onToolStart = vi.fn();
 
       const result = await brainExecute(options(client, { onToolStart }));
-      const secondCallDirectives = systemText(vi.mocked(client.chat).mock.calls[1][0]);
-      const thirdCallDirectives = systemText(vi.mocked(client.chat).mock.calls[2][0]);
+      const secondCallDirectives = systemText(vi.mocked(client.chat).mock.calls[2][0]);
+      const thirdCallDirectives = systemText(vi.mocked(client.chat).mock.calls[3][0]);
 
       expect(result.recovered).toBe(true);
       expect(result.completionGateBlocked).toBe(true);
       expect(readFileSync(target, 'utf8')).toBe('written once');
-      expect(onToolStart).toHaveBeenCalledTimes(1);
+      expect(onToolStart.mock.calls.filter(([name]) => name === 'write_file')).toHaveLength(1);
       expect(secondCallDirectives).toContain('Runtime tool outcomes (ground truth)');
       expect(thirdCallDirectives).toContain('Loop detected');
     } finally {

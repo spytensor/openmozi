@@ -10,13 +10,9 @@ on:
       - "scripts/stage-desktop-python.mjs"
       - "requirements/document-runtime.txt"
       - "requirements/document-runtime-constraints.txt"
-      - "src/**"
-      - "skills/**"
-      - "ui/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
-      - "tsup.config.ts"
   workflow_dispatch:
 
 jobs:

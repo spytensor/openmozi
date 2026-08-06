@@ -192,7 +192,8 @@ describe('approval resolver contract', () => {
       const resolved = getRequest(request.id, tenantId);
       expect(resolved?.status).toBe('approved');
       if (action === 'permission_elevation') {
-        expect(getSessionPermissionLevel(session.id, tenantId)).toBe('L3_FULL_ACCESS');
+        expect(resolved?.context).toMatchObject({ grant_scope: 'once' });
+        expect(getSessionPermissionLevel(session.id, tenantId)).toBe('L1_READ_WRITE');
       } else {
         expect(resolved?.context).toMatchObject({ grant_scope: 'session' });
       }
