@@ -73,6 +73,27 @@ describe("useChat streaming lifecycle", () => {
     expect(result.current.sessionState).toBe("WORKING");
   });
 
+  it("carries structured Agent mentions through optimistic send, history restore, and regenerate", () => {
+    const { result } = renderHook(() => useChat());
+    act(() => {
+      result.current.addMessage("user", "@reviewer inspect", undefined, undefined, undefined, undefined, ["reviewer"]);
+    });
+    expect((result.current.timeline[0].data as any).mentions).toEqual(["reviewer"]);
+
+    act(() => {
+      result.current.loadHistory([{
+        role: "user",
+        content: "@reviewer inspect",
+        metadata: JSON.stringify({ mentions: ["reviewer"] }),
+      }]);
+      result.current.prepareRegenerate("@reviewer inspect", ["reviewer"]);
+    });
+    expect(result.current.timeline.map((item) => (item.data as any).mentions)).toEqual([
+      ["reviewer"],
+      ["reviewer"],
+    ]);
+  });
+
   it("compacts duplicate retry prompts from persisted timelines", () => {
     const { result } = renderHook(() => useChat());
     act(() => {

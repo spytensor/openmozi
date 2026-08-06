@@ -627,16 +627,13 @@ export default function App() {
 
   const handleSend = useCallback(async (content: string, attachments?: UploadedAttachment[], mentions?: string[]) => {
     await sendRuntimeMessage(content, undefined, attachments, mentions, false, () => {
-      chat.addMessage("user", content, undefined, undefined, attachments);
+      chat.addMessage("user", content, undefined, undefined, attachments, undefined, mentions);
     });
   }, [chat.addMessage, sendRuntimeMessage]);
 
-  const handleRegenerate = useCallback(async (content: string) => {
-    chat.prepareRegenerate(content);
-    // Re-running "@reviewer …" must carry the same delegation intent as the
-    // original turn, so recover the mentions from the message text.
-    const mentions = [...new Set((content.match(/@[a-z0-9][a-z0-9_-]*/gi) ?? []).map((token) => token.slice(1).toLowerCase()))];
-    await sendRuntimeMessage(content, undefined, undefined, mentions.length > 0 ? mentions : undefined, true);
+  const handleRegenerate = useCallback(async (content: string, mentions?: string[]) => {
+    chat.prepareRegenerate(content, mentions);
+    await sendRuntimeMessage(content, undefined, undefined, mentions, true);
   }, [chat.prepareRegenerate, sendRuntimeMessage]);
 
   const handleCancelTurn = useCallback(() => {

@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within, renderWithLocale } from "@/test/render";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import InputBar from "./InputBar";
+import { agentAvatarColor } from "@/lib/agent-colors";
 
 const noop = () => {};
 
@@ -20,6 +21,7 @@ beforeEach(() => {
           agents: [
             { name: "coder", description: "Writes focused code", color: "ochre", enabled: true, status: "ready" },
             { name: "reviewer", description: "Reviews changes", color: "jade", enabled: true, status: "ready" },
+            { name: "semi-analyst", description: "Analyzes semiconductors", color: "#0e7490", enabled: true, status: "ready" },
             { name: "setup", description: "Not ready", color: "slate", enabled: true, status: "needs-setup" },
           ],
         }),
@@ -117,11 +119,27 @@ describe("InputBar", () => {
     expect(within(menu).queryByText("setup")).not.toBeInTheDocument();
 
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(textarea.value).toBe("@reviewer ");
-    fireEvent.change(textarea, { target: { value: "@reviewer inspect this", selectionStart: 22 } });
+    expect(textarea.value).toBe("");
+    const mention = screen.getByTestId("composer-agent-mentions");
+    expect(mention).toHaveTextContent("@reviewer");
+    expect(mention.querySelector('[data-agent-name="reviewer"]')).toBeInTheDocument();
+    fireEvent.change(textarea, { target: { value: "inspect this", selectionStart: 12 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    expect(onSend).toHaveBeenCalledWith("@reviewer inspect this", undefined, ["reviewer"]);
+    expect(onSend).toHaveBeenCalledWith("inspect this", undefined, ["reviewer"]);
+  });
+
+  it("assigns a stable palette identity when an Agent has an unrecognized stored color", async () => {
+    renderWithLocale(<InputBar onSend={noop} connectionStatus="connected" queueCount={0} />);
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/agents", expect.anything()));
+
+    fireEvent.change(textarea, { target: { value: "@semi", selectionStart: 5 } });
+    await screen.findByTestId("agent-mention-menu");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    const identity = screen.getByTestId("composer-agent-mentions").querySelector('[data-agent-name="semi-analyst"]');
+    expect(identity).toBeInTheDocument();
+    expect(agentAvatarColor("#0e7490", "semi-analyst")).toMatch(/^var\(--agent-(ochre|jade|slate|bronze|violet)\)$/);
   });
 
   it("opens the mention menu when the Agent roster arrives after the user types", async () => {
@@ -152,7 +170,7 @@ describe("InputBar", () => {
     expect(await screen.findByTestId("agent-mention-menu")).toHaveTextContent("reviewer");
   });
 
-  it("sends a manually typed ready Agent mention structurally without menu selection", async () => {
+  it("canonicalizes a manually typed ready Agent mention at send time", async () => {
     const onSend = vi.fn();
     renderWithLocale(<InputBar onSend={onSend} connectionStatus="connected" queueCount={0} />);
     const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
@@ -162,7 +180,22 @@ describe("InputBar", () => {
     fireEvent.change(textarea, { target: { value: "@reviewer inspect this", selectionStart: 22 } });
     fireEvent.keyDown(textarea, { key: "Enter" });
 
-    expect(onSend).toHaveBeenCalledWith("@reviewer inspect this", undefined, ["reviewer"]);
+    expect(onSend).toHaveBeenCalledWith("inspect this", undefined, ["reviewer"]);
+  });
+
+  it("removes a selected Agent from the structured send payload", async () => {
+    const onSend = vi.fn();
+    renderWithLocale(<InputBar onSend={onSend} connectionStatus="connected" queueCount={0} />);
+    const textarea = screen.getByPlaceholderText("Message MOZI...") as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "@rev", selectionStart: 4 } });
+    await screen.findByTestId("agent-mention-menu");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove @reviewer" }));
+    fireEvent.change(textarea, { target: { value: "inspect this", selectionStart: 12 } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(onSend).toHaveBeenCalledWith("inspect this", undefined);
   });
 
   it("uses arrow keys to move through the agent mention menu", async () => {
@@ -173,7 +206,8 @@ describe("InputBar", () => {
     await screen.findByTestId("agent-mention-menu");
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
     fireEvent.keyDown(textarea, { key: "Enter" });
-    expect(textarea.value).toBe("@reviewer ");
+    expect(textarea.value).toBe("");
+    expect(screen.getByTestId("composer-agent-mentions")).toHaveTextContent("@reviewer");
   });
 
   it("stays quiet when no ready agent exists", async () => {

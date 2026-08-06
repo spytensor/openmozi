@@ -2,7 +2,7 @@ import { useCallback, useRef, useEffect, useLayoutEffect, useMemo, useState, typ
 import { ArrowDown, ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TimelineItem, ChatMessage, ApprovalRequest, Artifact, MemoryUpdate, PlanStartedUpdate, SessionState, TurnEnvelope } from "@/types";
-import MessageBubble, { AssistantNarration, ReasoningGroup, hasRenderableAssistantContent, hasRenderableReasoning, stripInjectedContext } from "./MessageBubble";
+import MessageBubble, { AssistantNarration, ReasoningGroup, hasRenderableAssistantContent, hasRenderableReasoning, stripInjectedContext, stripStructuredMentionTokens } from "./MessageBubble";
 import MoziAvatar from "@/components/MoziAvatar";
 import ExecutionBlock, { TechnicalDetails, type OpenSourcesHandler } from "./ExecutionBlock";
 import type { ExecutionBlockModel, ExecutionSourceRef } from "./execution";
@@ -51,25 +51,24 @@ function LiveToolLine({ label, activity }: { label: string; activity: OrbActivit
   );
 }
 
-/** The clean text of the nearest user message before `index`, or undefined. */
-function precedingUserPrompt(timeline: TimelineItem[], index: number): string | undefined {
+/** The nearest user message before `index`, or undefined. */
+function precedingUserMessage(timeline: TimelineItem[], index: number): ChatMessage | undefined {
   for (let i = index - 1; i >= 0; i--) {
     const item = timeline[i];
     if (item.type !== "message") continue;
     const m = item.data as ChatMessage;
     if (m.role !== "user") continue;
-    const text = stripInjectedContext(m.content);
-    return text.trim() ? text : undefined;
+    return stripInjectedContext(m.content).trim() ? m : undefined;
   }
   return undefined;
 }
 
-function precedingProjectedUserPrompt(renderItems: ChatRenderItem[], index: number): string | undefined {
+function precedingProjectedUserMessage(renderItems: ChatRenderItem[], index: number): ChatMessage | undefined {
   for (let i = index - 1; i >= 0; i--) {
     const item = renderItems[i];
     if (item.kind !== "single" || item.item.type !== "message") continue;
     const message = item.item.data as ChatMessage;
-    if (message.role === "user") return stripInjectedContext(message.content);
+    if (message.role === "user") return message;
   }
   return undefined;
 }
@@ -830,7 +829,7 @@ interface ChatViewProps {
   onApprove: (id: string, scope?: "once" | "session") => void;
   onReject: (id: string) => void;
   onSend: (content: string) => void;
-  onRegenerate: (content: string) => void;
+  onRegenerate: (content: string, mentions?: string[]) => void;
   onDeleteMessage?: (message: ChatMessage) => void;
   onOpenArtifact?: (artifact: Artifact) => void;
   onOpenRun?: (turnId: string) => void;
@@ -1412,12 +1411,15 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
         if (msg.role === "assistant" && (reasoningOwnedByGroup || messageOwnedByRun) && !rendersAssistantContent) return null;
         // An assistant answer regenerates by re-running the user prompt that
         // produced it — the nearest visible user message before it.
-        const regenerateText =
+        const regenerateSource =
           msg.role === "assistant"
             ? deterministicProjection
-              ? precedingProjectedUserPrompt(renderItems, renderIndex)
-              : precedingUserPrompt(presentedTimeline, index)
+              ? precedingProjectedUserMessage(renderItems, renderIndex)
+              : precedingUserMessage(presentedTimeline, index)
             : undefined;
+        const regenerateText = regenerateSource
+          ? stripStructuredMentionTokens(stripInjectedContext(regenerateSource.content), regenerateSource.mentions)
+          : undefined;
         const assistantMessageRenders =
           msg.role === "assistant" &&
           (rendersAssistantContent || (!reasoningOwnedByGroup && (hasRenderableReasoning(msg) || Boolean(msg.streaming && msg.requestId))));
@@ -1433,6 +1435,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
               message={msg}
               onRegenerate={onRegenerate}
               regenerateText={regenerateText}
+              regenerateMentions={regenerateSource?.mentions}
               showAvatar={showAvatar}
               showAssistantActions={isLastAssistantTextInTurn(renderItems, renderIndex, msg)}
               showReasoning={!messageOwnedByRun && !reasoningOwnedByGroup}

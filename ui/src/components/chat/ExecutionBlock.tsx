@@ -71,7 +71,8 @@ interface AgentEnvelope {
   key_findings: string[];
   artifacts: string[];
   blocker?: string;
-  transcript_path: string;
+  /** Present only in runtime-owned diagnostic records, never model tool output. */
+  transcript_path?: string;
 }
 
 function parseAgentEnvelope(tool?: ToolEvent): AgentEnvelope | null {
@@ -85,7 +86,7 @@ function parseAgentEnvelope(tool?: ToolEvent): AgentEnvelope | null {
       && typeof value.summary === "string"
       && Array.isArray(value.key_findings)
       && Array.isArray(value.artifacts)
-      && typeof value.transcript_path === "string"
+      && (value.transcript_path === undefined || typeof value.transcript_path === "string")
     ) {
       return value as AgentEnvelope;
     }
@@ -179,10 +180,10 @@ function AgentDelegationExecution({
   const name = task?.agentId || agentNameFromIntent(tool?.intent) || "Agent";
   const status = agentStatus(task, envelope);
   const runDir = task?.runDir || runDirOfEnvelope(envelope);
-  const avatar = agentAvatarStyle(task?.agentColor);
+  const avatar = agentAvatarStyle(task?.agentColor, name);
   const AgentGlyph = agentIcon(task?.agentIcon, name);
   const terminal = status === "completed" || status === "failed" || status === "blocked";
-  const round = task?.heartbeat && task.detail?.match(/round\s+(\d+)/i)?.[1];
+  const detail = task?.detail && !/^round\s+\d+$/i.test(task.detail.trim()) ? task.detail : undefined;
 
   return (
     <div data-testid="agent-execution-block" className="w-full max-w-[640px] py-1">
@@ -215,8 +216,7 @@ function AgentDelegationExecution({
             </span>
           </span>
           <span className="block truncate text-[11.5px] text-ink/42">
-            {envelope?.summary || task?.detail || (status === "launching" ? "Starting agent" : "Agent is working")}
-            {round ? ` · round ${round}` : ""}
+            {envelope?.summary || detail || (status === "launching" ? "Starting agent" : "Agent is working")}
           </span>
         </span>
         {!terminal && <ActivityOrb activity="delegating" size="micro" className="shrink-0" />}

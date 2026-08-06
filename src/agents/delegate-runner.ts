@@ -237,6 +237,12 @@ function classifyRunError(error: unknown): { summary: string; blocker: string; s
   if (message === 'agent_execution_timeout') {
     return { summary: 'Agent execution timed out.', blocker: 'timeout', status: 'failed' };
   }
+  if (message.startsWith('agent_output_truncated:')) {
+    return { summary: 'Agent model output was truncated.', blocker: message, status: 'failed' };
+  }
+  if (message.startsWith('agent_repeated_tool_failure:')) {
+    return { summary: 'Agent repeated the same invalid tool call.', blocker: message, status: 'failed' };
+  }
   if (message.startsWith('context_ref_')) {
     return { summary: 'Agent context could not be admitted.', blocker: message, status: 'blocked' };
   }
@@ -398,8 +404,9 @@ export async function delegateToAgent(input: DelegateAgentRunInput): Promise<Age
 
     emitStatus('running', 'Working');
     const runLoop = async (): Promise<AgentExecutionEnvelope> => {
+      let previousFailedToolBatch: string | undefined;
       for (let round = 1; round <= maxRounds; round += 1) {
-        emitStatus('running', `round ${round}`, round > 1);
+        emitStatus('running', undefined, round > 1);
         const response = await selected.client.chat(messages, {
           ...defaultChatOptionsForSurface('dag_step', {
             tenantId: input.context?.tenantId ?? 'default',
@@ -409,7 +416,7 @@ export async function delegateToAgent(input: DelegateAgentRunInput): Promise<Age
             abort_signal: abortSignal,
           }),
           model: selected.model,
-          max_tokens: Math.max(1, input.maxTokens ?? 2_000),
+          max_tokens: Math.max(1, input.maxTokens ?? 8_192),
           temperature: 0.2,
           tools: tools.length > 0 ? tools : undefined,
           timeout_ms: timeoutMs,
@@ -423,6 +430,9 @@ export async function delegateToAgent(input: DelegateAgentRunInput): Promise<Age
             response.tool_calls ? `Tool calls:\n\n${jsonFence(response.tool_calls)}` : '',
           ].filter(Boolean).join('\n\n'),
         });
+        if (response.truncated || response.incomplete || response.stop_reason === 'length' || response.stop_reason === 'max_tokens') {
+          throw new Error(`agent_output_truncated: ${response.incomplete_reason || response.stop_reason || 'incomplete response'}`);
+        }
         messages.push({
           role: 'assistant',
           content: response.content ?? '',
@@ -454,6 +464,13 @@ export async function delegateToAgent(input: DelegateAgentRunInput): Promise<Age
           : [];
         const results = [...allowedResults, ...deniedResults];
         frames.push({ heading: `Round ${round} — Tool Results`, body: jsonFence(results) });
+        const failedToolBatch = results.length > 0 && results.every(result => result.is_error)
+          ? JSON.stringify(response.tool_calls.map(call => ({ name: call.function.name, arguments: call.function.arguments })))
+          : undefined;
+        if (failedToolBatch && failedToolBatch === previousFailedToolBatch) {
+          throw new Error(`agent_repeated_tool_failure: ${results.map(result => result.tool_name).join(', ')}`);
+        }
+        previousFailedToolBatch = failedToolBatch;
         for (const result of results) {
           messages.push({
             role: 'tool',

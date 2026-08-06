@@ -187,6 +187,13 @@ describe('gateway/handler', () => {
     const userIndex = request!.findIndex(item => item.role === 'user' && item.content === '@reviewer inspect this');
     expect(mentionIndex).toBeGreaterThanOrEqual(0);
     expect(mentionIndex).toBe(userIndex - 1);
+
+    const persistedUser = getHistory('structured_mentions_test', 20, 'default')
+      .find(item => item.role === 'user');
+    expect(JSON.parse(persistedUser?.metadata ?? '{}')).toMatchObject({ mentions: ['reviewer', 'not-ready'] });
+    const restoredUser = getSessionTimeline(persistedUser!.session_id!, 20, 'default')
+      .find(item => item.type === 'message' && (item.data as { content?: string }).content === '@reviewer inspect this');
+    expect(restoredUser?.data).toMatchObject({ mentions: ['reviewer', 'not-ready'] });
   });
 
   it('passes the real SOUL identity to DAG step system roles on a real gateway turn', async () => {

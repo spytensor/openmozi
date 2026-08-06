@@ -311,7 +311,7 @@ describe('channels/websocket', () => {
   });
 
   describe('buildWorkerTaskProgressMessage', () => {
-    it('creates a stable persisted task identity for in-process agent status frames', () => {
+    it('keeps model-loop counters out of product status while preserving stable task identity', () => {
       const msg = buildWorkerTaskProgressMessage({
         type: 'worker_status',
         agentId: 'reviewer',
@@ -331,7 +331,9 @@ describe('channels/websocket', () => {
         runDir: '/workspace/output/agents/reviewer/run-3',
         rawStatus: 'running',
         heartbeat: true,
+        title: 'Still working',
       });
+      expect(msg?.detail).toBeUndefined();
     });
 
     it('maps worker queued status to user-facing checking progress', () => {

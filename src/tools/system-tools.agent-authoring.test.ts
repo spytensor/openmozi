@@ -2,12 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const hoisted = vi.hoisted(() => ({
   createAgentDefinition: vi.fn(),
+  delegateToAgent: vi.fn(),
 }));
 
 vi.mock('../agents/definition-loader.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../agents/definition-loader.js')>();
   return { ...actual, createAgentDefinition: hoisted.createAgentDefinition };
 });
+
+vi.mock('../agents/delegate-runner.js', () => ({
+  delegateToAgent: hoisted.delegateToAgent,
+}));
 
 import { executeSystemTool, SYSTEM_TOOLS } from './system-tools.js';
 
@@ -52,5 +57,35 @@ describe('tools/system-tools Agent authoring', () => {
     expect(JSON.parse(result!.content)).toEqual({
       agent: expect.objectContaining({ name: 'market-analyst', status: 'ready', enabled: true }),
     });
+  });
+
+  it('returns an honest delegation failure without exposing the diagnostic transcript to the parent model', async () => {
+    hoisted.delegateToAgent.mockResolvedValueOnce({
+      status: 'failed',
+      summary: 'Agent model output was truncated.',
+      key_findings: [],
+      artifacts: [],
+      blocker: 'agent_output_truncated: length',
+      transcript_path: '/workspace/output/agents/analyst/run-1/transcript.md',
+    });
+
+    const result = await executeSystemTool('delegate_to_agent', {
+      agent: 'analyst',
+      brief: 'Research the company.',
+    }, 'call-delegate-agent');
+    const content = JSON.parse(result!.content) as Record<string, unknown>;
+
+    expect(result).toMatchObject({
+      tool_call_id: 'call-delegate-agent',
+      tool_name: 'delegate_to_agent',
+      is_error: true,
+    });
+    expect(content).toMatchObject({
+      status: 'failed',
+      blocker: 'agent_output_truncated: length',
+      key_findings: [],
+      artifacts: [],
+    });
+    expect(content).not.toHaveProperty('transcript_path');
   });
 });

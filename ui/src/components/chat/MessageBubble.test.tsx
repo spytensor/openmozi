@@ -194,6 +194,24 @@ describe("MessageBubble", () => {
     expect(bubble.className).toContain("rounded-2xl");
   });
 
+  it("renders structured Agent mentions once and canonicalizes legacy prose on regenerate", () => {
+    const onRegenerate = vi.fn();
+    renderWithLocale(
+      <MessageBubble
+        message={{ ...message("user", "@semi-analyst compare @unknown"), mentions: ["semi-analyst"] }}
+        onRegenerate={onRegenerate}
+      />,
+    );
+
+    const mention = screen.getByTestId("agent-mention-token");
+    expect(mention).toHaveTextContent("@semi-analyst");
+    expect(mention).toHaveAttribute("data-agent-name", "semi-analyst");
+    expect(screen.getByTestId("message-user-markdown")).not.toHaveTextContent("@semi-analyst");
+    expect(screen.getByText(/@unknown/)).not.toHaveAttribute("data-agent-name");
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+    expect(onRegenerate).toHaveBeenCalledWith("compare @unknown", ["semi-analyst"]);
+  });
+
   it("renders compact GFM in the user bubble without changing the submitted source", () => {
     const source = [
       "## 调研范围",

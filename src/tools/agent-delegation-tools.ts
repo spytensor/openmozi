@@ -147,9 +147,14 @@ export async function executeAgentTool(
       contextRefs: parsed.context_refs,
       context,
     });
+    // The transcript is runtime diagnostic state, not task evidence for the
+    // parent model. On failure especially, exposing its path enabled the parent
+    // to salvage an empty/partial run and claim success.
+    const { transcript_path: _transcriptPath, ...modelResult } = envelope;
     return {
       tool_call_id: id,
-      content: JSON.stringify(envelope),
+      tool_name: name,
+      content: JSON.stringify(modelResult),
       is_error: envelope.status !== 'succeeded',
     };
   }

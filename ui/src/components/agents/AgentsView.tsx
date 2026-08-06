@@ -263,7 +263,7 @@ export default function AgentsView() {
             >
               <div
                 className="flex h-10 w-10 shrink-0 items-center justify-center"
-                style={agentAvatarStyle(agent.color)}
+                style={agentAvatarStyle(agent.color, agent.name)}
               >
                 {(() => {
                   const Glyph = agentIcon(agent.icon, agent.name);

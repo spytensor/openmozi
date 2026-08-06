@@ -242,7 +242,7 @@ export function useChat(activeSessionId?: string | null) {
 
   activeSessionIdRef.current = activeSessionId ?? null;
 
-  const addMessage = useCallback((role: ChatMessage["role"], content: string, id?: string, turnId?: string, attachments?: ChatMessage["attachments"], seq?: number) => {
+  const addMessage = useCallback((role: ChatMessage["role"], content: string, id?: string, turnId?: string, attachments?: ChatMessage["attachments"], seq?: number, mentions?: ChatMessage["mentions"]) => {
     const msg: ChatMessage = {
       id: id || genId(),
       role,
@@ -251,6 +251,7 @@ export function useChat(activeSessionId?: string | null) {
       ...(turnId ? { turnId } : {}),
       ...(seq != null ? { seq } : {}),
       ...(attachments?.length ? { attachments } : {}),
+      ...(mentions?.length ? { mentions } : {}),
     };
     setTimeline((prev) => [...prev, { type: "message", timestamp: msg.timestamp, data: msg }]);
     return msg.id;
@@ -947,11 +948,11 @@ export function useChat(activeSessionId?: string | null) {
     if (sessionId) activeSessionIdRef.current = sessionId;
   }, []);
 
-  const prepareRegenerate = useCallback((content: string) => {
+  const prepareRegenerate = useCallback((content: string, mentions?: ChatMessage["mentions"]) => {
     // Retry is a new turn, not a destructive rewrite of the previous one.
     // Keep the old turn visible and add the new prompt optimistically; the
     // server assigns its fresh turn id on the first identity-bearing frame.
-    addMessage("user", content);
+    addMessage("user", content, undefined, undefined, undefined, undefined, mentions);
     streamingRef.current.clear();
     streamTurnIdsRef.current.clear();
     setActiveTool(null);
@@ -989,13 +990,21 @@ export function useChat(activeSessionId?: string | null) {
       // Restore uploaded-file attachments from persisted metadata so the chip
       // re-renders on reload (matches the live-send display).
       let attachments: ChatMessage["attachments"];
+      let mentions: ChatMessage["mentions"];
       if (m.role === "user" && m.metadata) {
         try {
-          const parsed = JSON.parse(m.metadata) as { attachments?: Array<{ filename?: string; path?: string }> };
+          const parsed = JSON.parse(m.metadata) as {
+            attachments?: Array<{ filename?: string; path?: string }>;
+            mentions?: unknown[];
+          };
           const restored = (parsed.attachments ?? [])
             .filter((a) => a && (a.path || a.filename))
             .map((a) => ({ filename: a.filename || (a.path ? a.path.split("/").pop() || "file" : "file"), path: a.path || "" }));
           if (restored.length > 0) attachments = restored;
+          const restoredMentions = (parsed.mentions ?? [])
+            .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+            .map((name) => name.trim());
+          if (restoredMentions.length > 0) mentions = [...new Set(restoredMentions)];
         } catch { /* ignore malformed metadata */ }
       }
       items.push({
@@ -1007,6 +1016,7 @@ export function useChat(activeSessionId?: string | null) {
           content: m.content,
           timestamp: ts,
           ...(attachments ? { attachments } : {}),
+          ...(mentions ? { mentions } : {}),
         } as ChatMessage,
       });
     }

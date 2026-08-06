@@ -2,8 +2,9 @@
  * Agent identity palette, shared by MY AGENTS, the composer mention menu and
  * the chat delegation cards so one agent looks the same everywhere.
  *
- * `color` in AGENT.md is free-form, so an unmapped or missing value must land
- * on a neutral — never on a status colour that would read as a warning.
+ * `color` in AGENT.md is free-form. A recognized palette id wins; otherwise
+ * the stable Agent name selects from the same identity palette. This keeps an
+ * Agent recognizable without exposing colour selection to the model.
  */
 export const AGENT_COLOR_IDS = ["ochre", "jade", "slate", "bronze", "violet"] as const;
 
@@ -18,9 +19,14 @@ const AGENT_COLOR_TOKENS: Record<AgentColorId, string> = {
 };
 
 /** The identity hue itself, for swatches and any single-colour use. */
-export function agentAvatarColor(color?: string | null): string {
+export function agentAvatarColor(color?: string | null, agentName?: string | null): string {
   const key = color?.trim() as AgentColorId | undefined;
-  return (key && AGENT_COLOR_TOKENS[key]) || "var(--agent-neutral)";
+  if (key && AGENT_COLOR_TOKENS[key]) return AGENT_COLOR_TOKENS[key];
+  const name = agentName?.trim().toLowerCase();
+  if (!name) return "var(--agent-neutral)";
+  let hash = 0;
+  for (const char of name) hash = ((hash * 31) + char.codePointAt(0)!) >>> 0;
+  return AGENT_COLOR_TOKENS[AGENT_COLOR_IDS[hash % AGENT_COLOR_IDS.length]];
 }
 
 /**
@@ -32,8 +38,8 @@ export function agentAvatarColor(color?: string | null): string {
  * The hue alone carries the identity. Not a ring either: the same rule treats
  * a border around a small glyph as an empty frame.
  */
-export function agentAvatarStyle(color?: string | null): { color: string } {
-  return { color: agentAvatarColor(color) };
+export function agentAvatarStyle(color?: string | null, agentName?: string | null): { color: string } {
+  return { color: agentAvatarColor(color, agentName) };
 }
 
 /**
