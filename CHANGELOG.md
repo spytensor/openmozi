@@ -8,6 +8,20 @@ OpenMozi maintains its own version line.
 
 ### Added
 
+- Release queue reset after v1.5.2; new entries land here.
+
+### Changed
+
+- None yet.
+
+### Fixed
+
+- None yet.
+
+## [v1.5.2] - 2026-08-06
+
+### Added
+
 - Agent activity indicators across the web UI — the run capsules, thinking /
   working / responding status lines, streaming reasoning toggles, sub-agent
   delegation rows, the sidebar session-busy marker, and the typing dots — are
