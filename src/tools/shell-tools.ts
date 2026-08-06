@@ -235,7 +235,6 @@ export async function executeShellTool(
 
     const telResult = await runTel('shell', 'execute', {
       command,
-      timeout: SHELL_TIMEOUT_MS,
       restricted: shellRestricted,
       cwd,
       userId,

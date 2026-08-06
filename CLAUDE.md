@@ -140,7 +140,7 @@ the shipped set and `docs/channels/UNSUPPORTED.md` for deferred ones.
 | Database | better-sqlite3 (WAL mode, single file) |
 | Logging | pino (structured JSON) |
 | Scheduler | croner |
-| Testing | vitest (real API calls, no mocks) |
+| Testing | vitest (targeted unit tests; explicit integration tests own real API calls) |
 | LLM Layer | Vercel AI SDK (`ai`, `@ai-sdk/anthropic`, `@ai-sdk/openai`, `@ai-sdk/openai-compatible`) |
 | Agent Runtime | Direct `src/core/brain-engine.ts` LLM/tool loop using `executeToolCalls` |
 | Vector Memory | LanceDB (`@lancedb/lancedb`) |
@@ -405,19 +405,19 @@ the batch.
 - Create circular dependencies between layers
 - Skip verification steps in IMPLEMENTATION.md
 - Modify IMPLEMENTATION.md without also committing the code changes
-- Mock LLM calls in tests — use real API with cheap models (`gpt-4.1-mini`, `max_tokens: 50`)
+- Put real provider calls in explicit integration tests; unit tests mock external boundaries
 
 ## Testing
 
 - **Framework:** vitest
 - **Test files:** `src/**/*.test.ts` (224 files as of 2026-07-03; run vitest for the current assertion count)
 - **Run:** `pnpm test`
-- **Style:** Real API calls, no mocks. Use cheap models for cost control.
+- **Style:** Targeted unit tests mock external boundaries. Real provider tests are explicit integration tests and require credentials.
 - Every module should have tests for happy path + error cases.
 
 ## When Stuck
 
-1. Re-read the relevant section in `docs/ARCHITECTURE-GAPS.md`
-2. Check `docs/architecture-discussion.txt` for design rationale
+1. Re-read the relevant section in `docs/CONSTITUTION.md`
+2. Check `skills/mozi-development/SKILL.md` for the production seam and wiring contract
 3. Check `docs/ONBOARDING-DESIGN.md` for onboarding/wizard decisions
 4. If genuinely blocked, document the blocker in IMPLEMENTATION.md under the task

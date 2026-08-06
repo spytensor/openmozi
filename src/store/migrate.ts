@@ -668,11 +668,11 @@ export function runMigrations(dbPath?: string): void {
     // Column already exists — ignore
   }
   try {
-    db.exec("ALTER TABLE sessions ADD COLUMN permission_level TEXT NOT NULL DEFAULT 'L3_FULL_ACCESS'");
+    db.exec("ALTER TABLE sessions ADD COLUMN permission_level TEXT NOT NULL DEFAULT 'L1_READ_WRITE'");
   } catch {
     // Column already exists — ignore
   }
-  db.exec("UPDATE sessions SET permission_level = 'L3_FULL_ACCESS' WHERE permission_level IS NULL OR permission_level = ''");
+  db.exec("UPDATE sessions SET permission_level = 'L1_READ_WRITE' WHERE permission_level IS NULL OR permission_level = ''");
 
   // Add user_id column to memory_facts for cross-session memory
   try {

@@ -153,12 +153,6 @@ describe('capabilities/shell', () => {
     expect(result.stdout.trim()).toBe('safe');
   });
 
-  it('restricted mode blocks commands outside allowlist', async () => {
-    const result = await exec('unknown_bin --version', { restricted: true });
-    expect(result.blocked).toBe(true);
-    expect(result.stderr).toContain('allowlist');
-  });
-
   it('non-restricted mode allows dangerous commands (but we test a safe one)', async () => {
     // Without restricted flag, the blocked check is skipped
     const result = await exec('echo "rm -rf /"', { restricted: false });

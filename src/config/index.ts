@@ -175,7 +175,7 @@ const SamlSpConfigSchema = z.object({
 });
 
 const SecurityConfigSchema = z.object({
-  default_permission: z.string().default('L3_FULL_ACCESS'),
+  default_permission: z.enum(['L0_READ_ONLY', 'L1_READ_WRITE', 'L2_SHELL_EXEC', 'L3_FULL_ACCESS']).default('L1_READ_WRITE'),
   hard_gates: z.array(z.string()).default([]),
   registration: z.enum(['open', 'invite', 'closed']).default('invite'),
   /**
@@ -515,7 +515,7 @@ const MoziConfigSchema = z.object({
     pair_rpm: 5,
   })),
   security: SecurityConfigSchema.default(() => ({
-    default_permission: 'L3_FULL_ACCESS',
+    default_permission: 'L1_READ_WRITE' as const,
     hard_gates: [],
     enterprise: {
       oidc: { issuers: [] },

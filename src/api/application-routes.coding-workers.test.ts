@@ -70,4 +70,22 @@ describe('coding worker settings routes', () => {
       expect((await app.inject({ method: 'PUT', url: '/api/coding-workers', payload })).statusCode).toBe(400);
     }
   });
+
+  it('persists the selected permission level in the session creation request', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { permission_level: 'L2_SHELL_EXEC' },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().session.permission_level).toBe('L2_SHELL_EXEC');
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/sessions',
+      payload: { permission_level: 'L9_UNKNOWN' },
+    });
+    expect(invalid.statusCode).toBe(400);
+  });
 });

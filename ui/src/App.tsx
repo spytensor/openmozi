@@ -7,7 +7,6 @@ import { applyArtifactPatch, useChat } from "@/hooks/useChat";
 import { useSession } from "@/hooks/useSession";
 import { useWorkspace } from "@/hooks/useWorkspace";
 import { useRuntimeWorkspace } from "@/hooks/useRuntimeWorkspace";
-import { useApi } from "@/hooks/useApi";
 import ChatView from "@/components/chat/ChatView";
 import type { RunTab } from "@/components/chat/RunInspector";
 import InputBar, { type ComposerDraftRequest, type PendingComposerAttachment } from "@/components/chat/InputBar";
@@ -19,7 +18,6 @@ import type { RuntimeWorkspaceRoot, WorkspaceMessageContext } from "@/types/runt
 import { defaultRuntimeProjectRoot, pathLeaf, workspaceContextFromRoot } from "@/lib/runtime-display";
 import WorkspaceSidebar, { type WorkspaceNavKey } from "@/components/layout/WorkspaceSidebar";
 import { useLocale } from "@/i18n";
-import { readDefaultPermissionLevel } from "@/lib/permission-default";
 import { clearModelState, useModelState } from "@/hooks/useModelState";
 
 const loadSettingsView = () => import("@/components/settings/SettingsView");
@@ -257,7 +255,6 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [toggleSidebar]);
-  const { patch: apiPatch } = useApi();
   const projectContextEnabled = UI_FEATURES.projectContext;
   const runtimeRoots = runtimeWorkspace.snapshot?.roots ?? [];
   const isAdmin = auth.user?.role === "admin";
@@ -656,14 +653,6 @@ export default function App() {
     ws.send({ type: "reject", id, sessionId: session.activeSessionId || undefined });
   }, [ws.send, chat.resolveApproval, session.activeSessionId]);
 
-  const applyDefaultPermissionLevel = useCallback(async (sessionId: string) => {
-    const defaultPermissionLevel = readDefaultPermissionLevel();
-    if (!defaultPermissionLevel) return;
-    await apiPatch(`/api/sessions/${sessionId}/permission-level`, {
-      permission_level: defaultPermissionLevel,
-    });
-  }, [apiPatch]);
-
   const queueComposerAttachment = useCallback((attachment: UploadedAttachment) => {
     pendingComposerAttachmentIdRef.current += 1;
     setPendingComposerAttachment({
@@ -688,12 +677,11 @@ export default function App() {
       workspaceContext: projectContextEnabled && selectedRoot ? workspaceContextFromRoot(selectedRoot) : null,
     });
     if (s) {
-      await applyDefaultPermissionLevel(s.id);
       chat.clearTimeline();
       setActiveNav("chats");
       setView("chat");
     }
-  }, [applyDefaultPermissionLevel, chat.clearTimeline, projectContextEnabled, selectedRoot, session.createSession]);
+  }, [chat.clearTimeline, projectContextEnabled, selectedRoot, session.createSession]);
 
   const handleFilesStartChat = useCallback(async (opts: FilesStartChatOptions) => {
     const folderPath = opts.folderPath.trim();
@@ -716,7 +704,6 @@ export default function App() {
       },
     });
     if (!s) return;
-    await applyDefaultPermissionLevel(s.id);
     chat.clearTimeline();
     setSelectedRootId(canonicalId);
     try {
@@ -732,7 +719,7 @@ export default function App() {
     }
     setActiveNav("chats");
     setView("chat");
-  }, [applyDefaultPermissionLevel, chat.clearTimeline, queueComposerAttachment, runtimeRoots, session.createSession]);
+  }, [chat.clearTimeline, queueComposerAttachment, runtimeRoots, session.createSession]);
 
   const handleFilesAttachToChat = useCallback(async (opts: FilesAttachToChatOptions) => {
     if (!session.activeSessionId) {

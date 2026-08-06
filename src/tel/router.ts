@@ -28,6 +28,7 @@ export interface ExecutionContext {
   permission_level: string;
   allowed_paths?: string[];
   tenant_id?: string;
+  abort_signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +212,11 @@ const PARAM_SCHEMAS: Record<string, Record<string, z.ZodType>> = {
 // Tool executor registry
 // ---------------------------------------------------------------------------
 
-type ToolExecutor = (params: Record<string, unknown>, context?: ExecutionContext) => Promise<unknown>;
+type ToolExecutor = (
+  params: Record<string, unknown>,
+  context?: ExecutionContext,
+  signal?: AbortSignal,
+) => Promise<unknown>;
 const executors = new Map<string, ToolExecutor>();
 
 /** Register a tool executor function */
@@ -307,8 +312,9 @@ export async function execute(
 
     try {
       const result = await withTimeout(
-        executor(validated_params, context),
-        sla.timeout * 1000
+        (signal) => executor(validated_params, context, signal),
+        sla.timeout * 1000,
+        context?.abort_signal,
       );
 
       return {
@@ -329,6 +335,7 @@ export async function execute(
         elapsed_ms: elapsed,
         error: errMsg,
       }, 'Tool execution failed');
+      if (context?.abort_signal?.aborted) break;
     }
   }
 
@@ -349,12 +356,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+function withTimeout<T>(
+  execute: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  parentSignal?: AbortSignal,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
-    promise.then(
-      (result) => { clearTimeout(timer); resolve(result); },
-      (err) => { clearTimeout(timer); reject(err); },
+    const controller = new AbortController();
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      parentSignal?.removeEventListener('abort', abortFromParent);
+      callback();
+    };
+    const abortFromParent = () => {
+      const error = parentSignal?.reason instanceof Error
+        ? parentSignal.reason
+        : new Error('Tool execution cancelled');
+      controller.abort(error);
+      finish(() => reject(error));
+    };
+    const timer = setTimeout(() => {
+      const error = new Error(`Timeout after ${ms}ms`);
+      controller.abort(error);
+      finish(() => reject(error));
+    }, ms);
+    if (parentSignal?.aborted) {
+      abortFromParent();
+      return;
+    }
+    parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+    Promise.resolve().then(() => execute(controller.signal)).then(
+      (result) => finish(() => resolve(result)),
+      (err) => finish(() => reject(err)),
     );
   });
 }

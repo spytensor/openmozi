@@ -33,6 +33,7 @@ import {
   listSessions,
   countSessions,
   getSessionPermissionLevel,
+  updateSessionPermissionLevel,
   updateTitle,
   updateSessionWorkspaceContext,
   bindDraftSessionProject,
@@ -2401,6 +2402,13 @@ export async function registerApiRoutes(
     const body = (request.body || {}) as Record<string, unknown>;
     const userId = tenantContext?.user_id ?? (typeof body.userId === 'string' && body.userId ? body.userId : 'local-user');
     const title = typeof body.title === 'string' ? body.title : undefined;
+    const permissionParse = body.permission_level === undefined
+      ? null
+      : z.enum(PERMISSION_LEVELS).safeParse(body.permission_level);
+    if (permissionParse && !permissionParse.success) {
+      return reply.code(400).send({ error: permissionParse.error.message });
+    }
+    const requestedPermission = permissionParse?.data;
     const workspaceRootId = typeof body.workspaceRootId === 'string' && body.workspaceRootId.trim()
       ? body.workspaceRootId.trim().slice(0, 4096)
       : null;
@@ -2412,10 +2420,17 @@ export async function registerApiRoutes(
     const reusableDraft = shouldReuseDraft ? getReusableDraftSession(userId, tenantId) : null;
     if (reusableDraft) {
       bindDraftSessionProject(reusableDraft.id, tenantId, { workspaceRootId, workspaceContext });
+      if (requestedPermission) updateSessionPermissionLevel(reusableDraft.id, requestedPermission, tenantId);
     }
     const session = reusableDraft
       ? getSession(reusableDraft.id, tenantId) ?? reusableDraft
-      : createSession(userId, title, tenantId, { workspaceRootId, workspaceContext });
+      : createSession(
+        userId,
+        title,
+        tenantId,
+        { workspaceRootId, workspaceContext },
+        requestedPermission,
+      );
     const archivedDrafts = shouldReuseDraft ? archiveUnusedDraftSessions(userId, tenantId, session.id) : 0;
     logAudit({
       tenant_id: tenantId,

@@ -47,7 +47,7 @@ metadata:
 1. Run existing tests to ensure nothing is broken: `pnpm test`.
 2. If new behavior was added, write tests that prove it works.
 3. Tests must cover: happy path, error case, edge case.
-4. Use real calls where possible (vitest, no mocks for LLM tests).
+4. Mock external boundaries in unit tests; keep real provider calls in explicit integration tests.
 
 ### Phase 5: Verify
 1. Run `pnpm build` to confirm TypeScript compiles cleanly.

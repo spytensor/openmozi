@@ -91,7 +91,7 @@ describe('scripts/prompt-contract', () => {
   it('passes when only non-runtime files change', () => {
     const result = evaluatePromptContract([
       'README.md',
-      'docs/ARCHITECTURE-GAPS.md',
+      'docs/CONSTITUTION.md',
     ]);
     expect(result.ok).toBe(true);
   });

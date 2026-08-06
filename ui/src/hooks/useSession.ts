@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import type { ContextCompressionState, Session, TimelineItem, TurnEnvelope } from "@/types";
 import type { WorkspaceMessageContext } from "@/types/runtime";
 import { useApi } from "./useApi";
+import { readDefaultPermissionLevel } from "@/lib/permission-default";
 
 const ACTIVE_SESSION_STORAGE_KEY = "mozi.ui.activeSessionId";
 const SESSION_HASH_PREFIX = "#/session/";
@@ -191,7 +192,10 @@ export function useSession() {
   }, [get]);
 
   const createSession = useCallback(async (context: SessionWorkspaceContextPayload = {}) => {
-    const { data } = await post<{ session: Session; reused?: boolean }>("/api/sessions", context);
+    const { data } = await post<{ session: Session; reused?: boolean }>("/api/sessions", {
+      ...context,
+      permission_level: readDefaultPermissionLevel() ?? "L1_READ_WRITE",
+    });
     if (data?.session) {
       setSessions((prev) => {
         const withoutCurrent = prev.filter((session) => session.id !== data.session.id);

@@ -200,7 +200,7 @@
   <text x="472" y="568" text-anchor="middle" fill="#4ade80" font-size="10" font-weight="600">+ Custom</text>
   <text x="472" y="583" text-anchor="middle" fill="#86efac" font-size="8">browser · API · DB</text>
 
-  <text x="285" y="630" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">Pre-write snapshots · allowed_paths whitelist · blocked command list</text>
+  <text x="285" y="630" text-anchor="middle" fill="#7d8590" font-size="9" font-style="italic">Pre-write snapshots · allowed paths · Docker sandbox boundary</text>
 
   <!-- Arrow: TEL → L4 -->
   <line x1="285" y1="490" x2="285" y2="510" stroke="#06b6d4" stroke-width="2" marker-end="url(#arrowCyan)"/>

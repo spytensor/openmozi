@@ -78,7 +78,7 @@ async function discoverEndpoints(cfg: OAuthProviderConfig): Promise<ProviderEndp
   const cached = discoveryCache.get(discoveryUrl);
   if (cached && cached.expiresAt > Date.now()) return cached.endpoints;
 
-  const res = await fetch(discoveryUrl);
+  const res = await fetch(discoveryUrl, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     throw new Error(`OIDC discovery failed (${res.status}) for ${discoveryUrl}`);
   }
@@ -187,6 +187,7 @@ async function exchangeCode(
     method: 'POST',
     headers,
     body: params.toString(),
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!res.ok) {
@@ -213,6 +214,7 @@ export interface OAuthUserInfo {
 async function fetchUserInfo(accessToken: string, userinfoEndpoint: string): Promise<Record<string, unknown>> {
   const res = await fetch(userinfoEndpoint, {
     headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) {
     throw new Error(`Userinfo fetch failed (${res.status})`);

@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import type { WorkspaceMessageContext } from '../channels/telegram.js';
 import { isValidLevel, type PermissionLevel } from '../security/permissions.js';
 import { resolvePersistedRuntimePath } from '../tools/workspace-policy.js';
+import { getConfig } from '../config/index.js';
 
-export const DEFAULT_SESSION_PERMISSION_LEVEL: PermissionLevel = 'L3_FULL_ACCESS';
+export const DEFAULT_SESSION_PERMISSION_LEVEL: PermissionLevel = 'L1_READ_WRITE';
 
 /** A conversation session (thread) */
 export interface Session {
@@ -245,13 +246,15 @@ export function createSession(
   title = 'New Chat',
   tenantId = 'default',
   context: SessionWorkspaceContextInput = {},
+  permissionLevel?: PermissionLevel,
 ): Session {
   const db = getDb();
   const id = generateSessionId();
+  const effectivePermission = permissionLevel ?? getConfig().security.default_permission;
   db.prepare(`
     INSERT INTO sessions (id, tenant_id, user_id, title, workspace_root_id, workspace_context,
-      project_root_id, project_context, execution_root_id, execution_context)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      project_root_id, project_context, execution_root_id, execution_context, permission_level)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     tenantId,
@@ -263,6 +266,7 @@ export function createSession(
     context.workspaceContext ? JSON.stringify(context.workspaceContext) : null,
     context.workspaceRootId ?? null,
     context.workspaceContext ? JSON.stringify(context.workspaceContext) : null,
+    effectivePermission,
   );
 
   return normalizeSession(db.prepare(sessionSelect('WHERE s.id = ?')).get(id) as Session);
