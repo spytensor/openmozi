@@ -12,7 +12,11 @@ OpenMozi maintains its own version line.
 
 ### Changed
 
-- None yet.
+- Support Node 26+. Upgraded `better-sqlite3` 12.6.2 → 13.0.3 (now Node-API /
+  `node-addon-api`, ABI-stable across Node majors) and dropped the `<26` engines
+  cap (now `>=22.12`). The only Node-26 blocker was better-sqlite3's old V8-ABI
+  build; `@lancedb/lancedb` was already Node-API. Verified on Node 26: install,
+  native load, and the DB-layer suites (store/tenants/security, 385 tests) pass.
 
 ### Fixed
 
