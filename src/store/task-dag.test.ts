@@ -2,9 +2,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
   create, getById, listTasks, getReady, updateStatus, assign,
   updateTask, complete, fail, cancel, getDependencies, getDownstreamTasks,
-  topologicalSort, incrementAttempts, resetAttempts, resetColumnsEnsured,
+  incrementAttempts, resetAttempts, resetColumnsEnsured,
 } from './task-dag.js';
 import { setupTestDb, teardownTestDb } from '../test-helpers.js';
+import { getDb } from './db.js';
 
 let tmpDir: string;
 
@@ -173,31 +174,31 @@ describe('store/task-dag', () => {
     expect(getById(t2.id)!.status).toBe('cancelled');
   });
 
-  // ---- Topological sort ----
-
-  it('topologicalSort returns tasks in dependency order', () => {
-    // Create a fresh tenant to isolate from previous tests
-    const tenant = 'topo-test';
-    const a = create({ title: 'topo-a', objective: 'a', tenant_id: tenant });
-    const b = create({ title: 'topo-b', objective: 'b', depends_on: [a.id], tenant_id: tenant });
-    const c = create({ title: 'topo-c', objective: 'c', depends_on: [a.id], tenant_id: tenant });
-    const d = create({ title: 'topo-d', objective: 'd', depends_on: [b.id, c.id], tenant_id: tenant });
-
-    const sorted = topologicalSort(tenant);
-    const titles = sorted.map(t => t.title);
-
-    // a must come before b and c; b and c must come before d
-    expect(titles.indexOf('topo-a')).toBeLessThan(titles.indexOf('topo-b'));
-    expect(titles.indexOf('topo-a')).toBeLessThan(titles.indexOf('topo-c'));
-    expect(titles.indexOf('topo-b')).toBeLessThan(titles.indexOf('topo-d'));
-    expect(titles.indexOf('topo-c')).toBeLessThan(titles.indexOf('topo-d'));
-  });
-
   // ---- Dependency validation ----
 
   it('create rejects invalid dependency references', () => {
     expect(() => create({ title: 'bad-dep', objective: 'x', depends_on: ['nonexistent-id'] }))
       .toThrow('Dependency task not found');
+  });
+
+  it('create rolls back when dependency insertion fails', () => {
+    const dependency = create({ title: 'rollback-dep', objective: 'dependency' });
+    const db = getDb();
+    const taskCount = () => (db.prepare('SELECT COUNT(*) AS count FROM tasks').get() as { count: number }).count;
+    const dependencyCount = () => (
+      db.prepare('SELECT COUNT(*) AS count FROM task_dependencies').get() as { count: number }
+    ).count;
+    const tasksBefore = taskCount();
+    const dependenciesBefore = dependencyCount();
+
+    expect(() => create({
+      title: 'rollback-task',
+      objective: 'must be atomic',
+      depends_on: [dependency.id, dependency.id],
+    })).toThrow();
+
+    expect(taskCount()).toBe(tasksBefore);
+    expect(dependencyCount()).toBe(dependenciesBefore);
   });
 
   // ---- Constraints & metadata ----

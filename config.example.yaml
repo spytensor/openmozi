@@ -97,7 +97,8 @@ rate_limits:
     concurrent: 20
 
 security:
-  default_permission: "L0_READ_ONLY"
+  # Default for non-UI sessions. App/Web writes the user's selected mode atomically at creation.
+  default_permission: "L1_READ_WRITE"
   hard_gates:
     - skill_register
     - agent_promote

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { basename, delimiter, isAbsolute, resolve } from 'node:path';
+import { delimiter, isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { SECRET_PATTERNS } from '../security/secrets.js';
@@ -127,7 +127,8 @@ export interface ShellResult {
 export interface ShellOptions {
   timeout?: number;       // Hard timeout in ms (default 60000)
   cwd?: string;           // Working directory
-  restricted?: boolean;   // Enable blocked commands check
+  /** Enable best-effort blocked/network guardrails. This is not a sandbox. */
+  restricted?: boolean;
   networkIsolation?: boolean; // Block network-capable commands in restricted mode
   isolationMode?: 'docker' | 'native';
   dockerImage?: string;
@@ -149,6 +150,8 @@ export interface ShellOptions {
   enforceWorkspaceBoundary?: boolean;
   /** Effective filesystem roots supplied by TEL for this user/session. */
   allowedWorkspaceRoots?: string[];
+  /** Runtime cancellation for foreground execution. */
+  signal?: AbortSignal;
   /**
    * Whose workspace a bare or relative `cwd` resolves against. Omitting it lands
    * the process in the legacy shared workspace, which the file API does not
@@ -240,48 +243,6 @@ const HIGH_RISK_PATTERNS: RegExp[] = [
   /\breboot\b/,
   /\bchmod\s+(-R\s+)?777\s+\//,  // chmod 777 on root paths
 ];
-
-const ALLOWED_COMMANDS = new Set([
-  'awk',
-  'bash',
-  'cat',
-  'chmod',
-  'cp',
-  'cut',
-  'echo',
-  'env',
-  'find',
-  'git',
-  'grep',
-  'head',
-  'ls',
-  'make',
-  'mkdir',
-  'mv',
-  'node',
-  'npm',
-  'pnpm',
-  'printf',
-  'pwd',
-  'rg',
-  'sed',
-  'sh',
-  'sleep',
-  'sort',
-  'tail',
-  'tee',
-  'touch',
-  'tr',
-  'tsup',
-  'uniq',
-  'uv',
-  'vitest',
-  'wc',
-  'xargs',
-  'zsh',
-  'python',
-  'python3',
-]);
 
 const DEFAULT_DOCKER_IMAGE = 'alpine:3.20';
 const SHELL_WORKSPACE_DENIAL = 'Shell is restricted to the workspace';
@@ -504,32 +465,6 @@ export function isHighRiskCommand(command: string): boolean {
   return HIGH_RISK_PATTERNS.some((pattern) => pattern.test(command));
 }
 
-function extractPrimaryCommand(command: string): string | null {
-  const trimmed = command.trim();
-  if (!trimmed) return null;
-
-  const assignmentRegex = /^[A-Za-z_][A-Za-z0-9_]*=.*/;
-  const tokens = trimmed.split(/\s+/).filter(Boolean);
-  let index = 0;
-  while (index < tokens.length && assignmentRegex.test(tokens[index])) {
-    index += 1;
-  }
-
-  let candidate = tokens[index] ?? '';
-  if (!candidate) return null;
-  if (candidate === 'sudo') {
-    candidate = tokens[index + 1] ?? '';
-  }
-  if (!candidate) return null;
-  return basename(candidate);
-}
-
-function isAllowedCommand(command: string): boolean {
-  const primary = extractPrimaryCommand(command);
-  if (!primary) return false;
-  return ALLOWED_COMMANDS.has(primary);
-}
-
 async function runCommand(
   executable: string,
   args: string[],
@@ -539,8 +474,12 @@ async function runCommand(
     env?: Record<string, string>;
     executor: 'native' | 'docker';
     sandboxed: boolean;
+    signal?: AbortSignal;
   },
 ): Promise<ShellResult> {
+  if (options.signal?.aborted) {
+    throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Shell execution cancelled');
+  }
   const baseEnv = await getManagedShellEnv();
   const startTime = Date.now();
   return new Promise<ShellResult>((resolvePromise) => {
@@ -555,10 +494,12 @@ async function runCommand(
     let timedOut = false;
     let resolved = false;
 
-    const timer = setTimeout(() => {
+    const timer = options.signal ? undefined : setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
     }, options.timeout);
+    const abort = () => child.kill('SIGKILL');
+    options.signal?.addEventListener('abort', abort, { once: true });
 
     child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
     child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
@@ -566,7 +507,8 @@ async function runCommand(
     const finish = (exitCode: number | null) => {
       if (resolved) return;
       resolved = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abort);
       resolvePromise({
         stdout,
         stderr,
@@ -692,6 +634,7 @@ async function runInDockerSandbox(command: string, options: ShellOptions & { tim
     env: options.env,
     executor: 'docker',
     sandboxed: true,
+    signal: options.signal,
   });
 }
 
@@ -912,15 +855,6 @@ export async function exec(command: string, options: ShellOptions = {}): Promise
         executor: 'native', sandboxed: false,
       };
     }
-    if (options.restricted && !isAllowedCommand(command)) {
-      const primary = extractPrimaryCommand(command) ?? 'unknown';
-      return {
-        stdout: '', stderr: `Command blocked by restricted allowlist policy: ${primary}`,
-        exit_code: -1, timed_out: false, blocked: true, elapsed_ms: 0,
-        executor: 'native', sandboxed: false,
-      };
-    }
-
     const result = await execBackground(command, {
       cwd,
       env: options.env,
@@ -972,21 +906,6 @@ export async function exec(command: string, options: ShellOptions = {}): Promise
     };
   }
 
-  if (options.restricted && !isAllowedCommand(command)) {
-    const primary = extractPrimaryCommand(command) ?? 'unknown';
-    logger.warn({ command, primary }, 'Blocked command not in allowlist');
-    return {
-      stdout: '',
-      stderr: `Command blocked by restricted allowlist policy: ${primary}`,
-      exit_code: -1,
-      timed_out: false,
-      blocked: true,
-      elapsed_ms: 0,
-      executor: 'native',
-      sandboxed: false,
-    };
-  }
-
   const isolationMode = options.isolationMode ?? (options.restricted ? 'docker' : 'native');
   if (isolationMode === 'docker') {
     const dockerImage = options.dockerImage ?? process.env.MOZI_SHELL_DOCKER_IMAGE ?? DEFAULT_DOCKER_IMAGE;
@@ -997,8 +916,9 @@ export async function exec(command: string, options: ShellOptions = {}): Promise
       return result;
     }
     if (options.restricted) {
-      // restricted mode already applied blocked pattern checks above — safe to use native
-      logger.warn({ command, docker_image: dockerImage }, 'Docker sandbox unavailable; falling back to restricted native executor');
+      // Native fallback retains only best-effort guardrails. It is deliberately
+      // reported as degraded and never represented as a sandbox boundary.
+      logger.warn({ command, docker_image: dockerImage }, 'Docker sandbox unavailable; falling back to best-effort native guardrails');
     } else {
       // Docker explicitly requested but unavailable — block execution
       logger.error({ command, docker_image: dockerImage }, 'Docker sandbox unavailable and no restricted fallback; blocking execution');
@@ -1021,6 +941,7 @@ export async function exec(command: string, options: ShellOptions = {}): Promise
     env: options.env,
     executor: 'native',
     sandboxed: false,
+    signal: options.signal,
   });
   logger.debug({ command, exit_code: result.exit_code, timed_out: result.timed_out, elapsed_ms: result.elapsed_ms }, 'Shell command completed in native executor');
   return result;

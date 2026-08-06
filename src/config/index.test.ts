@@ -39,7 +39,7 @@ describe('config', () => {
     expect(config.brain.think).toBeUndefined();
     expect(config.brain.max_plan_steps).toBe(12);
     expect(config.token_budget.watermark_soft).toBe(0.70);
-    expect(config.security.default_permission).toBe('L3_FULL_ACCESS');
+    expect(config.security.default_permission).toBe('L1_READ_WRITE');
     expect(config.security.enterprise.oidc.issuers).toEqual([]);
     expect(config.security.enterprise.saml.idps).toEqual([]);
     expect(config.server.port).toBe(9210);

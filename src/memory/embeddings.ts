@@ -81,6 +81,7 @@ class OpenAIEmbedding implements EmbeddingProvider {
         input: texts,
         dimensions: this.dimensions,
       }),
+      signal: AbortSignal.timeout(60_000),
     });
 
     if (!response.ok) {
@@ -124,6 +125,7 @@ class OllamaEmbedding implements EmbeddingProvider {
           model: this.modelName,
           input: text,
         }),
+        signal: AbortSignal.timeout(60_000),
       });
 
       if (!response.ok) {
@@ -179,6 +181,7 @@ class MiniMaxEmbedding implements EmbeddingProvider {
         input: texts,
         type: 'query',
       }),
+      signal: AbortSignal.timeout(60_000),
     });
 
     if (!response.ok) {

@@ -85,7 +85,7 @@ function makeHeaders(botToken: string): Record<string, string> {
  */
 export async function requestQrCode(): Promise<{ qrcode: string; qrcodeUrl?: string }> {
   const url = `${ILINK_BASE}/ilink/bot/get_bot_qrcode?bot_type=3`;
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     throw new Error(`iLink QR code request failed: ${res.status} ${res.statusText}`);
   }
@@ -110,7 +110,7 @@ export async function pollQrCodeStatus(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const url = `${ILINK_BASE}/ilink/bot/get_qrcode_status?qrcode=${encodeURIComponent(qrcode)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) {
       throw new Error(`iLink QR status request failed: ${res.status}`);
     }
@@ -350,6 +350,7 @@ async function sendILinkMessage(
       method: 'POST',
       headers: makeHeaders(botToken),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) {
       logger.error({ status: res.status }, 'iLink sendmessage HTTP error');
@@ -400,6 +401,7 @@ export class WeChatOutputChannel implements OutputChannel {
           context_token: this.contextToken,
           action: 'typing',
         }),
+        signal: AbortSignal.timeout(15_000),
       });
     } catch {
       // Non-critical — ignore

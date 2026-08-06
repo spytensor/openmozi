@@ -20,6 +20,7 @@ import { getDefaultWorkerAdapterRegistry } from '../workers/index.js';
 import { inspectManagedWorkerPreflight, type WorkerPreflightReport } from '../workers/preflight.js';
 import type { ToolContext, ToolResult } from './types.js';
 import { buildManagedCodingWorkerPrompt } from '../core/delegation-prompt.js';
+import { clampDelegatedPermission, type PermissionLevel } from '../security/permissions.js';
 
 const CodingWorkerIdSchema = z.string().min(1);
 type CodingWorkerId = z.infer<typeof CodingWorkerIdSchema>;
@@ -35,7 +36,6 @@ const DelegateCodingTaskInputSchema = z.object({
   context_refs: z.array(z.string()).default([]),
   timeout_seconds: z.number().int().min(1).max(7200).default(900),
   token_budget: z.number().int().min(1).default(20_000),
-  permission_level: z.string().default('L2_SHELL_EXEC'),
   allowed_tools: z.array(z.string()).default(['filesystem', 'shell', 'git']),
   forbidden_paths: z.array(z.string()).default([]),
   lane: z.enum(['review', 'code']).default('code'),
@@ -131,10 +131,6 @@ export const delegateCodingTaskTool: ToolDefinition = {
           type: 'number',
           description: 'Token budget hint for the managed worker.',
         },
-        permission_level: {
-          type: 'string',
-          description: 'Requested permission level for the task brief.',
-        },
         allowed_tools: {
           type: 'array',
           items: { type: 'string' },
@@ -178,7 +174,8 @@ export const DELEGATION_TOOL_DEFINITIONS: ToolDefinition[] = [
   delegateCodingTaskTool,
 ];
 
-function buildTaskBrief(input: DelegateCodingTaskInput): TaskBrief {
+function buildTaskBrief(input: DelegateCodingTaskInput, parentPermission: string | undefined): TaskBrief {
+  const lanePermission: PermissionLevel = input.lane === 'review' ? 'L0_READ_ONLY' : 'L2_SHELL_EXEC';
   return TaskBriefSchema.parse({
     task_id: input.task_id ?? `coding_task_${randomUUID()}`,
     objective: input.objective,
@@ -187,7 +184,7 @@ function buildTaskBrief(input: DelegateCodingTaskInput): TaskBrief {
     constraints: {
       token_budget: input.token_budget,
       timeout_seconds: input.timeout_seconds,
-      permission_level: input.permission_level,
+      permission_level: clampDelegatedPermission(lanePermission, parentPermission),
       allowed_tools: input.allowed_tools,
       forbidden_paths: input.forbidden_paths,
     },
@@ -344,7 +341,7 @@ export async function executeDelegationTool(
   if (name !== 'delegate_coding_task') return null;
 
   const input = DelegateCodingTaskInputSchema.parse(args);
-  const task = buildTaskBrief(input);
+  const task = buildTaskBrief(input, context?.permissionLevel);
   const deps = getDeps();
   const selected = await selectReadyWorker(input, task, deps);
   if ('error' in selected) {

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { ChatMessage, ChatOptions, ChatResponse, LLMClient } from '../core/llm.js';
 import type { LoadedAgentDefinition } from './definition-loader.js';
-import { clampDelegatedPermission, delegateToAgent } from './delegate-runner.js';
+import { delegateToAgent } from './delegate-runner.js';
 import { AgentExecutionEnvelopeSchema } from './execution-envelope.js';
 import { on } from '../progress/event-bus.js';
 import { writeFileTool } from '../tools/fs-tools.js';
@@ -254,6 +254,7 @@ describe('delegate agent runner', () => {
       outputDir: join(root, 'output'),
       ...emptySkillDirs(root),
       registeredTools: [writeFileTool],
+      context: { permissionLevel: 'L1_READ_WRITE' },
       client: client(async () => {
         call += 1;
         if (call === 1) {
@@ -304,14 +305,4 @@ describe('delegate agent runner', () => {
     expect(envelope.blocker).toContain('context_ref_out_of_scope');
   });
 
-  it('clamps the delegated permission level to declaration, parent, and the L2 ceiling', () => {
-    // AGENT.md cannot self-elevate past the delegating turn.
-    expect(clampDelegatedPermission('L3_FULL_ACCESS', 'L1_READ_WRITE')).toBe('L1_READ_WRITE');
-    // Nor past the hard delegation ceiling, even when the parent is L3.
-    expect(clampDelegatedPermission('L3_FULL_ACCESS', 'L3_FULL_ACCESS')).toBe('L2_SHELL_EXEC');
-    // A modest declaration is respected as-is.
-    expect(clampDelegatedPermission('L1_READ_WRITE', 'L3_FULL_ACCESS')).toBe('L1_READ_WRITE');
-    // Missing declaration stays read-only regardless of the parent.
-    expect(clampDelegatedPermission(undefined, 'L3_FULL_ACCESS')).toBe('L0_READ_ONLY');
-  });
 });

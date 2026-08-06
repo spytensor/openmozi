@@ -205,6 +205,7 @@ describe("useSession", () => {
   });
 
   it("persists workspace context when creating and updating a session", async () => {
+    window.localStorage.setItem("mozi.ui.defaultPermissionLevel", "L2_SHELL_EXEC");
     const session = {
       id: "session-project",
       title: "New Chat",
@@ -253,6 +254,7 @@ describe("useSession", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
       workspaceRootId: "project",
       workspaceContext: session.workspace_context,
+      permission_level: "L2_SHELL_EXEC",
     });
     expect(fetchMock.mock.calls[1][0]).toBe("/api/sessions/session-project");
     expect(fetchMock.mock.calls[1][1].method).toBe("PATCH");

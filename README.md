@@ -137,7 +137,7 @@ The LLM is the decision-maker; everything else is infrastructure that executes i
 ```bash
 pnpm dev          # backend watch mode
 pnpm ui:dev       # Web UI dev server (hot reload)
-pnpm test         # full test suite (vitest, real API calls)
+pnpm test         # vitest suite; real-provider integration tests require credentials
 pnpm desktop:dev  # desktop app in dev mode
 ```
 

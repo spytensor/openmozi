@@ -421,7 +421,7 @@ export async function runTel(
 ): Promise<TelToolResult> {
   ensureTelInitialized();
   const config = getConfig();
-  const rawLevel = context?.permissionLevel ?? config.security?.default_permission ?? 'L3_FULL_ACCESS';
+  const rawLevel = context?.permissionLevel ?? config.security?.default_permission ?? 'L1_READ_WRITE';
   const permissionLevel = isValidLevel(rawLevel) ? rawLevel : 'L0_READ_ONLY';
   // Prefer an explicit allow-list the caller put in the intent params. Fall
   // back to the context list, then the same context-derived read roots used by
@@ -437,6 +437,7 @@ export async function runTel(
     agent_id: context?.agentId ?? `gateway:${context?.chatId ?? 'system'}`,
     permission_level: permissionLevel,
     tenant_id: context?.tenantId ?? 'default',
+    abort_signal: context?.abortSignal,
     ...(allowedPaths ? { allowed_paths: allowedPaths } : {}),
   };
   return executeTelIntent({ category, action, params }, execContext);

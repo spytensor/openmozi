@@ -17,22 +17,7 @@ import { getRuntimeProjectRoot } from '../runtime/project-root.js';
 import type { ToolContext, ToolResult } from '../tools/types.js';
 import { getOutputDir, getWorkspaceAllowedRoots, getWorkspaceDir, isPathInsideRoot } from '../tools/workspace-policy.js';
 import { emit as emitProgress } from '../progress/event-bus.js';
-import { getLevelOrder, isValidLevel, type PermissionLevel } from '../security/permissions.js';
-
-/**
- * Delegated runs execute at the weakest of the AGENT.md declaration, the
- * delegating turn's level, and a hard L2 ceiling: the dangerous lane requires
- * an approval flow that does not exist for delegation yet (constitution §12),
- * and full access would also dissolve the run-directory write pin.
- */
-export function clampDelegatedPermission(
-  declared: PermissionLevel | undefined,
-  parent: string | undefined,
-): PermissionLevel {
-  const parentLevel: PermissionLevel = parent && isValidLevel(parent) ? parent : 'L2_SHELL_EXEC';
-  const candidates: PermissionLevel[] = [declared ?? 'L0_READ_ONLY', parentLevel, 'L2_SHELL_EXEC'];
-  return candidates.reduce((lowest, level) => (getLevelOrder(level) < getLevelOrder(lowest) ? level : lowest));
-}
+import { clampDelegatedPermission } from '../security/permissions.js';
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_ROUNDS = 8;
@@ -393,7 +378,10 @@ export async function delegateToAgent(input: DelegateAgentRunInput): Promise<Age
     const toolContext: ToolContext = {
       ...input.context,
       agentId: definition.name,
-      permissionLevel: clampDelegatedPermission(definition.permission_level, input.context?.permissionLevel),
+      permissionLevel: clampDelegatedPermission(
+        definition.permission_level ?? 'L0_READ_ONLY',
+        input.context?.permissionLevel,
+      ),
       workspaceRootPath: runDir,
       workingDirectory: runDir,
       allowedPaths: [runDir],

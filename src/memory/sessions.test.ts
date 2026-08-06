@@ -40,6 +40,7 @@ describe('memory/sessions', () => {
     expect(session.title).toBe('New Chat');
     expect(session.archived).toBe(0);
     expect(session.message_count).toBe(0);
+    expect(session.permission_level).toBe('L1_READ_WRITE');
     expect(session.created_at).toMatch(/T.*Z$/);
     expect(session.updated_at).toMatch(/T.*Z$/);
   });
@@ -47,6 +48,11 @@ describe('memory/sessions', () => {
   it('creates a session with custom title', () => {
     const session = createSession('user1', 'My Project');
     expect(session.title).toBe('My Project');
+  });
+
+  it('persists an explicitly selected permission level at creation', () => {
+    const session = createSession('user1', 'Full access', 'default', undefined, 'L3_FULL_ACCESS');
+    expect(session.permission_level).toBe('L3_FULL_ACCESS');
   });
 
   it('preserves project ownership when updating execution scope after a conversation starts', () => {

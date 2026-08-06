@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { route } from './router.js';
+import { afterEach, describe, it, expect } from 'vitest';
+import { execute, registerExecutor, route } from './router.js';
+import { register as registerSla, reset as resetSlas } from './sla.js';
+
+afterEach(() => resetSlas());
 
 describe('tel/router', () => {
   it('routes shell.execute correctly', () => {
@@ -127,5 +130,40 @@ describe('tel/router', () => {
     expect(() =>
       route({ category: 'shell', action: 'process_status', params: {} })
     ).toThrow(); // process_id is required
+  });
+
+  it('aborts the executor when its TEL deadline expires', async () => {
+    let aborted = false;
+    registerSla('blackboard', { timeout: 0.01, retries: 0 });
+    registerExecutor('blackboard', 'read', async (_params, _context, signal) => new Promise((resolve) => {
+      signal?.addEventListener('abort', () => {
+        aborted = true;
+        resolve({});
+      }, { once: true });
+    }));
+
+    const result = await execute({ category: 'blackboard', action: 'read', params: {} });
+
+    expect(result.success).toBe(false);
+    expect(aborted).toBe(true);
+  });
+
+  it('does not start or retry work after the parent turn is cancelled', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('turn cancelled'));
+    let calls = 0;
+    registerSla('blackboard', { timeout: 1, retries: 2 });
+    registerExecutor('blackboard', 'read', async () => {
+      calls += 1;
+      return {};
+    });
+
+    const result = await execute(
+      { category: 'blackboard', action: 'read', params: {} },
+      { agent_id: 'test', permission_level: 'L0_READ_ONLY', abort_signal: controller.signal },
+    );
+
+    expect(result.success).toBe(false);
+    expect(calls).toBe(0);
   });
 });

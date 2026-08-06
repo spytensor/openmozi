@@ -3,7 +3,7 @@
 A minimal "single-user, behind nginx" deployment recipe so a non-technical
 operator (e.g. an executive) can use MOZI from a browser without learning
 the CLI or installing Telegram. This is **not** the multi-tenant production
-setup; see `docs/CONSTITUTION.md` and `docs/ARCHITECTURE-GAPS.md` for that.
+setup; see `docs/CONSTITUTION.md` and `docs/DEPLOY-ENTERPRISE.md` for that.
 
 ## Threat model
 

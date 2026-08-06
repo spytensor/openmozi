@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { createEmbeddingProvider, type EmbeddingConfig } from './embeddings.js';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { createEmbeddingProvider } from './embeddings.js';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe('embeddings', () => {
   describe('createEmbeddingProvider', () => {
@@ -52,6 +56,27 @@ describe('embeddings', () => {
       });
       expect(provider!.modelName).toBe('custom-model');
       expect(provider!.dimensions).toBe(512);
+    });
+
+    it('bounds provider HTTP requests with an abort signal', async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ embedding: [0.1, 0.2] }] }),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const provider = createEmbeddingProvider({
+        provider: 'openai',
+        apiKey: 'test-key',
+        baseUrl: 'https://example.test/v1',
+        dimensions: 2,
+      });
+
+      await provider!.embed(['hello']);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://example.test/v1/embeddings',
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
     });
   });
 });

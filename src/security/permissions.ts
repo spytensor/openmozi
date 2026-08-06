@@ -106,6 +106,17 @@ export function getLevelOrder(level: PermissionLevel): number {
   return LEVEL_ORDER[level];
 }
 
+/** Delegated work can never exceed its declaration, its parent, or the L2 ceiling. */
+export function clampDelegatedPermission(
+  declared: PermissionLevel,
+  parent: string | undefined,
+): PermissionLevel {
+  const parentLevel: PermissionLevel = parent && isValidLevel(parent) ? parent : 'L0_READ_ONLY';
+  return [declared, parentLevel, 'L2_SHELL_EXEC' as const].reduce(
+    (lowest, level) => (getLevelOrder(level) < getLevelOrder(lowest) ? level : lowest),
+  );
+}
+
 /**
  * Check if `agentLevel` meets or exceeds `requiredLevel`.
  */

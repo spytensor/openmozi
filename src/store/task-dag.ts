@@ -147,45 +147,41 @@ export function create(input: CreateTaskInputType): TaskRecord {
   const id = randomUUID();
   const db = getDb();
 
-  // Validate depends_on references exist
-  for (const depId of parsed.depends_on) {
-    const exists = db.prepare('SELECT id FROM tasks WHERE id = ?').get(depId);
-    if (!exists) {
-      throw new Error(`Dependency task not found: ${depId}`);
-    }
-  }
-
-  // Detect cycle before inserting
-  if (parsed.depends_on.length > 0) {
-    detectCycleBeforeInsert(id, parsed.depends_on, parsed.tenant_id);
-  }
-
-  // Determine initial status
   const status: TaskStatus = parsed.depends_on.length === 0 ? 'ready' : 'pending';
 
-  db.prepare(`
-    INSERT INTO tasks (id, tenant_id, parent_task_id, title, objective, done_criteria,
-      status, priority, tags, on_dep_failure, agent_type_hint, constraints, attempts)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-  `).run(
-    id, parsed.tenant_id, parsed.parent_task_id, parsed.title,
-    parsed.objective, parsed.done_criteria, status, parsed.priority,
-    JSON.stringify(parsed.tags), parsed.on_dep_failure, parsed.agent_type_hint,
-    JSON.stringify(parsed.constraints),
-  );
+  return db.transaction(() => {
+    for (const depId of parsed.depends_on) {
+      const exists = db.prepare(
+        'SELECT id FROM tasks WHERE id = ? AND tenant_id = ?',
+      ).get(depId, parsed.tenant_id);
+      if (!exists) {
+        throw new Error(`Dependency task not found: ${depId}`);
+      }
+    }
 
-  // Insert dependencies
-  for (const depId of parsed.depends_on) {
     db.prepare(`
-      INSERT INTO task_dependencies (tenant_id, task_id, depends_on_task_id)
-      VALUES (?, ?, ?)
-    `).run(parsed.tenant_id, id, depId);
-  }
+      INSERT INTO tasks (id, tenant_id, parent_task_id, title, objective, done_criteria,
+        status, priority, tags, on_dep_failure, agent_type_hint, constraints, attempts)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `).run(
+      id, parsed.tenant_id, parsed.parent_task_id, parsed.title,
+      parsed.objective, parsed.done_criteria, status, parsed.priority,
+      JSON.stringify(parsed.tags), parsed.on_dep_failure, parsed.agent_type_hint,
+      JSON.stringify(parsed.constraints),
+    );
 
-  logEvent('task_created', 'task', id, { title: parsed.title, depends_on: parsed.depends_on }, parsed.tenant_id);
-  logger.info({ task_id: id, title: parsed.title, status }, 'Task created');
+    for (const depId of parsed.depends_on) {
+      db.prepare(`
+        INSERT INTO task_dependencies (tenant_id, task_id, depends_on_task_id)
+        VALUES (?, ?, ?)
+      `).run(parsed.tenant_id, id, depId);
+    }
 
-  return getById(id, parsed.tenant_id)!;
+    logEvent('task_created', 'task', id, { title: parsed.title, depends_on: parsed.depends_on }, parsed.tenant_id);
+    logger.info({ task_id: id, title: parsed.title, status }, 'Task created');
+
+    return getById(id, parsed.tenant_id)!;
+  })();
 }
 
 /** Get a task by ID */
@@ -476,66 +472,6 @@ export function getDownstreamTasks(taskId: string, tenantId = 'default'): TaskRe
 }
 
 // ---------------------------------------------------------------------------
-// Topological sort
-// ---------------------------------------------------------------------------
-
-/**
- * Return all tasks in topological order (dependencies first).
- * Throws if a cycle is detected.
- */
-export function topologicalSort(tenantId = 'default'): TaskRecord[] {
-  ensureColumns();
-  const db = getDb();
-  const allTasks = listTasks({ tenant_id: tenantId });
-  const taskMap = new Map(allTasks.map(t => [t.id, t]));
-
-  // Build adjacency list
-  const deps = db.prepare(`
-    SELECT task_id, depends_on_task_id FROM task_dependencies WHERE tenant_id = ?
-  `).all(tenantId) as Array<{ task_id: string; depends_on_task_id: string }>;
-
-  const inDegree = new Map<string, number>();
-  const adj = new Map<string, string[]>();
-
-  for (const t of allTasks) {
-    inDegree.set(t.id, 0);
-    adj.set(t.id, []);
-  }
-
-  for (const dep of deps) {
-    if (!adj.has(dep.depends_on_task_id)) continue;
-    adj.get(dep.depends_on_task_id)!.push(dep.task_id);
-    inDegree.set(dep.task_id, (inDegree.get(dep.task_id) ?? 0) + 1);
-  }
-
-  // Kahn's algorithm
-  const queue: string[] = [];
-  for (const [id, degree] of inDegree) {
-    if (degree === 0) queue.push(id);
-  }
-
-  const sorted: TaskRecord[] = [];
-  while (queue.length > 0) {
-    // Sort queue by priority for deterministic order
-    queue.sort((a, b) => (taskMap.get(a)!.priority - taskMap.get(b)!.priority));
-    const id = queue.shift()!;
-    sorted.push(taskMap.get(id)!);
-
-    for (const next of adj.get(id) ?? []) {
-      const newDegree = (inDegree.get(next) ?? 1) - 1;
-      inDegree.set(next, newDegree);
-      if (newDegree === 0) queue.push(next);
-    }
-  }
-
-  if (sorted.length !== allTasks.length) {
-    throw new Error('Cycle detected in task DAG');
-  }
-
-  return sorted;
-}
-
-// ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
@@ -595,39 +531,6 @@ function propagateFailure(failedId: string, tenantId: string): void {
         break;
     }
   }
-}
-
-/**
- * Detect cycle before inserting a new task with dependencies.
- * Checks if any of depIds would create a cycle with the new taskId.
- */
-function detectCycleBeforeInsert(newTaskId: string, depIds: string[], tenantId: string): void {
-  const db = getDb();
-
-  // Build graph of existing dependencies
-  const allDeps = db.prepare(`
-    SELECT task_id, depends_on_task_id FROM task_dependencies WHERE tenant_id = ?
-  `).all(tenantId) as Array<{ task_id: string; depends_on_task_id: string }>;
-
-  // Add proposed edges
-  const adj = new Map<string, Set<string>>();
-  for (const dep of allDeps) {
-    if (!adj.has(dep.depends_on_task_id)) adj.set(dep.depends_on_task_id, new Set());
-    adj.get(dep.depends_on_task_id)!.add(dep.task_id);
-  }
-
-  // Add proposed: depId -> newTaskId (newTaskId depends on depId)
-  // This means edges FROM depId TO newTaskId in the dependency DAG
-  // A cycle exists if newTaskId can reach any depId via existing edges
-  for (const depId of depIds) {
-    // BFS from depId's ancestors - check if newTaskId is an ancestor of depId
-    // Actually: check if depId is reachable from newTaskId via existing edges
-    // But newTaskId doesn't exist yet, so no cycle possible at insert time
-    // The only cycle: if depId depends (transitively) on... but newTaskId doesn't exist yet
-    // So no cycle can be formed when inserting a brand new task
-  }
-  // Since newTaskId is brand new, it can't be in anyone's dependency chain yet.
-  // Cycles would only happen if we add deps to existing tasks. Skip check for new tasks.
 }
 
 function deserializeRow(row: Record<string, unknown>): TaskRecord {

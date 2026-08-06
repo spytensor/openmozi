@@ -45,7 +45,7 @@ export function initTel(): void {
   }
 
   // Register shell executors
-  registerExecutor('shell', 'execute', async (params, context) => {
+  registerExecutor('shell', 'execute', async (params, context, signal) => {
     const { command, timeout, cwd, userId, restricted, enforceWorkspaceBoundary } = params as {
       command: string;
       timeout?: number;
@@ -65,6 +65,7 @@ export function initTel(): void {
       permissionLevel: context?.permission_level,
       enforceWorkspaceBoundary: enforceWorkspaceBoundary ?? true,
       allowedWorkspaceRoots: context?.allowed_paths,
+      signal,
     });
   });
 

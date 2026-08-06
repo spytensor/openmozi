@@ -348,7 +348,7 @@ interface IdpMetadata {
  * Used to auto-configure idp_entity_id, idp_sso_url, idp_certificate from idp_metadata_url.
  */
 export async function fetchIdpMetadata(metadataUrl: string): Promise<IdpMetadata> {
-  const res = await fetch(metadataUrl);
+  const res = await fetch(metadataUrl, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     throw new Error(`Failed to fetch IdP metadata (${res.status}): ${metadataUrl}`);
   }

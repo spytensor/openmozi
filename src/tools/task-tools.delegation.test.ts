@@ -152,7 +152,10 @@ describe('tools/delegate_coding_task', () => {
   });
 
   it('registers delegate_coding_task for Brain tool calls', () => {
-    expect(getToolDefinition('delegate_coding_task')?.function.name).toBe('delegate_coding_task');
+    const definition = getToolDefinition('delegate_coding_task');
+    expect(definition?.function.name).toBe('delegate_coding_task');
+    const properties = definition?.function.parameters.properties as Record<string, unknown>;
+    expect(properties).not.toHaveProperty('permission_level');
   });
 
   it('reaches the managed-worker dispatch pipeline via the Brain tool executor', async () => {
@@ -193,6 +196,9 @@ describe('tools/delegate_coding_task', () => {
         transport: 'stdio',
         task: expect.objectContaining({
           objective: 'Update the worker delegation wiring',
+          constraints: expect.objectContaining({
+            permission_level: 'L2_SHELL_EXEC',
+          }),
         }),
       }));
       const workerPrompt = launchMock.mock.calls[0]?.[0].system_prompt ?? '';

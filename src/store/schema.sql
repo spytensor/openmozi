@@ -835,7 +835,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   archived INTEGER NOT NULL DEFAULT 0,
-  permission_level TEXT NOT NULL DEFAULT 'L3_FULL_ACCESS',
+  permission_level TEXT NOT NULL DEFAULT 'L1_READ_WRITE',
   workspace_root_id TEXT,
   workspace_context JSON,
   project_root_id TEXT,

@@ -228,7 +228,13 @@ async function requestJson(
 
   let response: Response;
   try {
-    response = await fetch(url, init);
+    const timeoutSignal = AbortSignal.timeout(30_000);
+    response = await fetch(url, {
+      ...init,
+      signal: init.signal
+        ? AbortSignal.any([init.signal, timeoutSignal])
+        : timeoutSignal,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new ConnectorHttpError(`Network error: ${message}`, true);

@@ -9,6 +9,7 @@ import {
   registerActionRequirement,
   PermissionDeniedError,
   PERMISSION_LEVELS,
+  clampDelegatedPermission,
 } from './permissions.js';
 
 let tmpDir: string;
@@ -58,6 +59,15 @@ describe('security/permissions', () => {
     it('denies lower level', () => {
       expect(hasPermission('L0_READ_ONLY', 'L1_READ_WRITE')).toBe(false);
       expect(hasPermission('L1_READ_WRITE', 'L2_SHELL_EXEC')).toBe(false);
+    });
+  });
+
+  describe('clampDelegatedPermission', () => {
+    it('uses the weakest of the declaration, parent, and L2 ceiling', () => {
+      expect(clampDelegatedPermission('L3_FULL_ACCESS', 'L1_READ_WRITE')).toBe('L1_READ_WRITE');
+      expect(clampDelegatedPermission('L3_FULL_ACCESS', 'L3_FULL_ACCESS')).toBe('L2_SHELL_EXEC');
+      expect(clampDelegatedPermission('L1_READ_WRITE', 'L3_FULL_ACCESS')).toBe('L1_READ_WRITE');
+      expect(clampDelegatedPermission('L2_SHELL_EXEC', undefined)).toBe('L0_READ_ONLY');
     });
   });
 
