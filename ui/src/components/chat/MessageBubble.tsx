@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, ChevronDown, Copy, Lightbulb, RefreshCw, Settings2, Trash2 } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Copy, Lightbulb, Pencil, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { ActivityOrb } from "@/components/ActivityOrb";
 import { TypeIcon } from "./artifact-type-icons";
 import { buildFileArtifact } from "@/lib/file-artifact";
@@ -22,6 +22,12 @@ interface MessageBubbleProps {
   message: ChatMessage;
   /** Re-run an existing prompt as a fresh turn without creating a new user bubble. */
   onRegenerate?: (content: string, mentions?: string[]) => void;
+  /**
+   * Load a user prompt back into the composer for edit-then-resend (append model,
+   * not in-place edit). Only rendered on user messages; carries mentions/attachments
+   * so the restored draft matches the original.
+   */
+  onEditInComposer?: (content: string, mentions?: ChatMessage["mentions"], attachments?: ChatMessage["attachments"]) => void;
   /**
    * The prompt to re-run when regenerating an assistant answer — the user
    * message that produced it. Ignored for user messages (they regenerate
@@ -462,6 +468,7 @@ export function AssistantNarration({ message }: { message: ChatMessage }) {
 export default memo(function MessageBubble({
   message,
   onRegenerate,
+  onEditInComposer,
   regenerateText,
   regenerateMentions,
   showAvatar = true,
@@ -559,12 +566,12 @@ export default memo(function MessageBubble({
         )}
         <div className="mt-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <CopyAction text={content} />
-          {onRegenerate && (
+          {onEditInComposer && (
             <MessageAction
-              label={t("chat.regenerate")}
-              onClick={() => message.mentions?.length ? onRegenerate(content, message.mentions) : onRegenerate(content)}
+              label={t("chat.editInComposer")}
+              onClick={() => onEditInComposer(content, message.mentions, message.attachments)}
             >
-              <RefreshCw size={13} />
+              <Pencil size={13} />
             </MessageAction>
           )}
           {onDelete && (

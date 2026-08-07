@@ -85,12 +85,14 @@ function renderChat(
     turns?: import("@/types").TurnEnvelope[];
     onSend?: (content: string) => void;
     onRegenerate?: (content: string) => void;
+    onEditInComposer?: (content: string, mentions?: string[], attachments?: unknown) => void;
     onOpenMemory?: () => void;
     onOpenRun?: (turnId: string) => void;
   } = {},
 ) {
   const onSend = options.onSend ?? vi.fn();
   const onRegenerate = options.onRegenerate ?? vi.fn();
+  const onEditInComposer = options.onEditInComposer ?? vi.fn();
   return renderWithLocale(
     <ChatView
       sessionId={options.sessionId}
@@ -105,6 +107,7 @@ function renderChat(
       onReject={vi.fn()}
       onSend={onSend}
       onRegenerate={onRegenerate}
+      onEditInComposer={onEditInComposer}
       onOpenMemory={options.onOpenMemory}
       onOpenRun={options.onOpenRun}
     />,
@@ -497,24 +500,27 @@ describe("ChatView", () => {
     expect(screen.getByText("report.docx")).toBeInTheDocument();
   });
 
-  it("routes message regenerate actions through onRegenerate, not onSend", () => {
+  it("routes user edits through onEditInComposer and assistant regenerate through onRegenerate, never onSend", () => {
     const onSend = vi.fn();
     const onRegenerate = vi.fn();
+    const onEditInComposer = vi.fn();
     renderChat(
       [
         message("user", "Draft the plan.", 1),
         message("assistant", "Here is the plan.", 2),
       ],
-      { onSend, onRegenerate },
+      { onSend, onRegenerate, onEditInComposer },
     );
 
-    fireEvent.click(within(screen.getByTestId("message-user")).getByRole("button", { name: "Regenerate" }));
-    expect(onRegenerate).toHaveBeenCalledWith("Draft the plan.");
+    // User bubble: edit-and-resend loads the composer; it does not regenerate or send.
+    fireEvent.click(within(screen.getByTestId("message-user")).getByRole("button", { name: "Edit & resend" }));
+    expect(onEditInComposer).toHaveBeenCalledWith("Draft the plan.", undefined, undefined);
+    expect(onRegenerate).not.toHaveBeenCalled();
     expect(onSend).not.toHaveBeenCalled();
 
+    // Assistant bubble: regenerate still re-runs the source prompt in place.
     fireEvent.click(within(screen.getByTestId("message-assistant")).getByRole("button", { name: "Regenerate" }));
-    expect(onRegenerate).toHaveBeenCalledTimes(2);
-    expect(onRegenerate).toHaveBeenLastCalledWith("Draft the plan.");
+    expect(onRegenerate).toHaveBeenCalledWith("Draft the plan.");
     expect(onSend).not.toHaveBeenCalled();
   });
 

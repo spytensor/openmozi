@@ -633,6 +633,14 @@ export default function App() {
     await sendRuntimeMessage(content, undefined, undefined, mentions, true);
   }, [chat.prepareRegenerate, sendRuntimeMessage]);
 
+  // Load a prior user prompt back into the composer for edit-then-resend. Nothing
+  // is sent or persisted here — the user resends it as a normal new message (append
+  // model), so no regenerate/turn-reuse semantics apply.
+  const handleEditInComposer = useCallback((content: string, mentions?: string[], attachments?: UploadedAttachment[]) => {
+    pendingComposerDraftIdRef.current += 1;
+    setPendingComposerDraft({ id: pendingComposerDraftIdRef.current, text: content, mentions, attachments });
+  }, []);
+
   const handleCancelTurn = useCallback(() => {
     if (chat.sessionState === "IDLE") return;
     ws.send({
@@ -946,6 +954,7 @@ export default function App() {
                       onReject={handleReject}
                       onSend={handleSend}
                       onRegenerate={handleRegenerate}
+                      onEditInComposer={handleEditInComposer}
                       onDeleteMessage={handleDeleteMessage}
                       onOpenArtifact={handleOpenArtifact}
                       onOpenRun={handleOpenRun}
@@ -973,6 +982,10 @@ export default function App() {
                           onPendingAttachmentConsumed={clearPendingComposerAttachment}
                           onRootsChanged={runtimeWorkspace.refresh}
                           contextCompression={chat.contextCompression}
+                          draftRequest={pendingComposerDraft}
+                          onDraftRequestConsumed={(id) => {
+                            setPendingComposerDraft((current) => current?.id === id ? null : current);
+                          }}
                           canConfigureModels={isAdmin}
                           onOpenModelSettings={openModelSettings}
                         />

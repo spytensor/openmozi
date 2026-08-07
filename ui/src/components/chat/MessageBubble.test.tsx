@@ -194,12 +194,12 @@ describe("MessageBubble", () => {
     expect(bubble.className).toContain("rounded-2xl");
   });
 
-  it("renders structured Agent mentions once and canonicalizes legacy prose on regenerate", () => {
-    const onRegenerate = vi.fn();
+  it("renders structured Agent mentions once and canonicalizes legacy prose for edit-and-resend", () => {
+    const onEditInComposer = vi.fn();
     renderWithLocale(
       <MessageBubble
         message={{ ...message("user", "@semi-analyst compare @unknown"), mentions: ["semi-analyst"] }}
-        onRegenerate={onRegenerate}
+        onEditInComposer={onEditInComposer}
       />,
     );
 
@@ -208,8 +208,8 @@ describe("MessageBubble", () => {
     expect(mention).toHaveAttribute("data-agent-name", "semi-analyst");
     expect(screen.getByTestId("message-user-markdown")).not.toHaveTextContent("@semi-analyst");
     expect(screen.getByText(/@unknown/)).not.toHaveAttribute("data-agent-name");
-    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
-    expect(onRegenerate).toHaveBeenCalledWith("compare @unknown", ["semi-analyst"]);
+    fireEvent.click(screen.getByRole("button", { name: "Edit & resend" }));
+    expect(onEditInComposer).toHaveBeenCalledWith("compare @unknown", ["semi-analyst"], undefined);
   });
 
   it("renders compact GFM in the user bubble without changing the submitted source", () => {
@@ -226,16 +226,16 @@ describe("MessageBubble", () => {
       "",
       "[来源](https://example.com)",
     ].join("\n");
-    const onRegenerate = vi.fn();
-    renderWithLocale(<MessageBubble message={message("user", source)} onRegenerate={onRegenerate} />);
+    const onEditInComposer = vi.fn();
+    renderWithLocale(<MessageBubble message={message("user", source)} onEditInComposer={onEditInComposer} />);
 
     expect(screen.getByRole("heading", { name: "调研范围" })).toBeInTheDocument();
     expect(screen.getByRole("table")).toHaveTextContent("A股");
     expect(screen.getByText("收盘价").tagName).toBe("CODE");
     expect(screen.getByRole("link", { name: "来源" })).toHaveAttribute("href", "https://example.com");
 
-    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
-    expect(onRegenerate).toHaveBeenCalledWith(source);
+    fireEvent.click(screen.getByRole("button", { name: "Edit & resend" }));
+    expect(onEditInComposer).toHaveBeenCalledWith(source, undefined, undefined);
   });
 
   it("keeps unsafe user Markdown inert", () => {
@@ -294,12 +294,12 @@ describe("MessageBubble", () => {
     else delete (navigator as unknown as Record<string, unknown>).clipboard;
   });
 
-  it("regenerates a user message by re-sending its exact content", () => {
-    const onRegenerate = vi.fn();
-    renderWithLocale(<MessageBubble message={message("user", "Draft the plan.")} onRegenerate={onRegenerate} />);
+  it("loads a user message back into the composer for edit-and-resend", () => {
+    const onEditInComposer = vi.fn();
+    renderWithLocale(<MessageBubble message={message("user", "Draft the plan.")} onEditInComposer={onEditInComposer} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Regenerate" }));
-    expect(onRegenerate).toHaveBeenCalledWith("Draft the plan.");
+    fireEvent.click(screen.getByRole("button", { name: "Edit & resend" }));
+    expect(onEditInComposer).toHaveBeenCalledWith("Draft the plan.", undefined, undefined);
   });
 
   it("regenerates an assistant answer by re-running its source prompt", () => {

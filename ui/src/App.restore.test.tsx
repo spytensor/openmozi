@@ -432,21 +432,22 @@ describe("App session timeline restore", () => {
     expect(screen.getByText("plain chat message")).toBeInTheDocument();
   });
 
-  it("preserves the prior turn and shows regenerate as a distinct retry turn", async () => {
+  it("loads a prior prompt back into the composer for edit-and-resend instead of regenerating", async () => {
     renderWithLocale(<App />);
 
     await screen.findByText("Restored final answer");
 
     expect(screen.getAllByTestId("message-user")).toHaveLength(1);
-    fireEvent.click(within(screen.getByTestId("message-user")).getByRole("button", { name: "Regenerate" }));
+    mocks.wsSend.mockClear();
+    fireEvent.click(within(screen.getByTestId("message-user")).getByRole("button", { name: "Edit & resend" }));
 
-    await waitFor(() => expect(mocks.wsSend).toHaveBeenCalledWith(expect.objectContaining({
-        type: "message",
-        content: "Restore this visible session",
-        sessionId: "session-restore",
-        regenerate: true,
-      })));
-    expect(screen.getAllByTestId("message-user")).toHaveLength(2);
+    // The prompt is restored into the composer for editing — nothing is sent yet…
+    const composer = screen.getByPlaceholderText("Message MOZI...");
+    await waitFor(() => expect(composer).toHaveValue("Restore this visible session"));
+    // …and no regenerate turn fires: the append model resends as a fresh message on submit,
+    // so the original turn stays intact and no duplicate user bubble appears.
+    expect(mocks.wsSend).not.toHaveBeenCalledWith(expect.objectContaining({ regenerate: true }));
+    expect(screen.getAllByTestId("message-user")).toHaveLength(1);
   });
 
   it("refreshes permission after elevation approval ack without rerunning the prompt", async () => {

@@ -75,6 +75,10 @@ export interface PendingComposerAttachment {
 export interface ComposerDraftRequest {
   id: number;
   text: string;
+  /** @agent identities to restore into the composer (names; resolved against loaded agents). */
+  mentions?: string[];
+  /** Already-uploaded attachments to restore as chips (carry their server path). */
+  attachments?: UploadedAttachment[];
 }
 
 interface CommandMeta {
@@ -372,9 +376,24 @@ export default function InputBar({
   useEffect(() => {
     if (!draftRequest) return;
     setText(draftRequest.text);
+    if (draftRequest.attachments && draftRequest.attachments.length > 0) {
+      setAttachments(draftRequest.attachments);
+    }
+    if (draftRequest.mentions && draftRequest.mentions.length > 0) {
+      // The source message only persisted mention names; resolve each against the
+      // loaded agent list so chips render richly, falling back to a name-only agent
+      // (outgoing mentions are name strings, so the resend still carries them).
+      setSelectedMentionAgents((current) => uniqueMentionAgents([
+        ...current,
+        ...draftRequest.mentions!.map((name) =>
+          readyAgents.find((agent) => agent.name.toLowerCase() === name.toLowerCase())
+          ?? { name, description: "", color: null, icon: null, status: "unknown", enabled: true },
+        ),
+      ]));
+    }
     onDraftRequestConsumed?.(draftRequest.id);
     inputRef.current?.focus();
-  }, [draftRequest, onDraftRequestConsumed]);
+  }, [draftRequest, onDraftRequestConsumed, readyAgents]);
 
   useEffect(() => {
     if (!pendingAttachment || appliedPendingAttachmentIdRef.current === pendingAttachment.id) return;

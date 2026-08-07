@@ -830,6 +830,7 @@ interface ChatViewProps {
   onReject: (id: string) => void;
   onSend: (content: string) => void;
   onRegenerate: (content: string, mentions?: string[]) => void;
+  onEditInComposer: (content: string, mentions?: ChatMessage["mentions"], attachments?: ChatMessage["attachments"]) => void;
   onDeleteMessage?: (message: ChatMessage) => void;
   onOpenArtifact?: (artifact: Artifact) => void;
   onOpenRun?: (turnId: string) => void;
@@ -847,7 +848,7 @@ interface ChatViewProps {
 /** Scrolling within this many px of the top pulls the next older history page. */
 const OLDER_HISTORY_TRIGGER_PX = 240;
 
-export default function ChatView({ sessionId = null, timeline, sessionState, activeTool, activeToolSkillName = null, activeTurnId = null, timelineCapabilities, turns, onApprove, onReject, onSend, onRegenerate, onDeleteMessage, onOpenArtifact, onOpenRun, onOpenModelSettings, onOpenMemory, onOpenAgentRun, hasOlderHistory = false, loadingOlderHistory = false, onLoadOlderHistory }: ChatViewProps) {
+export default function ChatView({ sessionId = null, timeline, sessionState, activeTool, activeToolSkillName = null, activeTurnId = null, timelineCapabilities, turns, onApprove, onReject, onSend, onRegenerate, onEditInComposer, onDeleteMessage, onOpenArtifact, onOpenRun, onOpenModelSettings, onOpenMemory, onOpenAgentRun, hasOlderHistory = false, loadingOlderHistory = false, onLoadOlderHistory }: ChatViewProps) {
   const { locale, t } = useLocale();
   const scrollRegionRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
@@ -1434,6 +1435,7 @@ export default function ChatView({ sessionId = null, timeline, sessionState, act
             <MessageBubble
               message={msg}
               onRegenerate={onRegenerate}
+              onEditInComposer={onEditInComposer}
               regenerateText={regenerateText}
               regenerateMentions={regenerateSource?.mentions}
               showAvatar={showAvatar}
