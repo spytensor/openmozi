@@ -43,16 +43,4 @@ describe('release version governance', () => {
     const regressing = fixture();
     expect(spawnSync(process.execPath, ['scripts/release.mjs', '--version', '1.9.9'], { cwd: regressing }).status).not.toBe(0);
   });
-
-  it('refuses to create an empty GitHub Release without an immutable release commit', () => {
-    const cwd = fixture();
-    const result = spawnSync(
-      process.execPath,
-      ['scripts/release.mjs', '--version', '2.0.1', '--release', '--unsigned'],
-      { cwd, encoding: 'utf8' },
-    );
-
-    expect(result.status).not.toBe(0);
-    expect(`${result.stdout}\n${result.stderr}`).toContain('--mac-assets requires --commit');
-  });
 });

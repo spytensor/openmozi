@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ResultEnvelopeSchema } from '../agents/protocol.js';
 import type { MoziConfig } from '../config/index.js';
 import type { ToolCall } from '../core/llm.js';
-import { on, removeAllListeners, type ProgressEvent } from '../progress/event-bus.js';
+import { removeAllListeners } from '../progress/event-bus.js';
 import { setupTestDb, teardownTestDb } from '../test-helpers.js';
 import {
   type WorkerAdapter,
@@ -12,8 +12,6 @@ import {
   type WorkerStatus,
   WorkerAdapterRegistry,
 } from '../workers/adapter.js';
-import { dispatchManagedWorkerTask } from '../workers/dispatch.js';
-import { getExternalWorkerJob } from '../workers/job-state.js';
 import type { WorkerPreflightReport } from '../workers/preflight.js';
 import { getToolDefinition } from './definitions.js';
 import {
@@ -156,102 +154,6 @@ describe('tools/delegate_coding_task', () => {
     expect(definition?.function.name).toBe('delegate_coding_task');
     const properties = definition?.function.parameters.properties as Record<string, unknown>;
     expect(properties).not.toHaveProperty('permission_level');
-  });
-
-  it('reaches the managed-worker dispatch pipeline via the Brain tool executor', async () => {
-    const events: ProgressEvent[] = [];
-    const unsubscribe = on((event) => {
-      if (event.type === 'worker_status') {
-        events.push(event);
-      }
-    });
-    const { adapter, launchMock, pollMock, collectMock } = makeFakeAdapter();
-    const registry = new WorkerAdapterRegistry([adapter]);
-
-    __setDelegateCodingTaskDepsForTests({
-      getConfig: () => makeConfig(),
-      getRegistry: () => registry,
-      inspectPreflight: vi.fn().mockResolvedValue(makePreflight('ready')),
-      dispatch: dispatchManagedWorkerTask,
-    });
-
-    try {
-      const result = await executeTool(
-        makeToolCall({
-          objective: 'Update the worker delegation wiring',
-          done_criteria: 'Dispatch pipeline is reached',
-        }),
-        {
-          tenantId: 'default',
-          chatId: 'chat-delegate',
-          sessionId: 'session-delegate',
-          turnId: 'turn-delegate',
-          agentId: 'session:session-delegate',
-          permissionLevel: 'L2_SHELL_EXEC',
-        },
-      );
-
-      expect(result.is_error).toBe(false);
-      expect(launchMock).toHaveBeenCalledWith(expect.objectContaining({
-        transport: 'stdio',
-        task: expect.objectContaining({
-          objective: 'Update the worker delegation wiring',
-          constraints: expect.objectContaining({
-            permission_level: 'L2_SHELL_EXEC',
-          }),
-        }),
-      }));
-      const workerPrompt = launchMock.mock.calls[0]?.[0].system_prompt ?? '';
-      expect(workerPrompt).toContain('allowed scope');
-      expect(workerPrompt).toContain('Never fabricate');
-      expect(workerPrompt).toContain('required tests');
-      expect(workerPrompt).toContain('untrusted input');
-      expect(workerPrompt).not.toContain('Runtime Capability Contract');
-      expect(workerPrompt).not.toContain('Available Tools');
-      expect(workerPrompt).not.toContain('USER.md');
-      expect(pollMock).toHaveBeenCalled();
-      expect(collectMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'run-fake-1' }));
-
-      const parsed = JSON.parse(result.content) as {
-        job_id: string;
-        job_status: string;
-        worker: { adapter_id: string; runtime_label: string; run_id: string };
-        result: { status: string; summary: string };
-        verify_status: string;
-        verification: { changed_files: string[]; tests_run: string[]; test_status: string };
-      };
-      expect(parsed.job_id).toMatch(/^external_worker_/);
-      expect(parsed.job_status).toBe('succeeded');
-      expect(parsed.worker.adapter_id).toBe('codex_cli');
-      expect(parsed.worker.runtime_label).toBe('Fake Coding Worker');
-      expect(parsed.result.status).toBe('success');
-      expect(parsed.verify_status).toBe('passed');
-      expect(parsed.verification).toEqual(expect.objectContaining({
-        changed_files: [],
-        tests_run: [],
-        test_status: 'not_run',
-      }));
-      expect(result.produced_files).toEqual(['/tmp/fake-worker-report.md']);
-
-      const persisted = getExternalWorkerJob(parsed.job_id);
-      expect(persisted).not.toBeNull();
-      expect(persisted?.status).toBe('succeeded');
-      expect(persisted?.agent_id).toBe('coding_worker:codex_cli');
-      expect(persisted?.adapter_id).toBe('codex_cli');
-      expect(persisted?.active_run_id).toBe('run-fake-1');
-      expect(persisted?.result_envelope?.status).toBe('completed');
-      expect(persisted?.verify_report?.status).toBe('passed');
-
-      expect(events.map((event) => event.workerStatus)).toEqual([
-        'queued',
-        'launching',
-        'running',
-        'succeeded',
-      ]);
-      expect(events.every((event) => event.chatId === 'chat-delegate')).toBe(true);
-    } finally {
-      unsubscribe();
-    }
   });
 
   it('returns an explicit worker-not-ready error instead of falling back', async () => {

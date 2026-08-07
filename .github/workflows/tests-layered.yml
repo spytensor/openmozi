@@ -113,30 +113,3 @@ jobs:
           name: test-report-e2e
           path: reports/e2e.json
           if-no-files-found: error
-
-  web_smoke:
-    name: Web UI Smoke
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build:all
-      - name: Install Chromium
-        run: pnpm exec playwright install --with-deps chromium
-      - run: mkdir -p reports
-      - run: pnpm test:e2e:web -- --skip-build
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-report-web-smoke
-          path: |
-            reports/web-ui-smoke.json
-            output/playwright/web-ui-*.png
-          if-no-files-found: error

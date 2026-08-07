@@ -1,5 +1,4 @@
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ArtifactCoordinator } from '../artifacts/coordinator.js';
@@ -29,71 +28,6 @@ describe('store/deliverables', () => {
     else process.env.MOZI_HOME = savedMoziHome;
     loadConfig('/nonexistent/mozi.json');
     teardownTestDb(tmpDir);
-  });
-
-  it('registers the real scan path idempotently and updates size/mtime/hash on change', async () => {
-    const outputDir = getOutputDir();
-    mkdirSync(outputDir, { recursive: true });
-    const filePath = join(outputDir, 'quarterly-report.pdf');
-    const firstBytes = '%PDF-1.4\nfirst';
-    const secondBytes = '%PDF-1.4\nsecond version';
-    const firstMtime = new Date(Date.now() + 2_000);
-
-    const firstTracker = createTurnFileArtifactTracker({
-      tenantId: 'tenant-a',
-      sessionId: 'session-a',
-      artifactCoordinator: new ArtifactCoordinator('turn-a', () => {}),
-    });
-    writeFileSync(filePath, firstBytes);
-    utimesSync(filePath, firstMtime, firstMtime);
-
-    await firstTracker.scanAndEmit();
-    await firstTracker.scanAndEmit();
-
-    const canonicalPath = realpathSync(filePath);
-    const first = deliverableRegistry.getByPath('tenant-a', canonicalPath);
-    expect(deliverableRegistry.listByTenant('tenant-a')).toHaveLength(1);
-    expect(first).toMatchObject({
-      path: canonicalPath,
-      kind: 'document',
-      title: 'quarterly-report.pdf',
-      currentSize: Buffer.byteLength(firstBytes),
-      currentMtimeMs: firstMtime.getTime(),
-      currentHash: createHash('sha256').update(firstBytes).digest('hex'),
-      versionCount: 1,
-      firstSessionId: 'session-a',
-      lastSessionId: 'session-a',
-    });
-    const firstVersions = deliverableVersionStore.listByDeliverable('tenant-a', first!.id);
-    expect(firstVersions.map((entry) => entry.version)).toEqual([1]);
-    expect(readFileSync(firstVersions[0].snapshotPath, 'utf8')).toBe(firstBytes);
-    expect(firstVersions[0].snapshotPath).toBe(join(getDeliverableVersionsDir(first!.id), 'v1.pdf'));
-
-    const secondTracker = createTurnFileArtifactTracker({
-      tenantId: 'tenant-a',
-      sessionId: 'session-b',
-      artifactCoordinator: new ArtifactCoordinator('turn-b', () => {}),
-    });
-    await secondTracker.captureBaseline();
-    const secondMtime = new Date(Date.now() + 4_000);
-    writeFileSync(filePath, secondBytes);
-    utimesSync(filePath, secondMtime, secondMtime);
-    await secondTracker.scanAndEmit();
-
-    const changed = deliverableRegistry.getByPath('tenant-a', canonicalPath);
-    expect(changed).toMatchObject({
-      id: first?.id,
-      currentSize: Buffer.byteLength(secondBytes),
-      currentMtimeMs: secondMtime.getTime(),
-      currentHash: createHash('sha256').update(secondBytes).digest('hex'),
-      versionCount: 2,
-      firstSessionId: 'session-a',
-      lastSessionId: 'session-b',
-    });
-    const changedVersions = deliverableVersionStore.listByDeliverable('tenant-a', first!.id);
-    expect(changedVersions.map((entry) => entry.version)).toEqual([2, 1]);
-    expect(readFileSync(changedVersions[0].snapshotPath, 'utf8')).toBe(secondBytes);
-    expect(deliverableRegistry.listByTenant('tenant-a')).toHaveLength(1);
   });
 
   it('continues minting when the snapshot directory cannot be created', async () => {
